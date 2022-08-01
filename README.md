@@ -37,6 +37,12 @@ In **Draw** and **Edit** modes of a Grease Pencil object, a label titled “Niji
 
 In **Draw** and **Sculpt** modes of a Grease Pencil object, extra undo/redo shortcut buttons will appear in the Properties panel. This feature can be disabled in Preferences setting.
 
+Some of the operations are demonstrated in the following videos:
+
+https://www.youtube.com/watch?v=xRzwWkjkBUY
+
+https://www.bilibili.com/video/bv1tg411C77g
+
 ## List of Functions
 
 NijiGPen provides with the following functions:

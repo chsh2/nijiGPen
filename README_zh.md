@@ -37,6 +37,12 @@ python -m pip install pyclipper
 
 另外，处于绘制或雕刻模式时，属性面板中会出现额外的撤销/重做按钮。该功能可在偏好设置中关闭。
 
+演示视频：
+
+https://www.youtube.com/watch?v=xRzwWkjkBUY
+
+https://www.bilibili.com/video/bv1tg411C77g
+
 ## 功能列表
 
 目前插件有如下功能：
