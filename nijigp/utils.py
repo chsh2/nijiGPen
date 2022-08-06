@@ -125,7 +125,15 @@ def stroke_to_poly(stroke_list, scale = False, correct_orientation = False):
     if scale:
         poly_W = w_bound[1] - w_bound[0]
         poly_H = h_bound[1] - h_bound[0]
-        scale_factor = SCALE_CONSTANT / min(poly_W, poly_H, SCALE_CONSTANT)
+        
+        if math.isclose(poly_W, 0) and math.isclose(poly_H, 0):
+            scale_factor = 1
+        elif math.isclose(poly_W, 0):
+            scale_factor = SCALE_CONSTANT / min(poly_H, SCALE_CONSTANT)
+        elif math.isclose(poly_H, 0):
+            scale_factor = SCALE_CONSTANT / min(poly_W, SCALE_CONSTANT)
+        else:
+            scale_factor = SCALE_CONSTANT / min(poly_W, poly_H, SCALE_CONSTANT)
 
         for co_list in poly_list:
             for co in co_list:
@@ -225,6 +233,7 @@ def poly_to_stroke(co_list, stroke_info, gp_obj, scale_factor, rearrange = True,
     new_stroke.line_width = src_stroke.line_width
     new_stroke.material_index = src_stroke.material_index
     new_stroke.start_cap_mode = src_stroke.start_cap_mode
+    new_stroke.end_cap_mode = src_stroke.end_cap_mode
     new_stroke.use_cyclic = src_stroke.use_cyclic
     new_stroke.uv_rotation = src_stroke.uv_rotation
     new_stroke.uv_scale = src_stroke.uv_scale

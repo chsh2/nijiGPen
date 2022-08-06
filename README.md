@@ -14,6 +14,8 @@ Please note that the development of this add-on is still in an early stage. Bugs
 
 Blender 3.x
 
+(At the current stage, the add-on focuses on stable verions only. It is not guaranteed that all functions can work normally in alpha or beta verions of Blender.)
+
 ## Installation
 
 This add-on requires additional Python packages ([Pyclipper](https://pypi.org/project/pyclipper/)). Therefore, the installation process has an extra step.

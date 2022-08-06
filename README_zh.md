@@ -14,6 +14,8 @@ NijiGPen是作用于Grease Pencil（蜡笔）的Blender插件，关注Blender在
 
 Blender 3.0以上版本
 
+（建议使用稳定版本的Blender，对于alpha或beta版本，无法保证所有功能仍可正常使用。）
+
 ## 安装说明
 
 NijiGPen的功能基于额外的Python包（[Pyclipper](https://pypi.org/project/pyclipper/)），与通常插件相比多出一个安装步骤：

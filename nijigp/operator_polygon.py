@@ -117,7 +117,8 @@ class OffsetSelectedOperator(bpy.types.Operator):
         stroke_info = []
         stroke_list = []
         for i,layer in enumerate(current_gp_obj.data.layers):
-            if not layer.lock:
+            # In 3.4 alpha, it is possible to have a layer with no 'strokes' attribute
+            if not layer.lock and hasattr(layer.active_frame, "strokes"):
                 for j,stroke in enumerate(layer.active_frame.strokes):
                     if stroke.select:
                         stroke_info.append([stroke, i, j])
@@ -272,7 +273,7 @@ class BoolSelectedOperator(bpy.types.Operator):
         stroke_list = []
         select_seq_map = {}
         for i,layer in enumerate(current_gp_obj.data.layers):
-            if not layer.lock:
+            if not layer.lock and hasattr(layer.active_frame, "strokes"):
                 for j,stroke in enumerate(layer.active_frame.strokes):
                     if stroke.select:
                         stroke_info.append([stroke, i, j])

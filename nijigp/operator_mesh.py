@@ -100,7 +100,7 @@ class MeshGenerationByOffsetting(bpy.types.Operator):
         stroke_list = []
         mesh_names = []
         for i,layer in enumerate(current_gp_obj.data.layers):
-            if not layer.lock:
+            if not layer.lock and hasattr(layer.active_frame, "strokes"):
                 for j,stroke in enumerate(layer.active_frame.strokes):
                     if stroke.select:
                         stroke_info.append([stroke, i, j])
