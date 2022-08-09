@@ -17,7 +17,7 @@ bl_info = {
     "author" : "https://github.com/chsh2/nijiGPen",
     "description" : "Tools modifying Grease Pencil strokes in the 2D (XZ) plane",
     "blender" : (3, 00, 0),
-    "version" : (0, 1, 1),
+    "version" : (0, 1, 2),
     "location" : "View3D > Sidebar > NijiGP, in Draw and Edit mode of Grease Pencil objects",
     "warning" : "This addon is still in an early stage of development",
     "category" : "Object"
@@ -44,14 +44,6 @@ def register():
                                 ('X-Y', 'Top (X-Y)', '')],
                         default='X-Z',
                         description='The 2D (local) plane that most add-on operators are working on'
-                        )
-    bpy.types.Scene.nijigp_fast_polygon_point_match = bpy.props.BoolProperty(
-                        default=False, 
-                        description="Faster polygon operations, which however may lead to imprecise point properties"
-                        )
-    bpy.types.Scene.nijigp_fast_error_tolerance = bpy.props.FloatProperty(
-                        default=0.05, min=0, unit='LENGTH',
-                        description="Maximum error that can be tolerated for point properties of strokes generated in the fast mode"
                         )
     bpy.types.Scene.nijigp_draw_bool_material_constraint = bpy.props.BoolProperty(
                         default=False, 

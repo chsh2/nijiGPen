@@ -197,50 +197,37 @@ def stroke_to_poly(stroke_list, scale = False, correct_orientation = False):
 
     return poly_list, scale_factor
 
-def poly_to_stroke(co_list, stroke_info, gp_obj, scale_factor, rearrange = True, arrange_offset = 0, fast_mode = False, max_error = 0, ref_stroke_mask = {}):
+def poly_to_stroke(co_list, stroke_info, gp_obj, scale_factor, rearrange = True, arrange_offset = 0, ref_stroke_mask = {}):
     """
     Generate a new stroke according to 2D polygon data. Point and stroke attributes will be copied from a list of reference strokes.
     stroke_info: A list of [stroke, layer_index, stroke_index]
     """
 
     # Find closest reference point and corresponding stroke
-    # TODO: Speed-up this process with data structures like KDTree
     ref_stroke_index_list = []
     ref_point_index_list = []
     ref_stroke_count = {}
-    i_offset = 0
-    j_offset = 0
+
+    # Setup a KDTree for point lookup
+    total_point_count = 0
+    for i,info in enumerate(stroke_info):
+        total_point_count += len(info[0].points)
+    kdt = kdtree.KDTree(total_point_count)
+
+    kdtree_indices = []
+    for i,info in enumerate(stroke_info):
+        for j,point in enumerate(info[0].points):
+            kdtree_indices.append( (i,j) )
+            # Ignore the 3rd dimension
+            kdt.insert( vec3_to_vec2(point.co).to_3d(), len(kdtree_indices)-1 )
+    kdt.balance()
+
+    # Search every new generated point in the KDTree
     for co in co_list:
-        ref_stroke = i_offset
-        ref_point = j_offset
-        min_distance = math.inf
+        vec_, kdt_idx, dist_ = kdt.find([co[0]/scale_factor, co[1]/scale_factor, 0])
 
-        for i,info in enumerate(stroke_info):
-            true_i = (i + i_offset) % len(stroke_info)
-            for j,point in enumerate(stroke_info[true_i][0].points):
-                true_j = (j + j_offset) % len(stroke_info[true_i][0].points)
-                true_point = stroke_info[true_i][0].points[true_j]
-                distance = get_2d_squared_distance(co, scale_factor, vec3_to_vec2(true_point.co), 1)
-                
-                # Standard mode: search all points to find the closest one
-                if not fast_mode and distance < min_distance:
-                    ref_stroke = true_i
-                    ref_point = true_j
-                    min_distance = distance
-
-                # Fast mode: stop once the error can be tolerated
-                if fast_mode and distance < max_error:
-                    ref_stroke = true_i
-                    ref_point = true_j
-                    # Start the next search from the current point 
-                    i_offset = true_i
-                    j_offset = true_j
-                    break
-            else:
-                continue
-            break
-
-
+        ref_stroke = kdtree_indices[kdt_idx][0]
+        ref_point = kdtree_indices[kdt_idx][1]
         ref_stroke_index_list.append(ref_stroke)
         ref_point_index_list.append(ref_point)
         if ref_stroke in ref_stroke_count:

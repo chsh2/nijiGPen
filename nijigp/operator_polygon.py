@@ -153,9 +153,7 @@ class OffsetSelectedOperator(bpy.types.Operator):
             if len(poly_results) > 0:
                 for result in poly_results:
                     new_stroke, new_index = poly_to_stroke(result, [stroke_info[j]], current_gp_obj, scale_factor,    
-                                                            rearrange = True, arrange_offset = arrange_offset,
-                                                            fast_mode = context.scene.nijigp_fast_polygon_point_match,
-                                                            max_error = context.scene.nijigp_fast_error_tolerance + abs(self.offset_amount))
+                                                            rearrange = True, arrange_offset = arrange_offset)
                     generated_strokes.append(new_stroke)
                     new_stroke.use_cyclic = True
 
@@ -310,9 +308,7 @@ class BoolSelectedOperator(bpy.types.Operator):
             if len(poly_results) > 0:
                 for result in poly_results:
                     new_stroke, new_index = poly_to_stroke(result, stroke_info, current_gp_obj, scale_factor,    
-                                                            rearrange = True, ref_stroke_mask = ref_stroke_mask,
-                                                            fast_mode = context.scene.nijigp_fast_polygon_point_match,
-                                                            max_error = context.scene.nijigp_fast_error_tolerance)
+                                                            rearrange = True, ref_stroke_mask = ref_stroke_mask)
                     generated_strokes.append(new_stroke)
                     if self.operation_type == 'INTERSECTION':
                         new_stroke.use_cyclic = True
@@ -472,9 +468,7 @@ class BoolLastOperator(bpy.types.Operator):
             if len(poly_results) > 0:
                 for result in poly_results:
                     new_stroke, new_index = poly_to_stroke(result, [stroke_info[j], stroke_info[0]], current_gp_obj, scale_factor,    
-                                                            rearrange = True, ref_stroke_mask = {1},
-                                                            fast_mode = context.scene.nijigp_fast_polygon_point_match,
-                                                            max_error = context.scene.nijigp_fast_error_tolerance)
+                                                            rearrange = True, ref_stroke_mask = {1})
                     if self.operation_type == 'INTERSECTION':
                         new_stroke.use_cyclic = True
 

@@ -88,10 +88,6 @@ class NIJIGP_PT_draw_panel_polygon(bpy.types.Panel):
         layout = self.layout
         scene = context.scene
 
-        layout.label(text="Options:")
-        row = layout.row()
-        row.prop(scene, "nijigp_fast_polygon_point_match", text = "Fast Mode")
-        row.prop(scene, "nijigp_fast_error_tolerance", text = "Error")
         layout.label(text="Stroke Operations:")
         row = layout.row()
         row.operator("nijigp.bool_last", text="Boolean with Last Stroke", icon="MOD_BOOLEAN")
@@ -115,10 +111,6 @@ class NIJIGP_PT_edit_panel_polygon(bpy.types.Panel):
         scene = context.scene
         obj = context.object
 
-        layout.label(text="Options:")
-        row = layout.row()
-        row.prop(scene, "nijigp_fast_polygon_point_match", text = "Fast Mode")
-        row.prop(scene, "nijigp_fast_error_tolerance", text = "Error")
         layout.label(text="Stroke Operations:")
         row = layout.row()
         row.operator("nijigp.offset_selected", text="Offset Selected", icon="MOD_SKIN")
