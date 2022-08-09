@@ -154,7 +154,7 @@ class MeshGenerationByOffsetting(bpy.types.Operator):
                         
                     for co in poly:
                         verts_by_level[-1].append(
-                            bm.verts.new([co[0]/scale_factor, -height, -co[1]/scale_factor])
+                            bm.verts.new(vec2_to_vec3(co, height, scale_factor))
                             )
                     bm.verts.ensure_lookup_table()
 
@@ -194,6 +194,7 @@ class MeshGenerationByOffsetting(bpy.types.Operator):
                 for f in bm.faces:
                     f.smooth = True
 
+            bmesh.ops.recalc_face_normals(bm, faces= bm.faces)
             bm.to_mesh(new_mesh)
             bm.free()
 
@@ -204,8 +205,10 @@ class MeshGenerationByOffsetting(bpy.types.Operator):
 
             # Post-processing: Add modifiers
             new_object.modifiers.new(name="nijigp_Mirror", type='MIRROR')
-            new_object.modifiers["nijigp_Mirror"].use_axis[0] = False
-            new_object.modifiers["nijigp_Mirror"].use_axis[1] = True
+            new_object.modifiers["nijigp_Mirror"].use_axis[0] = (bpy.context.scene.nijigp_working_plane == 'Y-Z')
+            new_object.modifiers["nijigp_Mirror"].use_axis[1] = (bpy.context.scene.nijigp_working_plane == 'X-Z')
+            new_object.modifiers["nijigp_Mirror"].use_axis[2] = (bpy.context.scene.nijigp_working_plane == 'X-Y')
+
             if self.smooth_level > 0:
                 new_object.modifiers.new(name="nijigp_Smooth", type='SMOOTH')
                 new_object.modifiers["nijigp_Smooth"].iterations = self.smooth_level

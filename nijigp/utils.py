@@ -4,22 +4,58 @@ from mathutils import *
 
 SCALE_CONSTANT = 8192
 
-def get_2d_projection(point):
-    """Currently, the addon only works in XZ plane"""
-    return Vector([ point.co[0], -point.co[2] ])
+def vec3_to_vec2(co):
+    """Convert 3D coordinates into 2D"""
+    scene = bpy.context.scene
+    if scene.nijigp_working_plane == 'X-Z':
+        return Vector([co.x, -co.z])
+    if scene.nijigp_working_plane == 'Y-Z':
+        return Vector([co.y, -co.z])
+    if scene.nijigp_working_plane == 'X-Y':
+        return Vector([co.x, -co.y])
 
-def set_2d_projection(point, co, scale_factor = 1):
-    """Currently, the addon only works in XZ plane"""
-    point.co[0] = co[0] / scale_factor
-    point.co[2] = -co[1] / scale_factor
+def vec2_to_vec3(co, depth, scale_factor):
+    """Convert 2D coordinates into 3D"""
+    scene = bpy.context.scene
+    if scene.nijigp_working_plane == 'X-Z':
+        return Vector([co[0] / scale_factor, -depth, -co[1] / scale_factor])
+    if scene.nijigp_working_plane == 'Y-Z':
+        return Vector([depth, co[0] / scale_factor, -co[1] / scale_factor])
+    if scene.nijigp_working_plane == 'X-Y':
+        return Vector([co[0] / scale_factor, -co[1] / scale_factor, depth])
 
-def get_orthogonal_position(point):
-    """Currently, the orthogonal axis is the Y axis"""
-    return point.co[1]
+def set_vec2(point, co, scale_factor = 1):
+    """Set 2D coordinates to a GP point"""
+    scene = bpy.context.scene
+    if scene.nijigp_working_plane == 'X-Z':    
+        point.co.x = co[0] / scale_factor
+        point.co.z = -co[1] / scale_factor
+    if scene.nijigp_working_plane == 'Y-Z':    
+        point.co.y = co[0] / scale_factor
+        point.co.z = -co[1] / scale_factor
+    if scene.nijigp_working_plane == 'X-Y':    
+        point.co.x = co[0] / scale_factor
+        point.co.y = -co[1] / scale_factor
 
-def set_orthogonal_position(point, depth):
-    """Currently, the orthogonal axis is the Y axis"""
-    point.co[1] = depth
+def vec3_to_depth(co):
+    """Get depth value from 3D coordinates"""
+    scene = bpy.context.scene
+    if scene.nijigp_working_plane == 'X-Z':    
+        return -co.y
+    if scene.nijigp_working_plane == 'Y-Z':    
+        return co.x
+    if scene.nijigp_working_plane == 'X-Y':    
+        return co.z
+
+def set_depth(point, depth):
+    """Set depth to a GP point"""
+    scene = bpy.context.scene
+    if scene.nijigp_working_plane == 'X-Z':    
+        point.co.y = -depth
+    if scene.nijigp_working_plane == 'Y-Z':    
+        point.co.x = depth
+    if scene.nijigp_working_plane == 'X-Y':    
+        point.co.z = depth
 
 def get_2d_squared_distance(co1, scale_factor1, co2, scale_factor2):
     """Euclidean distance that takes the scale factors into consideration"""
@@ -73,23 +109,35 @@ def overlapping_strokes(s1, s2):
     """
     
     # First, check if bounding boxes overlap
-    if s1.bound_box_max[0] < s2.bound_box_min[0] or s1.bound_box_max[2] < s2.bound_box_min[2]:
-        return False
-    if s2.bound_box_max[0] < s1.bound_box_min[0] or s2.bound_box_max[2] < s1.bound_box_min[2]:
-        return False
+    scene = bpy.context.scene
+    if scene.nijigp_working_plane == 'X-Z':
+        if s1.bound_box_max[0] < s2.bound_box_min[0] or s1.bound_box_max[2] < s2.bound_box_min[2]:
+            return False
+        if s2.bound_box_max[0] < s1.bound_box_min[0] or s2.bound_box_max[2] < s1.bound_box_min[2]:
+            return False
+    if scene.nijigp_working_plane == 'Y-Z':
+        if s1.bound_box_max[1] < s2.bound_box_min[1] or s1.bound_box_max[2] < s2.bound_box_min[2]:
+            return False
+        if s2.bound_box_max[1] < s1.bound_box_min[1] or s2.bound_box_max[2] < s1.bound_box_min[2]:
+            return False
+    if scene.nijigp_working_plane == 'X-Y':
+        if s1.bound_box_max[0] < s2.bound_box_min[0] or s1.bound_box_max[1] < s2.bound_box_min[1]:
+            return False
+        if s2.bound_box_max[0] < s1.bound_box_min[0] or s2.bound_box_max[1] < s1.bound_box_min[1]:
+            return False
     
     # Then check every pair of edge
     N1 = len(s1.points)
     N2 = len(s2.points)
     for i in range(N1):
         for j in range(N2):
-            p1 = get_2d_projection(s1.points[i])
-            p2 = get_2d_projection(s1.points[(i+1)%N1])
-            p3 = get_2d_projection(s2.points[j])
-            p4 = get_2d_projection(s2.points[(j+1)%N2])
-            # May use mathutils.geometry.intersect_line_line_2d instead?
-            if intersecting_segments(p1[0],p1[1],p2[0],p2[1],p3[0],p3[1],p4[0],p4[1]):
+            p1 = vec3_to_vec2(s1.points[i].co)
+            p2 = vec3_to_vec2(s1.points[(i+1)%N1].co)
+            p3 = vec3_to_vec2(s2.points[j].co)
+            p4 = vec3_to_vec2(s2.points[(j+1)%N2].co)
+            if geometry.intersect_line_line_2d(p1,p2,p3,p4):
                 return True
+
     return False
 
 def is_stroke_locked(stroke, gp_obj):
@@ -115,7 +163,7 @@ def stroke_to_poly(stroke_list, scale = False, correct_orientation = False):
     for stroke in stroke_list:
         co_list = []
         for point in stroke.points:
-            co_list.append(get_2d_projection(point))
+            co_list.append(vec3_to_vec2(point.co))
             w_bound[0] = min(w_bound[0], co_list[-1][0])
             w_bound[1] = max(w_bound[1], co_list[-1][0])
             h_bound[0] = min(h_bound[0], co_list[-1][1])
@@ -172,7 +220,7 @@ def poly_to_stroke(co_list, stroke_info, gp_obj, scale_factor, rearrange = True,
             for j,point in enumerate(stroke_info[true_i][0].points):
                 true_j = (j + j_offset) % len(stroke_info[true_i][0].points)
                 true_point = stroke_info[true_i][0].points[true_j]
-                distance = get_2d_squared_distance(co, scale_factor, get_2d_projection(true_point), 1)
+                distance = get_2d_squared_distance(co, scale_factor, vec3_to_vec2(true_point.co), 1)
                 
                 # Standard mode: search all points to find the closest one
                 if not fast_mode and distance < min_distance:
@@ -215,7 +263,7 @@ def poly_to_stroke(co_list, stroke_info, gp_obj, scale_factor, rearrange = True,
     min_distance = None
     index_offset = None
     for i,co in enumerate(co_list):
-        distance = get_2d_squared_distance(co, scale_factor, get_2d_projection(src_stroke.points[0]), 1)
+        distance = get_2d_squared_distance(co, scale_factor, vec3_to_vec2(src_stroke.points[0].co), 1)
         if min_distance == None or min_distance > distance:
             min_distance = distance
             index_offset = i
@@ -226,7 +274,7 @@ def poly_to_stroke(co_list, stroke_info, gp_obj, scale_factor, rearrange = True,
     new_stroke.points.add(N)
     for i in range(N):
         new_i = (i + index_offset) % N
-        set_2d_projection(new_stroke.points[i], co_list[new_i], scale_factor)
+        set_vec2(new_stroke.points[i], co_list[new_i], scale_factor)
 
     # Copy stroke properties
     new_stroke.hardness = src_stroke.hardness
@@ -251,7 +299,7 @@ def poly_to_stroke(co_list, stroke_info, gp_obj, scale_factor, rearrange = True,
         dst_point.uv_fill = src_point.uv_fill
         dst_point.uv_rotation = src_point.uv_rotation
         dst_point.vertex_color = src_point.vertex_color
-        set_orthogonal_position(dst_point, get_orthogonal_position(src_point))
+        set_depth(dst_point, vec3_to_depth(src_point.co))
 
     # Rearrange the new stroke
     current_index = len(gp_obj.data.layers[layer_index].active_frame.strokes) - 1

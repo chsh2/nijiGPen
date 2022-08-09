@@ -37,6 +37,14 @@ def draw_shortcuts(self, context):
 
 def register():
     auto_load.register()
+    bpy.types.Scene.nijigp_working_plane = bpy.props.EnumProperty(
+                        name='Working Plane',
+                        items=[('X-Z', 'Front (X-Z)', ''),
+                                ('Y-Z', 'Side (Y-Z)', ''),
+                                ('X-Y', 'Top (X-Y)', '')],
+                        default='X-Z',
+                        description='The 2D (local) plane that most add-on operators are working on'
+                        )
     bpy.types.Scene.nijigp_fast_polygon_point_match = bpy.props.BoolProperty(
                         default=False, 
                         description="Faster polygon operations, which however may lead to imprecise point properties"

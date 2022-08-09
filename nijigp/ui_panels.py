@@ -1,4 +1,37 @@
+from ctypes import alignment
 import bpy
+
+class NIJIGP_PT_draw_panel_setting(bpy.types.Panel):
+    bl_idname = 'NIJIGP_PT_draw_panel_setting'
+    bl_label = "Global Setting"
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "NijiGP"
+    bl_context = "greasepencil_paint"
+
+    def draw(self, context):
+        layout = self.layout
+        scene = context.scene
+        obj = context.object
+        layout.label(text="Working Plane:")
+        row = layout.row()
+        row.prop(scene, "nijigp_working_plane", text='')
+
+class NIJIGP_PT_edit_panel_setting(bpy.types.Panel):
+    bl_idname = 'NIJIGP_PT_edit_panel_setting'
+    bl_label = "Global Setting"
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "NijiGP"
+    bl_context = "greasepencil_edit"
+
+    def draw(self, context):
+        layout = self.layout
+        scene = context.scene
+        obj = context.object
+        layout.label(text="Working Plane:")
+        row = layout.row()
+        row.prop(scene, "nijigp_working_plane", text='')
 
 class NIJIGP_PT_draw_panel_io(bpy.types.Panel):
     bl_idname = 'NIJIGP_PT_draw_panel_io'
@@ -54,7 +87,6 @@ class NIJIGP_PT_draw_panel_polygon(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         scene = context.scene
-        obj = context.object
 
         layout.label(text="Options:")
         row = layout.row()
@@ -68,6 +100,7 @@ class NIJIGP_PT_draw_panel_polygon(bpy.types.Panel):
         row.prop(scene, "nijigp_draw_bool_material_constraint", text = "Same Material")
         row = layout.row()
         row.prop(scene, "nijigp_draw_bool_fill_constraint", text = "Strokes with Fills")
+
 
 class NIJIGP_PT_edit_panel_polygon(bpy.types.Panel):
     bl_idname = 'NIJIGP_PT_edit_panel_polygon'

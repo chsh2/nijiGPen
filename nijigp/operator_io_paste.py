@@ -110,7 +110,7 @@ class PasteSVGOperator(bpy.types.Operator):
                     # Judge whether a stroke is inside another one
                     # Roughly computed by sampling only one point on each curve to avoid too much calculation
                     for stroke_src in to_process:
-                        sample_point = get_2d_projection(stroke_src.points[len(stroke_src.points)//2])
+                        sample_point = vec3_to_vec2(stroke_src.points[len(stroke_src.points)//2].co)
                         winding_number = 0
                         for stroke_dst in outer_shapes:
                             if stroke_dst != stroke_src:
@@ -143,6 +143,11 @@ class PasteSVGOperator(bpy.types.Operator):
             for stroke in context.object.data.layers[i].active_frame.strokes:
                 stroke.select = True
         current_gp_obj.active_material_index = current_material_idx
+
+        if bpy.context.scene.nijigp_working_plane == 'X-Y':
+            bpy.ops.transform.rotate(value=math.pi/2, orient_axis='X', orient_type='LOCAL')
+        if bpy.context.scene.nijigp_working_plane == 'Y-Z':
+            bpy.ops.transform.rotate(value=-math.pi/2, orient_axis='Z', orient_type='LOCAL')
 
         return {'FINISHED'}
 
