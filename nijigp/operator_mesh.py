@@ -158,6 +158,7 @@ class MeshGenerationByOffsetting(bpy.types.Operator):
             # Mesh generation
             new_mesh = bpy.data.meshes.new(mesh_names[i])
             bm = bmesh.new()
+            vertex_color_layer = bm.verts.layers.color.new('Color')
             edges_by_level = []
             verts_by_level = []
             
@@ -227,6 +228,21 @@ class MeshGenerationByOffsetting(bpy.types.Operator):
             if self.postprocess_merge:
                 bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=self.merge_distance)
 
+            # Set vertex color from the stroke's both vertex and fill colors
+            fill_base_color = [1,1,1,1]
+            if current_gp_obj.data.materials[stroke_list[i].material_index].grease_pencil.show_fill:
+                fill_base_color[0] = current_gp_obj.data.materials[stroke_list[i].material_index].grease_pencil.fill_color[0]
+                fill_base_color[1] = current_gp_obj.data.materials[stroke_list[i].material_index].grease_pencil.fill_color[1]
+                fill_base_color[2] = current_gp_obj.data.materials[stroke_list[i].material_index].grease_pencil.fill_color[2]
+                fill_base_color[3] = current_gp_obj.data.materials[stroke_list[i].material_index].grease_pencil.fill_color[3]
+            if hasattr(stroke_list[i],'vertex_color_fill'):
+                alpha = stroke_list[i].vertex_color_fill[3]
+                fill_base_color[0] = fill_base_color[0] * (1-alpha) + alpha * stroke_list[i].vertex_color_fill[0]
+                fill_base_color[1] = fill_base_color[1] * (1-alpha) + alpha * stroke_list[i].vertex_color_fill[1]
+                fill_base_color[2] = fill_base_color[2] * (1-alpha) + alpha * stroke_list[i].vertex_color_fill[2]
+            for v in bm.verts:
+                v[vertex_color_layer] = [linear_to_srgb(fill_base_color[0]), linear_to_srgb(fill_base_color[1]), linear_to_srgb(fill_base_color[2]), fill_base_color[3]]
+
             bm.to_mesh(new_mesh)
             bm.free()
 
@@ -234,6 +250,18 @@ class MeshGenerationByOffsetting(bpy.types.Operator):
             new_object = bpy.data.objects.new(mesh_names[i], new_mesh)
             bpy.context.collection.objects.link(new_object)
             new_object.parent = current_gp_obj
+
+            # Assign material
+            if "nijigp_mat" not in bpy.data.materials:
+                new_mat = bpy.data.materials.new("nijigp_mat")
+                new_mat.use_nodes = True
+                attr_node = new_mat.node_tree.nodes.new("ShaderNodeAttribute")
+                attr_node.attribute_name = 'Color'
+                for node in new_mat.node_tree.nodes:
+                    if node.type == "BSDF_PRINCIPLED":
+                        new_mat.node_tree.links.new(node.inputs['Base Color'], attr_node.outputs['Color'])
+                        new_mat.node_tree.links.new(node.inputs['Alpha'], attr_node.outputs['Alpha'])
+            new_object.data.materials.append(bpy.data.materials["nijigp_mat"])
 
             # Post-processing: mirror
             bpy.ops.object.mode_set(mode='OBJECT')

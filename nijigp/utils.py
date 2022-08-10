@@ -4,6 +4,15 @@ from mathutils import *
 
 SCALE_CONSTANT = 8192
 
+def linear_to_srgb(color):
+    """Convert a Linear RGB value to an sRGB one"""
+    s_color = 0
+    if color < 0.0031308:
+        s_color = 12.92 * color
+    else:
+        s_color = 1.055 * math.pow(color, 1/2.4) - 0.055
+    return s_color
+
 def vec3_to_vec2(co):
     """Convert 3D coordinates into 2D"""
     scene = bpy.context.scene
