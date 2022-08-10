@@ -43,20 +43,39 @@ class MeshGenerationByOffsetting(bpy.types.Operator):
             default=True,
             description='Do not delete the original stroke'
     )
-    smooth_level: bpy.props.IntProperty(
-            name='Smooth Level',
-            default=0, min=0, max=16,
-            description='Add a Smooth modifier if not zero'
+    postprocess_double_sided: bpy.props.BoolProperty(
+            name='Double-Sided',
+            default=True,
+            description='Make the mesh symmetric to the working plane'
     )
-    remesh: bpy.props.BoolProperty(
-            name='Smooth Level',
-            default=False,
-            description='Add a Remesh modifier'
-    )
-    shade_smooth: bpy.props.BoolProperty(
+    postprocess_shade_smooth: bpy.props.BoolProperty(
             name='Shade Smooth',
             default=False,
             description='Enable face smooth shading and auto smooth normals'
+    )
+    postprocess_merge: bpy.props.BoolProperty(
+            name='Merge',
+            default=False,
+            description='Merge vertices close to each other'   
+    )
+    merge_distance: bpy.props.FloatProperty(
+            name='Distance',
+            default=0.01,
+            min=0.0001,
+            unit='LENGTH',
+            description='Distance used during merging'   
+    )
+    postprocess_remesh: bpy.props.BoolProperty(
+            name='Remesh',
+            default=False,
+            description='Perform a voxel remesh'   
+    )
+    remesh_voxel_size: bpy.props.FloatProperty(
+            name='Voxel Size',
+            default=0.1,
+            min=0.0001,
+            unit='LENGTH',
+            description='Voxel size used during remeshing'   
     )
 
 
@@ -74,9 +93,14 @@ class MeshGenerationByOffsetting(bpy.types.Operator):
 
         layout.label(text = "Post-Processing Options:")
         box2 = layout.box()
-        box2.prop(self, "smooth_level", text = "Smooth Modifier")
-        box2.prop(self, "remesh", text = "Remesh Modifier")
-        box2.prop(self, "shade_smooth", text = "Shade Smooth")
+        box2.prop(self, "postprocess_double_sided", text = "Double-Sided")  
+        box2.prop(self, "postprocess_shade_smooth", text = "Shade Smooth")
+        row = box2.row()
+        row.prop(self, "postprocess_merge", text='Merge By')
+        row.prop(self, "merge_distance", text='Distance')
+        row = box2.row()
+        row.prop(self, "postprocess_remesh", text='Remesh')
+        row.prop(self, "remesh_voxel_size", text='Voxel Size')
 
     def execute(self, context):
 
@@ -188,13 +212,21 @@ class MeshGenerationByOffsetting(bpy.types.Operator):
                     to_remove.append(face)
             for face in to_remove:
                 bm.faces.remove(face)
-
-
-            if self.shade_smooth:
+            
+            if self.postprocess_shade_smooth:
                 for f in bm.faces:
                     f.smooth = True
 
+            # Bottom large face
+            if not self.postprocess_double_sided:
+                bm.faces.new(verts_by_level[0])
+
             bmesh.ops.recalc_face_normals(bm, faces= bm.faces)
+
+            # Post-processing: merge
+            if self.postprocess_merge:
+                bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=self.merge_distance)
+
             bm.to_mesh(new_mesh)
             bm.free()
 
@@ -203,20 +235,24 @@ class MeshGenerationByOffsetting(bpy.types.Operator):
             bpy.context.collection.objects.link(new_object)
             new_object.parent = current_gp_obj
 
-            # Post-processing: Add modifiers
-            new_object.modifiers.new(name="nijigp_Mirror", type='MIRROR')
-            new_object.modifiers["nijigp_Mirror"].use_axis[0] = (bpy.context.scene.nijigp_working_plane == 'Y-Z')
-            new_object.modifiers["nijigp_Mirror"].use_axis[1] = (bpy.context.scene.nijigp_working_plane == 'X-Z')
-            new_object.modifiers["nijigp_Mirror"].use_axis[2] = (bpy.context.scene.nijigp_working_plane == 'X-Y')
+            # Post-processing: mirror
+            bpy.ops.object.mode_set(mode='OBJECT')
+            context.view_layer.objects.active = new_object
+            if self.postprocess_double_sided:
+                new_object.modifiers.new(name="nijigp_Mirror", type='MIRROR')
+                new_object.modifiers["nijigp_Mirror"].use_axis[0] = (bpy.context.scene.nijigp_working_plane == 'Y-Z')
+                new_object.modifiers["nijigp_Mirror"].use_axis[1] = (bpy.context.scene.nijigp_working_plane == 'X-Z')
+                new_object.modifiers["nijigp_Mirror"].use_axis[2] = (bpy.context.scene.nijigp_working_plane == 'X-Y')
+                bpy.ops.object.modifier_apply("EXEC_DEFAULT", modifier = "nijigp_Mirror")
+            
+            # Post-processing: remesh
+            if self.postprocess_remesh:
+                new_object.data.remesh_voxel_size = self.remesh_voxel_size
+                new_object.data.use_remesh_preserve_volume = True
+                new_object.data.use_remesh_preserve_vertex_colors = True
+                bpy.ops.object.voxel_remesh("EXEC_DEFAULT")
 
-            if self.smooth_level > 0:
-                new_object.modifiers.new(name="nijigp_Smooth", type='SMOOTH')
-                new_object.modifiers["nijigp_Smooth"].iterations = self.smooth_level
-            if self.remesh:
-                new_object.modifiers.new(name="nijigp_Remesh", type='REMESH')
-                new_object.modifiers["nijigp_Remesh"].voxel_size = max(0.02, abs(self.offset_amount / self.resolution))
-                new_object.modifiers["nijigp_Remesh"].use_smooth_shade = self.shade_smooth
-            new_object.data.use_auto_smooth = self.shade_smooth
+            new_object.data.use_auto_smooth = self.postprocess_shade_smooth
 
         for i,co_list in enumerate(poly_list):
             process_single_stroke(i, co_list)
