@@ -38,15 +38,15 @@ class PasteSVGOperator(bpy.types.Operator):
 
     def execute(self, context):
 
-        #preferences = context.preferences.addons[__package__].preferences
-        preferences = context.preferences
+        preferences = context.preferences.addons[__package__].preferences
         current_gp_obj = context.object
         current_material_idx = context.object.active_material_index
         num_layers = len(context.object.data.layers)
 
         # Convert clipboard data to SVG file
         svg_str = context.window_manager.clipboard
-        svg_path = os.path.join(preferences.filepaths.temporary_directory, "clipboard.svg")
+        #svg_path = os.path.join(context.preferences.filepaths.temporary_directory, "clipboard.svg")
+        svg_path = os.path.join(preferences.cache_folder, "clipboard.svg")
         svg_file = open(svg_path, "w")
         svg_file.write(svg_str)
         svg_file.close()
@@ -133,9 +133,7 @@ class PasteSVGOperator(bpy.types.Operator):
                     for stroke in outer_shapes:
                         to_process.remove(stroke)              
                     bpy.ops.gpencil.stroke_arrange("EXEC_DEFAULT", direction='TOP')
-                    bpy.ops.gpencil.select_all(action='DESELECT')      
-              
-
+                    bpy.ops.gpencil.select_all(action='DESELECT')
 
         # Select pasted strokes
         bpy.ops.gpencil.select_all(action='DESELECT')

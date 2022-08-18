@@ -29,6 +29,12 @@ class InstallDependencies(bpy.types.Operator):
 class NijiGPAddonPreferences(bpy.types.AddonPreferences):
     bl_idname = __package__
 
+    cache_folder: bpy.props.StringProperty(
+        name='Cache Folder',
+        description='Location storing temporary files',
+        default=os.path.join(os.path.dirname(__file__), 'tmp')
+    )
+
     extra_buttons: bpy.props.BoolProperty(
         name='Show Extra Undo/Redo Buttons',
         description='Show extra undo and redo buttons in the sidebar of Properties panel',
@@ -41,3 +47,5 @@ class NijiGPAddonPreferences(bpy.types.AddonPreferences):
         row.prop(self, 'extra_buttons')
         row = layout.row()
         row.operator("nijigp.install_dependencies", text="Install Dependencies", icon="CONSOLE")
+        row = layout.row()
+        row.prop(self, 'cache_folder')
