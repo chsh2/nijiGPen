@@ -33,6 +33,11 @@ python -m pip install pyclipper
 ```
 If this step stucks or fails, you can open a terminal in Blender's Python directory (e.g., `blender/3.xx/python/bin`) and execute the commands above manually.
 
+## Upgrade
+**Blender Upgrade:** After upgrading Blender to a new version, the Installation Step 3 (Install Dependencies) should be executed again.
+
+**Add-on Upgrade:** If you want to replace the installed add-on with a newer version, it is recommended to remove the old version first and perform each installation step again.
+
 ## Usage
 
 In **Draw** and **Edit** modes of a Grease Pencil object, a label titled “NijiGP” will appear in the sidebar of 3D Viewport window. Most of this add-on’s operators can be found here.

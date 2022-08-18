@@ -245,12 +245,13 @@ class MeshGenerationByOffsetting(bpy.types.Operator):
                     face.smooth = True
             
             # Cleanup
-            to_remove = []
-            for face in bm.faces:
-                if len(face.verts) > 4:
-                    to_remove.append(face)
-            for face in to_remove:
-                bm.faces.remove(face)
+            if self.slope_style == 'STEP':
+                to_remove = []
+                for face in bm.faces:
+                    if len(face.verts) > 4:
+                        to_remove.append(face)
+                for face in to_remove:
+                    bm.faces.remove(face)
 
             # Bottom large face
             if not self.postprocess_double_sided:
@@ -275,6 +276,10 @@ class MeshGenerationByOffsetting(bpy.types.Operator):
                 fill_base_color[1] = fill_base_color[1] * (1-alpha) + alpha * stroke_list[i].vertex_color_fill[1]
                 fill_base_color[2] = fill_base_color[2] * (1-alpha) + alpha * stroke_list[i].vertex_color_fill[2]
             for v in bm.verts:
+                # Not supported until Blender 3.2
+                #vertex_color = Color([fill_base_color[0], fill_base_color[1], fill_base_color[2]])
+                #vertex_color = vertex_color.from_scene_linear_to_srgb()
+                #v[vertex_color_layer] = [vertex_color.r, vertex_color.g, vertex_color.b, fill_base_color[3]]
                 v[vertex_color_layer] = [linear_to_srgb(fill_base_color[0]), linear_to_srgb(fill_base_color[1]), linear_to_srgb(fill_base_color[2]), fill_base_color[3]]
 
             bm.to_mesh(new_mesh)

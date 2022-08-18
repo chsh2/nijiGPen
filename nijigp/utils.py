@@ -5,7 +5,9 @@ from mathutils import *
 SCALE_CONSTANT = 8192
 
 def linear_to_srgb(color):
-    """Convert a Linear RGB value to an sRGB one"""
+    """
+    Convert a Linear RGB value to an sRGB one. Can be replaced by from_scene_linear_to_srgb() from Blender 3.2
+    """
     s_color = 0
     if color < 0.0031308:
         s_color = 12.92 * color
