@@ -112,59 +112,83 @@ class OffsetSelectedOperator(bpy.types.Operator):
             else:
                 et = pyclipper.ET_OPENBUTT
 
-        # Convert selected strokes to 2D polygon point lists
+        # Get a list of layers / frames to process
         current_gp_obj = context.object
-        stroke_info = []
-        stroke_list = []
-        for i,layer in enumerate(current_gp_obj.data.layers):
-            # In 3.4 alpha, it is possible to have a layer with no 'strokes' attribute
-            if not layer.lock and hasattr(layer.active_frame, "strokes"):
-                for j,stroke in enumerate(layer.active_frame.strokes):
-                    if stroke.select:
-                        stroke_info.append([stroke, i, j])
-                        stroke_list.append(stroke)
-        poly_list, scale_factor = stroke_to_poly(stroke_list, scale = True)
+        frames_to_process = {}      # Format: {frame_number: {layer_index: frame_pointer}}
 
-        # Call Clipper to execute offset on each stroke
+        if not current_gp_obj.data.use_multiedit:
+            # Process only the active frame of each layer
+            for i,layer in enumerate(current_gp_obj.data.layers):
+                if layer.active_frame:
+                    frame_number = layer.active_frame.frame_number
+                    if frame_number not in frames_to_process:
+                        frames_to_process[frame_number] = {}
+                    frames_to_process[frame_number][i] = layer.active_frame
+        else:
+            # Process every selected frame
+            for i,layer in enumerate(current_gp_obj.data.layers):
+                for j,frame in enumerate(layer.frames):
+                    if frame.select:
+                        if frame.frame_number not in frames_to_process:
+                            frames_to_process[frame.frame_number] = {}
+                        frames_to_process[frame.frame_number][i] = frame
+
+        select_map = save_stroke_selection(current_gp_obj)
         generated_strokes = []
-        for j,co_list in enumerate(poly_list):
+        for frame_number, layer_frame_map in frames_to_process.items():
+            stroke_info = []
+            stroke_list = []
+            load_stroke_selection(current_gp_obj, select_map)
 
-            # Judge if the stroke has holdout fill
-            invert_offset = 1
-            material_index = stroke_list[j].material_index
-            material = current_gp_obj.material_slots[material_index].material
-            if self.invert_holdout and material.grease_pencil.use_fill_holdout:
-                invert_offset = -1
+            # Convert selected strokes to 2D polygon point lists
+            for i,frame in layer_frame_map.items():
+                layer = current_gp_obj.data.layers[i]
+                # It is possible to have a layer with no 'strokes' attribute
+                if not layer.lock and hasattr(frame, "strokes"):
+                    for j,stroke in enumerate(frame.strokes):
+                        if stroke.select:
+                            stroke_info.append([stroke, i, j, frame])
+                            stroke_list.append(stroke)
+            poly_list, scale_factor = stroke_to_poly(stroke_list, scale = True)
 
-            # Execute offset
-            clipper.Clear()
-            clipper.AddPath(co_list, join_type = jt, end_type = et)
-            poly_results = clipper.Execute(self.offset_amount * invert_offset * scale_factor)
+            # Call Clipper to execute offset on each stroke
+            for j,co_list in enumerate(poly_list):
 
-            # For corner mode, execute another offset in the opposite direction
-            if self.end_type_mode == 'ET_CLOSE_CORNER':
+                # Judge if the stroke has holdout fill
+                invert_offset = 1
+                material_index = stroke_list[j].material_index
+                material = current_gp_obj.material_slots[material_index].material
+                if self.invert_holdout and material.grease_pencil.use_fill_holdout:
+                    invert_offset = -1
+
+                # Execute offset
                 clipper.Clear()
-                clipper.AddPaths(poly_results, join_type = jt, end_type = et)
-                poly_results = clipper.Execute(-self.offset_amount * invert_offset * scale_factor)
+                clipper.AddPath(co_list, join_type = jt, end_type = et)
+                poly_results = clipper.Execute(self.offset_amount * invert_offset * scale_factor)
 
-            # If the new stroke is larger, arrange it behind the original one
-            arrange_offset = (self.offset_amount * invert_offset) > 0
+                # For corner mode, execute another offset in the opposite direction
+                if self.end_type_mode == 'ET_CLOSE_CORNER':
+                    clipper.Clear()
+                    clipper.AddPaths(poly_results, join_type = jt, end_type = et)
+                    poly_results = clipper.Execute(-self.offset_amount * invert_offset * scale_factor)
 
-            if len(poly_results) > 0:
-                for result in poly_results:
-                    new_stroke, new_index = poly_to_stroke(result, [stroke_info[j]], current_gp_obj, scale_factor,    
-                                                            rearrange = True, arrange_offset = arrange_offset)
-                    generated_strokes.append(new_stroke)
-                    new_stroke.use_cyclic = True
+                # If the new stroke is larger, arrange it behind the original one
+                arrange_offset = (self.offset_amount * invert_offset) > 0
 
-                    # Update the stroke index
-                    for info in stroke_info:
-                        if new_index <= info[2]:
-                            info[2] += 1
+                if len(poly_results) > 0:
+                    for result in poly_results:
+                        new_stroke, new_index = poly_to_stroke(result, [stroke_info[j]], current_gp_obj, scale_factor,    
+                                                                rearrange = True, arrange_offset = arrange_offset)
+                        generated_strokes.append(new_stroke)
+                        new_stroke.use_cyclic = True
 
-            if not self.keep_original:
-                layer_index = stroke_info[j][1]
-                current_gp_obj.data.layers[layer_index].active_frame.strokes.remove(stroke_list[j])
+                        # Update the stroke index
+                        for info in stroke_info:
+                            if new_index <= info[2] and stroke_info[j][1] == info[1]:
+                                info[2] += 1
+
+                if not self.keep_original:
+                    stroke_info[j][3].strokes.remove(stroke_list[j])
 
         # Post-processing: change colors
         for stroke in generated_strokes:
@@ -174,10 +198,6 @@ class OffsetSelectedOperator(bpy.types.Operator):
                 for i in range(4):
                     point.vertex_color[i] = point.vertex_color[i] * (1 - self.line_color_factor) + self.change_line_color[i] * self.line_color_factor
             stroke.select = True
-
-        # Reset UV
-        bpy.ops.transform.translate(value=(0, 0, 0))
-
 
         return {'FINISHED'}
 
@@ -265,95 +285,121 @@ class BoolSelectedOperator(bpy.types.Operator):
         elif self.operation_type == 'XOR':
             op = pyclipper.CT_XOR
 
-        # Convert selected strokes to 2D polygon point lists; extract stroke information
+        
+        # Get a list of layers / frames to process
         current_gp_obj = context.object
-        stroke_info = []
-        stroke_list = []
-        select_seq_map = {}
-        for i,layer in enumerate(current_gp_obj.data.layers):
-            if not layer.lock and hasattr(layer.active_frame, "strokes"):
-                for j,stroke in enumerate(layer.active_frame.strokes):
-                    if stroke.select:
-                        stroke_info.append([stroke, i, j])
-                        stroke_list.append(stroke)
-                        select_seq_map[len(stroke_list) - 1] = stroke.select_index
+        frames_to_process = {}      # Format: {frame_number: {layer_index: frame_pointer}}
 
-        poly_list, scale_factor = stroke_to_poly(stroke_list, scale = True, correct_orientation = True)
-
-        if len(stroke_info) < 2:
-            self.report({"INFO"}, "Please select at least two strokes to perform any Boolean operation.")
-            return {'FINISHED'}
-
-        # Divide strokes into subjects and clips according to their select_index
-        # Their should be at least one subject
-        true_num_clips = min(self.num_clips, len(stroke_list)-1)
-        select_seq = [_ for _ in range(len(stroke_list))]
-        select_seq.sort(key = lambda x: select_seq_map[x])
-        subject_set = set(select_seq[:len(stroke_list) - true_num_clips])
-        clip_set = set(select_seq[-true_num_clips:])
-
-        # Prepare to generate new strokes
-        ref_stroke_mask = {}
-        if self.stroke_inherited == 'SUBJECT':
-            ref_stroke_mask = clip_set
-        elif self.stroke_inherited == 'CLIP':
-            ref_stroke_mask = subject_set
-
-        generated_strokes = []
-        poly_results = []
-        def generate_new_strokes():
-            """
-            Depending on the operator option, this function may be called once or multiple times
-            """
-            if len(poly_results) > 0:
-                for result in poly_results:
-                    new_stroke, new_index = poly_to_stroke(result, stroke_info, current_gp_obj, scale_factor,    
-                                                            rearrange = True, ref_stroke_mask = ref_stroke_mask)
-                    generated_strokes.append(new_stroke)
-                    if self.operation_type == 'INTERSECTION':
-                        new_stroke.use_cyclic = True
-                    # Update the stroke index
-                    for info in stroke_info:
-                        if new_index <= info[2]:
-                            info[2] += 1
-
-        # Call Clipper functions
-        if self.processing_seq == 'ALL':
-            # Add all paths at once
-            for i,co_list in enumerate(poly_list):
-                if i in subject_set:
-                    clipper.AddPath(co_list, pyclipper.PT_SUBJECT, True)
-                else:
-                    clipper.AddPath(co_list, pyclipper.PT_CLIP, True)
-            poly_results = clipper.Execute(op, pyclipper.PFT_NONZERO, pyclipper.PFT_NONZERO)
-            generate_new_strokes()
+        if not current_gp_obj.data.use_multiedit:
+            # Process only the active frame of each layer
+            for i,layer in enumerate(current_gp_obj.data.layers):
+                if layer.active_frame:
+                    frame_number = layer.active_frame.frame_number
+                    if frame_number not in frames_to_process:
+                        frames_to_process[frame_number] = {}
+                    frames_to_process[frame_number][i] = layer.active_frame
         else:
-            # Add one subject path per operation
-            for i in subject_set:
-                # Both mask and paths need to be reset after processing each stroke in this mode
-                if self.stroke_inherited == 'SUBJECT':
-                    ref_stroke_mask = set(select_seq)
-                    ref_stroke_mask.remove(i)
+            # Process every selected frame
+            for i,layer in enumerate(current_gp_obj.data.layers):
+                for j,frame in enumerate(layer.frames):
+                    if frame.select:
+                        if frame.frame_number not in frames_to_process:
+                            frames_to_process[frame.frame_number] = {}
+                        frames_to_process[frame.frame_number][i] = frame
+
+        select_map = save_stroke_selection(current_gp_obj)
+        generated_strokes = []
+        for frame_number, layer_frame_map in frames_to_process.items():
+            load_stroke_selection(current_gp_obj, select_map)
+            stroke_info = []
+            stroke_list = []
+            select_seq_map = {}
+
+            # Convert selected strokes to 2D polygon point lists
+            for i,frame in layer_frame_map.items():
+                layer = current_gp_obj.data.layers[i]
+                # It is possible to have a layer with no 'strokes' attribute
+                if not layer.lock and hasattr(frame, "strokes"):
+                    for j,stroke in enumerate(frame.strokes):
+                        if stroke.select:
+                            stroke_info.append([stroke, i, j, frame])
+                            stroke_list.append(stroke)
+                            select_seq_map[len(stroke_list) - 1] = select_map[layer][frame][stroke]
+
+            poly_list, scale_factor = stroke_to_poly(stroke_list, scale = True, correct_orientation = True)
+
+            # Boolean operation requires at least two shapes
+            if len(stroke_info) < 2:
+                continue
+
+            # Divide strokes into subjects and clips according to their select_index
+            # Their should be at least one subject
+            true_num_clips = min(self.num_clips, len(stroke_list)-1)
+            select_seq = [_ for _ in range(len(stroke_list))]
+            select_seq.sort(key = lambda x: select_seq_map[x])
+            subject_set = set(select_seq[:len(stroke_list) - true_num_clips])
+            clip_set = set(select_seq[-true_num_clips:])
+
+            # Prepare to generate new strokes
+            ref_stroke_mask = {}
+            if self.stroke_inherited == 'SUBJECT':
+                ref_stroke_mask = clip_set
+            elif self.stroke_inherited == 'CLIP':
+                ref_stroke_mask = subject_set
+
+            poly_results = []
+            def generate_new_strokes():
+                """
+                Depending on the operator option, this function may be called once or multiple times
+                """
+                if len(poly_results) > 0:
+                    for result in poly_results:
+                        new_stroke, new_index = poly_to_stroke(result, stroke_info, current_gp_obj, scale_factor,    
+                                                                rearrange = True, ref_stroke_mask = ref_stroke_mask)
+                        generated_strokes.append(new_stroke)
+                        if self.operation_type == 'INTERSECTION':
+                            new_stroke.use_cyclic = True
+                        # Update the stroke index
+                        for info in stroke_info:
+                            if new_index <= info[2] and stroke_info[j][1] == info[1]:
+                                info[2] += 1
+
+            # Call Clipper functions
+            if self.processing_seq == 'ALL':
+                # Add all paths at once
                 clipper.Clear()
-                clipper.AddPath(poly_list[i], pyclipper.PT_SUBJECT, True)
-                for j in clip_set:
-                    clipper.AddPath(poly_list[j], pyclipper.PT_CLIP, True)
+                for i,co_list in enumerate(poly_list):
+                    if i in subject_set:
+                        clipper.AddPath(co_list, pyclipper.PT_SUBJECT, True)
+                    else:
+                        clipper.AddPath(co_list, pyclipper.PT_CLIP, True)
                 poly_results = clipper.Execute(op, pyclipper.PFT_NONZERO, pyclipper.PFT_NONZERO)
                 generate_new_strokes()
+            else:
+                # Add one subject path per operation
+                for i in subject_set:
+                    # Both mask and paths need to be reset after processing each stroke in this mode
+                    if self.stroke_inherited == 'SUBJECT':
+                        ref_stroke_mask = set(select_seq)
+                        ref_stroke_mask.remove(i)
+                    clipper.Clear()
+                    clipper.AddPath(poly_list[i], pyclipper.PT_SUBJECT, True)
+                    for j in clip_set:
+                        clipper.AddPath(poly_list[j], pyclipper.PT_CLIP, True)
+                    poly_results = clipper.Execute(op, pyclipper.PFT_NONZERO, pyclipper.PFT_NONZERO)
+                    generate_new_strokes()
 
-        # Delete old strokes
-        for i,info in enumerate(stroke_info):
-            layer_index = info[1]
-            if not self.keep_subjects and i in subject_set:
-                current_gp_obj.data.layers[layer_index].active_frame.strokes.remove(info[0])
-            elif not self.keep_clips and i in clip_set:
-                current_gp_obj.data.layers[layer_index].active_frame.strokes.remove(info[0])
+            # Delete old strokes
+            for i,info in enumerate(stroke_info):
+                if not self.keep_subjects and i in subject_set:
+                    stroke_info[i][3].strokes.remove(info[0])
+                elif not self.keep_clips and i in clip_set:
+                    stroke_info[i][3].strokes.remove(info[0])
 
         # Post-processing
         bpy.ops.gpencil.select_all(action='DESELECT')
         for stroke in generated_strokes:
             stroke.select = True
-        bpy.ops.transform.translate(value=(0, 0, 0))
 
         return {'FINISHED'}
 

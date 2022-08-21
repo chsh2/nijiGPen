@@ -15,6 +15,31 @@ def linear_to_srgb(color):
         s_color = 1.055 * math.pow(color, 1/2.4) - 0.055
     return s_color
 
+def save_stroke_selection(gp_obj):
+    """
+    Record the selection state of a Grease Pencil object to a map
+    """
+    select_map = {}
+    for layer in gp_obj.data.layers:
+        select_map[layer] = {}
+        for frame in layer.frames:
+            select_map[layer][frame] = {}
+            for stroke in frame.strokes:
+                select_map[layer][frame][stroke] = stroke.select_index
+    return select_map
+
+def load_stroke_selection(gp_obj, select_map):
+    """
+    Apply selection to strokes according to a map saved by save_stroke_selection()
+    """
+    for layer in gp_obj.data.layers:
+        for frame in layer.frames:
+            for stroke in frame.strokes:
+                if stroke in select_map[layer][frame]:
+                    stroke.select = (select_map[layer][frame][stroke] > 0)
+                else:
+                    stroke.select = False
+
 def vec3_to_vec2(co):
     """Convert 3D coordinates into 2D"""
     scene = bpy.context.scene
@@ -211,7 +236,7 @@ def stroke_to_poly(stroke_list, scale = False, correct_orientation = False):
 def poly_to_stroke(co_list, stroke_info, gp_obj, scale_factor, rearrange = True, arrange_offset = 0, ref_stroke_mask = {}):
     """
     Generate a new stroke according to 2D polygon data. Point and stroke attributes will be copied from a list of reference strokes.
-    stroke_info: A list of [stroke, layer_index, stroke_index]
+    stroke_info: A list of [stroke, layer_index, stroke_index, frame]
     """
 
     # Find closest reference point and corresponding stroke
@@ -256,6 +281,9 @@ def poly_to_stroke(co_list, stroke_info, gp_obj, scale_factor, rearrange = True,
     layer_index = stroke_info[ref_stroke_index][1]
     stroke_index = stroke_info[ref_stroke_index][2]
     src_stroke = stroke_info[ref_stroke_index][0]
+    frame = gp_obj.data.layers[layer_index].active_frame
+    if len(stroke_info[ref_stroke_index]) > 3:
+        frame = stroke_info[ref_stroke_index][3]
 
     # Making the starting point of the new stroke close to the existing one
     min_distance = None
@@ -267,7 +295,7 @@ def poly_to_stroke(co_list, stroke_info, gp_obj, scale_factor, rearrange = True,
             index_offset = i
 
     # Create a new stroke
-    new_stroke = gp_obj.data.layers[layer_index].active_frame.strokes.new()
+    new_stroke = frame.strokes.new()
     N = len(co_list)
     new_stroke.points.add(N)
     for i in range(N):
@@ -300,7 +328,7 @@ def poly_to_stroke(co_list, stroke_info, gp_obj, scale_factor, rearrange = True,
         set_depth(dst_point, vec3_to_depth(src_point.co))
 
     # Rearrange the new stroke
-    current_index = len(gp_obj.data.layers[layer_index].active_frame.strokes) - 1
+    current_index = len(frame.strokes) - 1
     new_index = current_index
     if rearrange:
         new_index = stroke_index + 1 - arrange_offset
