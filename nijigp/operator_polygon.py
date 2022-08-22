@@ -16,6 +16,11 @@ class OffsetSelectedOperator(bpy.types.Operator):
             default=0, unit='LENGTH',
             description='Offset length'
     )
+    multiframe_falloff: bpy.props.FloatProperty(
+            name='Multiframe Falloff',
+            default=0, min=0, max=1,
+            description='The ratio of offset length falloff per frame in the multiframe editing mode',
+    )
     corner_shape: bpy.props.EnumProperty(
             name='Corner Shape',
             items=[('JT_ROUND', 'Round', ''),
@@ -75,6 +80,8 @@ class OffsetSelectedOperator(bpy.types.Operator):
         layout.label(text = "Geometry Options:")
         box1 = layout.box()
         box1.prop(self, "offset_amount", text = "Offset Amount")
+        if context.object.data.use_multiedit:
+            box1.prop(self, "multiframe_falloff", text = "Multiframe Falloff")
         box1.label(text = "Corner Shape")
         box1.prop(self, "corner_shape", text = "")
         box1.label(text = "Offset Mode")
@@ -116,15 +123,7 @@ class OffsetSelectedOperator(bpy.types.Operator):
         current_gp_obj = context.object
         frames_to_process = {}      # Format: {frame_number: {layer_index: frame_pointer}}
 
-        if not current_gp_obj.data.use_multiedit:
-            # Process only the active frame of each layer
-            for i,layer in enumerate(current_gp_obj.data.layers):
-                if layer.active_frame:
-                    frame_number = layer.active_frame.frame_number
-                    if frame_number not in frames_to_process:
-                        frames_to_process[frame_number] = {}
-                    frames_to_process[frame_number][i] = layer.active_frame
-        else:
+        if current_gp_obj.data.use_multiedit:
             # Process every selected frame
             for i,layer in enumerate(current_gp_obj.data.layers):
                 for j,frame in enumerate(layer.frames):
@@ -132,6 +131,14 @@ class OffsetSelectedOperator(bpy.types.Operator):
                         if frame.frame_number not in frames_to_process:
                             frames_to_process[frame.frame_number] = {}
                         frames_to_process[frame.frame_number][i] = frame
+        if len(frames_to_process)==0:
+            # Process only the active frame of each layer
+            for i,layer in enumerate(current_gp_obj.data.layers):
+                if layer.active_frame:
+                    frame_number = layer.active_frame.frame_number
+                    if frame_number not in frames_to_process:
+                        frames_to_process[frame_number] = {}
+                    frames_to_process[frame_number][i] = layer.active_frame
 
         select_map = save_stroke_selection(current_gp_obj)
         generated_strokes = []
@@ -161,16 +168,22 @@ class OffsetSelectedOperator(bpy.types.Operator):
                 if self.invert_holdout and material.grease_pencil.use_fill_holdout:
                     invert_offset = -1
 
+                # Offset amount calculation
+                falloff_factor = 1
+                if current_gp_obj.data.use_multiedit:
+                    frame_gap = abs(context.scene.frame_current - frame_number) 
+                    falloff_factor = max(0, 1 - frame_gap * self.multiframe_falloff)
+
                 # Execute offset
                 clipper.Clear()
                 clipper.AddPath(co_list, join_type = jt, end_type = et)
-                poly_results = clipper.Execute(self.offset_amount * invert_offset * scale_factor)
+                poly_results = clipper.Execute(self.offset_amount * invert_offset * scale_factor * falloff_factor)
 
                 # For corner mode, execute another offset in the opposite direction
                 if self.end_type_mode == 'ET_CLOSE_CORNER':
                     clipper.Clear()
                     clipper.AddPaths(poly_results, join_type = jt, end_type = et)
-                    poly_results = clipper.Execute(-self.offset_amount * invert_offset * scale_factor)
+                    poly_results = clipper.Execute(-self.offset_amount * invert_offset * scale_factor * falloff_factor)
 
                 # If the new stroke is larger, arrange it behind the original one
                 arrange_offset = (self.offset_amount * invert_offset) > 0
@@ -290,15 +303,7 @@ class BoolSelectedOperator(bpy.types.Operator):
         current_gp_obj = context.object
         frames_to_process = {}      # Format: {frame_number: {layer_index: frame_pointer}}
 
-        if not current_gp_obj.data.use_multiedit:
-            # Process only the active frame of each layer
-            for i,layer in enumerate(current_gp_obj.data.layers):
-                if layer.active_frame:
-                    frame_number = layer.active_frame.frame_number
-                    if frame_number not in frames_to_process:
-                        frames_to_process[frame_number] = {}
-                    frames_to_process[frame_number][i] = layer.active_frame
-        else:
+        if current_gp_obj.data.use_multiedit:
             # Process every selected frame
             for i,layer in enumerate(current_gp_obj.data.layers):
                 for j,frame in enumerate(layer.frames):
@@ -306,6 +311,14 @@ class BoolSelectedOperator(bpy.types.Operator):
                         if frame.frame_number not in frames_to_process:
                             frames_to_process[frame.frame_number] = {}
                         frames_to_process[frame.frame_number][i] = frame
+        if len(frames_to_process)==0:
+            # Process only the active frame of each layer
+            for i,layer in enumerate(current_gp_obj.data.layers):
+                if layer.active_frame:
+                    frame_number = layer.active_frame.frame_number
+                    if frame_number not in frames_to_process:
+                        frames_to_process[frame_number] = {}
+                    frames_to_process[frame_number][i] = layer.active_frame
 
         select_map = save_stroke_selection(current_gp_obj)
         generated_strokes = []
