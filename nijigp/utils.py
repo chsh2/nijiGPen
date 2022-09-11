@@ -138,7 +138,30 @@ def intersecting_segments(x1,y1,x2,y2,x3,y3,x4,y4):
         if is_2d_point_on_segment(x1,y1,x2,y2,x_inter,y_inter) and is_2d_point_on_segment(x3,y3,x4,y4,x_inter,y_inter):
             return True
         return False
+
+def raycast_2d_up(x0, y0, x1, y1, x2, y2):
+    """
+    Emit ray from (x0, y0) in +y direction and check if it intersects with the line segment (x1,y1)->(x2,y2)
+    mathutils.geometry.intersect_line_line_2d sometimes has inconsistent results, therefore is not adopted here
+    """
+    if x1>x0 and x2>x0:
+        return False
+    if x1<x0 and x2<x0:
+        return False
     
+    # Several special cases to consider
+    if math.isclose(x1,x2):
+        return False
+    if x1<x2 and math.isclose(x1, x0):
+        return y1 > y0
+    if x1>x2 and math.isclose(x2, x0):
+        return y2 > y0
+
+    # The normal case
+    ratio = (x0 - x1) / (x2 - x1)
+    h_intersect = y1 + ratio * (y2 - y1)
+    return h_intersect > y0
+
 def overlapping_strokes(s1, s2):
     """
     Check if two strokes overlap with each other. Ignore the cases involving holes

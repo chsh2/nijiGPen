@@ -79,20 +79,6 @@ class PasteSVGOperator(bpy.types.Operator):
             context.object.data.materials.append(holdout_material)
             holdout_material_index = len(context.object.data.materials) -1
 
-            # Emitting rays vertically to get winding numbers
-            def pos_H_intersect(point, seg):
-                if seg[0][0]>point[0] and seg[1][0]>point[0]:
-                    return False
-                if seg[0][0]<point[0] and seg[1][0]<point[0]:
-                    return False
-                if math.isclose(seg[0][0], point[0]):
-                    return False
-                if math.isclose(seg[1][0], point[0]):
-                    return seg[1][1] > point[1]
-                ratio = (point[0] - seg[0][0]) / (seg[1][0] - seg[0][0])
-                h_intersect = seg[0][1] + ratio * (seg[1][1] - seg[0][1])
-                return h_intersect > point[1]
-
             # Detect holes using even-odd rule (roughly)
             for i in range(len(context.object.data.layers) - num_layers):
                 strokes = context.object.data.layers[i].active_frame.strokes
@@ -104,28 +90,26 @@ class PasteSVGOperator(bpy.types.Operator):
                 is_hole = False
 
                 while len(to_process)>0 and len(outer_shapes)>0:
-                    winding_number_list = []
+                    crossing_number_list = []
                     is_hole = (not is_hole)
 
                     # Judge whether a stroke is inside another one
                     # Roughly computed by sampling only one point on each curve to avoid too much calculation
                     for stroke_src in to_process:
                         sample_point = vec3_to_vec2(stroke_src.points[len(stroke_src.points)//2].co)
-                        winding_number = 0
+                        crossing_number = 0
                         for stroke_dst in outer_shapes:
                             if stroke_dst != stroke_src:
                                 poly_list, _ = stroke_to_poly([stroke_dst])
                                 co_list = poly_list[0]
                                 for j, co in enumerate(co_list):
-                                    if j!= 0:
-                                        seg = [co_list[j], co_list[j-1]]
-                                        winding_number += pos_H_intersect(sample_point, seg)       
-                        winding_number_list.append(winding_number)  
+                                    crossing_number += raycast_2d_up(sample_point[0], sample_point[1], co_list[j][0], co_list[j][1], co_list[j-1][0], co_list[j-1][1])
+                        crossing_number_list.append(crossing_number)  
 
                     # Process the inner strokes
                     outer_shapes = []
-                    for j,winding_number in enumerate(winding_number_list):
-                        if winding_number % 2 == 1:
+                    for j,crossing_number in enumerate(crossing_number_list):
+                        if crossing_number % 2 == 1:
                             if is_hole:
                                 to_process[j].material_index = holdout_material_index
                             to_process[j].select = True
