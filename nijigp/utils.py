@@ -360,4 +360,4 @@ def poly_to_stroke(co_list, stroke_info, gp_obj, scale_factor, rearrange = True,
         for i in range(current_index - new_index):
             bpy.ops.gpencil.stroke_arrange("EXEC_DEFAULT", direction='DOWN')
 
-    return new_stroke, new_index
+    return new_stroke, new_index, layer_index
