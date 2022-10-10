@@ -162,6 +162,18 @@ def raycast_2d_up(x0, y0, x1, y1, x2, y2):
     h_intersect = y1 + ratio * (y2 - y1)
     return h_intersect > y0
 
+def crossing_number_2d_up(stroke, x, y, scale_factor):
+    """
+    Raycast to every point of the stroke to calculate the winding number
+    """
+    res = 0
+    point_num = len(stroke.points)
+    for i in range(point_num):
+        co1 = vec3_to_vec2(stroke.points[i].co)
+        co2 = vec3_to_vec2(stroke.points[(i+1)%point_num].co)
+        res += raycast_2d_up(x/scale_factor, y/scale_factor, co1[0], co1[1], co2[0], co2[1])    
+    return res
+
 def overlapping_strokes(s1, s2):
     """
     Check if two strokes overlap with each other. Ignore the cases involving holes

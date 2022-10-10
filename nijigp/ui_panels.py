@@ -116,6 +116,7 @@ class NIJIGP_PT_edit_panel_polygon(bpy.types.Panel):
         row.operator("nijigp.offset_selected", text="Offset Selected", icon="MOD_SKIN")
         row = layout.row()
         row.operator("nijigp.bool_selected", text="Boolean of Selected", icon="MOD_BOOLEAN")
+        row = layout.row()
 
 class NIJIGP_PT_edit_panel_mesh(bpy.types.Panel):
     bl_idname = 'NIJIGP_PT_edit_panel_mesh'
@@ -136,4 +137,6 @@ class NIJIGP_PT_edit_panel_mesh(bpy.types.Panel):
         layout.label(text="Generation Methods:")
         row = layout.row()
         row.operator("nijigp.mesh_generation_offset", text="Offset to Mesh", icon="CONE")
+        row = layout.row()
+        row.operator("nijigp.mesh_generation_normal", text="Planar with Normals", icon="NORMALS_FACE")
 

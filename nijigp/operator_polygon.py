@@ -4,7 +4,7 @@ import math
 from .utils import *
 
 class OffsetSelectedOperator(bpy.types.Operator):
-    """Replacing the selected strokes with new ones whose polygons are offset"""
+    """Offset or inset the selected strokes"""
     bl_idname = "nijigp.offset_selected"
     bl_label = "Offset Selected"
     bl_category = 'View'

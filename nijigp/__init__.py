@@ -16,8 +16,8 @@ bl_info = {
     "name" : "nijiGPen",
     "author" : "https://github.com/chsh2/nijiGPen",
     "description" : "Tools modifying Grease Pencil strokes in the 2D (XZ) plane",
-    "blender" : (3, 2, 0),
-    "version" : (0, 1, 4),
+    "blender" : (3, 3, 0),
+    "version" : (0, 2, 0),
     "location" : "View3D > Sidebar > NijiGP, in Draw and Edit mode of Grease Pencil objects",
     "warning" : "This addon is still in an early stage of development",
     "category" : "Object"
@@ -53,6 +53,7 @@ def register():
                         default=True, 
                         description="Boolean operations in Draw mode only apply to strokes showing fills"
                         )
+    #bpy.types.Scene.nijigp_reference_image = bpy.props.PointerProperty(type=bpy.types.Object)
     bpy.types.PROPERTIES_PT_navigation_bar.prepend(draw_shortcuts)
 
 def unregister():
