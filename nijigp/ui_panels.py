@@ -116,7 +116,6 @@ class NIJIGP_PT_edit_panel_polygon(bpy.types.Panel):
         row.operator("nijigp.offset_selected", text="Offset Selected", icon="MOD_SKIN")
         row = layout.row()
         row.operator("nijigp.bool_selected", text="Boolean of Selected", icon="MOD_BOOLEAN")
-        row = layout.row()
 
 class NIJIGP_PT_edit_panel_mesh(bpy.types.Panel):
     bl_idname = 'NIJIGP_PT_edit_panel_mesh'
