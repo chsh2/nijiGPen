@@ -122,6 +122,7 @@ class MeshGenerationByNormal(bpy.types.Operator):
             bm = bmesh.new()
             vertex_color_layer = bm.verts.layers.color.new('Color')
             normal_map_layer = bm.verts.layers.float_vector.new('NormalMap')
+            uv_layer = bm.loops.layers.uv.new()
 
             # Generate a 2D grid filling the shape
             co_list = np.array(co_list)
@@ -167,19 +168,20 @@ class MeshGenerationByNormal(bpy.types.Operator):
             inner = list(bm.verts)   
 
             # Mark the border vertices and edges
-            border_edges = []
-            border_verts = []
-            for vert in bm.verts:
-                if len(vert.link_faces)<4:
-                    border_verts.append(vert)
-            for edge in bm.edges:
-                if len(edge.link_faces)<2:
-                    border_edges.append(edge)
+            if len(inner)>0:
+                border_edges = []
+                border_verts = []
+                for vert in bm.verts:
+                    if len(vert.link_faces)<4:
+                        border_verts.append(vert)
+                for edge in bm.edges:
+                    if len(edge.link_faces)<2:
+                        border_edges.append(edge)
 
-            kd = kdtree.KDTree(len(border_verts))
-            for j,vert in enumerate(border_verts):
-                kd.insert(vert.co, j)
-            kd.balance()
+                kd = kdtree.KDTree(len(border_verts))
+                for j,vert in enumerate(border_verts):
+                    kd.insert(vert.co, j)
+                kd.balance()
 
             # Add coutour vertices and edges
             contour = []
@@ -190,18 +192,21 @@ class MeshGenerationByNormal(bpy.types.Operator):
                 contour_edges.append(bm.edges.new([vert, contour[j-1]]) )
         
             # Interconnect contour and inner vertices
-            inter_verts = []
-            for vert in contour:
-                loc, idx, dist = kd.find(vert.co)
-                inter_verts.append( border_verts[idx] )     
-            border_faces = []
-            for j,vert in enumerate(contour):
-                if inter_verts[j-1] == inter_verts[j]:
-                    border_faces.append( bm.faces.new([contour[j], contour[j-1], inter_verts[j]]) )
-                else:
-                    border_faces.append( bm.faces.new([contour[j], contour[j-1]] + 
-                                    find_loop_seq(border_edges, inter_verts[j-1], inter_verts[j]) ) )
-            bmesh.ops.recalc_face_normals(bm, faces=bm.faces)       
+            if len(inner)>0:
+                inter_verts = []
+                for vert in contour:
+                    loc, idx, dist = kd.find(vert.co)
+                    inter_verts.append( border_verts[idx] )     
+                border_faces = []
+                for j,vert in enumerate(contour):
+                    if inter_verts[j-1] == inter_verts[j]:
+                        border_faces.append( bm.faces.new([contour[j], contour[j-1], inter_verts[j]]) )
+                    else:
+                        border_faces.append( bm.faces.new([contour[j], contour[j-1]] + 
+                                        find_loop_seq(border_edges, inter_verts[j-1], inter_verts[j]) ) )
+                bmesh.ops.recalc_face_normals(bm, faces=bm.faces)  
+            else:
+                bm.faces.new(contour)
 
             # Normal map calculation from the stroke tangent
             norm_u_ref = []
@@ -231,6 +236,33 @@ class MeshGenerationByNormal(bpy.types.Operator):
                 norm = Vector([norm_u, np.sqrt(1-norm_u**2-norm_v**2), norm_v])
                 vert[normal_map_layer] = [ 0.5 * (norm.x + 1) , 0.5 * (norm.z + 1), 0.5 * (norm.y+1)]
 
+            # UV projection, required for correct tangent direction
+            bm.verts.ensure_lookup_table()
+            for face in bm.faces:
+                for loop in face.loops:
+                    co = vec3_to_vec2(bm.verts[loop.vert.index].co)
+                    loop[uv_layer].uv = ( (co[0]*scale_factor-u_min)/(u_max-u_min),
+                                            -(co[1]*scale_factor-v_min)/(v_max-v_min))
+
+            # Set vertex color from the stroke's both vertex and fill colors
+            fill_base_color = [1,1,1,1]
+            if current_gp_obj.data.materials[stroke_list[i].material_index].grease_pencil.show_fill:
+                fill_base_color[0] = current_gp_obj.data.materials[stroke_list[i].material_index].grease_pencil.fill_color[0]
+                fill_base_color[1] = current_gp_obj.data.materials[stroke_list[i].material_index].grease_pencil.fill_color[1]
+                fill_base_color[2] = current_gp_obj.data.materials[stroke_list[i].material_index].grease_pencil.fill_color[2]
+                fill_base_color[3] = current_gp_obj.data.materials[stroke_list[i].material_index].grease_pencil.fill_color[3]
+            if hasattr(stroke_list[i],'vertex_color_fill'):
+                alpha = stroke_list[i].vertex_color_fill[3]
+                fill_base_color[0] = fill_base_color[0] * (1-alpha) + alpha * stroke_list[i].vertex_color_fill[0]
+                fill_base_color[1] = fill_base_color[1] * (1-alpha) + alpha * stroke_list[i].vertex_color_fill[1]
+                fill_base_color[2] = fill_base_color[2] * (1-alpha) + alpha * stroke_list[i].vertex_color_fill[2]
+            for v in bm.verts:
+                # Not supported until Blender 3.2; Currently, using a homemade function instead
+                #vertex_color = Color([fill_base_color[0], fill_base_color[1], fill_base_color[2]])
+                #vertex_color = vertex_color.from_scene_linear_to_srgb()
+                #v[vertex_color_layer] = [vertex_color.r, vertex_color.g, vertex_color.b, fill_base_color[3]]
+                v[vertex_color_layer] = [linear_to_srgb(fill_base_color[0]), linear_to_srgb(fill_base_color[1]), linear_to_srgb(fill_base_color[2]), fill_base_color[3]]
+
             bm.to_mesh(new_mesh)
             bm.free()
 
@@ -239,8 +271,22 @@ class MeshGenerationByNormal(bpy.types.Operator):
             bpy.context.collection.objects.link(new_object)
             new_object.parent = current_gp_obj
 
-            # UV projection, required for correct tangent direction
-
+            # Assign material
+            if "nijigp_mat_with_normal" not in bpy.data.materials:
+                new_mat = bpy.data.materials.new("nijigp_mat_with_normal")
+                new_mat.use_nodes = True
+                attr_node = new_mat.node_tree.nodes.new("ShaderNodeAttribute")
+                attr_node.attribute_name = 'Color'
+                normal_attr_node = new_mat.node_tree.nodes.new("ShaderNodeAttribute")
+                normal_attr_node.attribute_name = 'NormalMap'
+                normal_map_node = new_mat.node_tree.nodes.new("ShaderNodeNormalMap")
+                new_mat.node_tree.links.new(normal_attr_node.outputs['Vector'], normal_map_node.inputs['Color'])
+                for node in new_mat.node_tree.nodes:
+                    if node.type == "BSDF_PRINCIPLED":
+                        new_mat.node_tree.links.new(node.inputs['Base Color'], attr_node.outputs['Color'])
+                        new_mat.node_tree.links.new(node.inputs['Alpha'], attr_node.outputs['Alpha'])
+                        new_mat.node_tree.links.new(node.inputs['Normal'], normal_map_node.outputs['Normal'])
+            new_object.data.materials.append(bpy.data.materials["nijigp_mat_with_normal"])
 
         for i,co_list in enumerate(poly_list):
             process_single_stroke(i, co_list)
@@ -251,6 +297,7 @@ class MeshGenerationByNormal(bpy.types.Operator):
                 layer_index = info[1]
                 current_gp_obj.data.layers[layer_index].active_frame.strokes.remove(info[0])
 
+        bpy.ops.object.mode_set(mode='OBJECT')
         return {'FINISHED'}
 
 class MeshGenerationByOffsetting(bpy.types.Operator):
