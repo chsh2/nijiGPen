@@ -12,9 +12,16 @@ class MeshGenerationByNormal(bpy.types.Operator):
     bl_category = 'View'
     bl_options = {'REGISTER', 'UNDO'}
 
-    grid_resolution: bpy.props.IntProperty(
+    mesh_style: bpy.props.EnumProperty(
+            name='Mesh Style',
+            items=[('TRI', 'Delaunay Triangulation', ''),
+                    ('QUAD', 'Grid', '')],
+            default='QUAD',
+            description='Method of creating faces inside the stroke shape'
+    )
+    resolution: bpy.props.IntProperty(
             name='Resolution',
-            default=32, min=2, max=512,
+            default=20, min=2, max=100,
             description='Cuts of the generated grid'
     )
     keep_original: bpy.props.BoolProperty(
@@ -27,11 +34,29 @@ class MeshGenerationByNormal(bpy.types.Operator):
         layout = self.layout
         layout.label(text = "Geometry Options:")
         box1 = layout.box()
-        box1.prop(self, "grid_resolution", text = "Resolution")
+        box1.label(text = "Mesh Style:")
+        box1.prop(self, "mesh_style", text = "")        
+        box1.prop(self, "resolution", text = "Resolution")
         box1.prop(self, "keep_original", text = "Keep Original")
 
     def execute(self, context):
         import numpy as np
+        try:
+            import pyclipper
+            import triangle as tr
+        except ImportError:
+            self.report({"ERROR"}, "Please install dependencies in the Preferences panel.")
+        
+        # Preprocess using Offset operator
+        # The triangle library may crash in several cases, which should be avoided with every effort
+        # https://www.cs.cmu.edu/~quake/triangle.trouble.html
+        if self.mesh_style == 'TRI':
+            if context.object.data.use_multiedit:
+                context.object.data.use_multiedit = False
+                bpy.ops.nijigp.offset_selected()
+                context.object.data.use_multiedit = True
+            else:
+                bpy.ops.nijigp.offset_selected()
 
         # Convert selected strokes to 2D polygon point lists
         current_gp_obj = context.object
@@ -48,10 +73,6 @@ class MeshGenerationByNormal(bpy.types.Operator):
         poly_list, scale_factor = stroke_to_poly(stroke_list, scale = True)
 
         # Use Clipper to determine the orientation of strokes to ensure the consistency of normal vector calculation
-        try:
-            import pyclipper
-        except ImportError:
-            self.report({"ERROR"}, "Please install dependencies in the Preferences panel.")
         for co_list in poly_list:
             if not pyclipper.Orientation(co_list):
                 co_list.reverse()
@@ -78,11 +99,7 @@ class MeshGenerationByNormal(bpy.types.Operator):
             if not e1 or not e2:
                 return [src_vert, dst_vert]
             def get_another_vert(e, v):
-                if len(e.verts)==0:
-                    return None
-                for vert in e.verts:
-                    if vert != v:
-                        return vert
+                return e.other_vert(v)
             def get_another_edge(e, v):
                 if len(v.link_edges)==0:
                     return None
@@ -98,12 +115,12 @@ class MeshGenerationByNormal(bpy.types.Operator):
                     return [src_vert, dst_vert]
                 p1.append(v1)
                 p2.append(v2)
-                if v1==src_vert or v2==src_vert:
-                    return [src_vert, dst_vert]
                 if v1==dst_vert:
                     return p1
                 if v2==dst_vert:
                     return p2
+                if v1==src_vert or v2==src_vert:
+                    return [src_vert, dst_vert]
                 e1 = get_another_edge(e1, v1)
                 e2 = get_another_edge(e2, v2)
                 if not e1 or not e2:
@@ -124,89 +141,133 @@ class MeshGenerationByNormal(bpy.types.Operator):
             normal_map_layer = bm.verts.layers.float_vector.new('NormalMap')
             uv_layer = bm.loops.layers.uv.new()
 
-            # Generate a 2D grid filling the shape
             co_list = np.array(co_list)
             u_min, u_max = np.min(co_list[:,0]), np.max(co_list[:,0])
             v_min, v_max = np.min(co_list[:,1]), np.max(co_list[:,1])
-            inner_verts_co = np.zeros((self.grid_resolution-1, self.grid_resolution-1, 2))
-            inner_verts_co[:,:,0] =  np.linspace(u_min, u_max, num=self.grid_resolution, endpoint=False)[1:]
-            inner_verts_co[:,:,1] =  np.linspace(v_min, v_max, num=self.grid_resolution, endpoint=False)[1:,None]
-
-            # Exclude points outside the shape
-            inner_verts = []
-            for u in range(self.grid_resolution-1):
-                verts_row = []
-                for v in range(self.grid_resolution-1):
-                    crossing_number = crossing_number_2d_up(stroke_list[i], inner_verts_co[u,v,0], inner_verts_co[u,v,1], scale_factor)
-                    if crossing_number%2 == 1:
-                        verts_row.append( bm.verts.new(vec2_to_vec3(inner_verts_co[u,v],0,scale_factor)) )
-                    else:
-                        verts_row.append(None)
-                inner_verts.append(verts_row)
-
-            # Connect inner edges and faces       
-            for u,row in enumerate(inner_verts):
-                for v,vert in enumerate(row):
-                    if u>0 and inner_verts[u][v] and inner_verts[u-1][v]:
-                        bm.edges.new([inner_verts[u][v], inner_verts[u-1][v]])
-                    if v>0 and inner_verts[u][v] and inner_verts[u][v-1]:
-                        bm.edges.new([inner_verts[u][v], inner_verts[u][v-1]])        
-            bmesh.ops.holes_fill(bm, edges = bm.edges, sides=4)
-
-            # Remove isolated vertices
-            while True:
-                to_remove = []
-                for vert in bm.verts:
-                    if len(vert.link_faces)<1:
-                        to_remove.append(vert)
-                    elif len(vert.link_faces)+1 < len(vert.link_edges):
-                        to_remove.append(vert)
-                for vert in to_remove:
-                    bm.verts.remove(vert)
-                if len(to_remove)==0:
-                    break
-            inner = list(bm.verts)   
-
-            # Mark the border vertices and edges
-            if len(inner)>0:
-                border_edges = []
-                border_verts = []
-                for vert in bm.verts:
-                    if len(vert.link_faces)<4:
-                        border_verts.append(vert)
-                for edge in bm.edges:
-                    if len(edge.link_faces)<2:
-                        border_edges.append(edge)
-
-                kd = kdtree.KDTree(len(border_verts))
-                for j,vert in enumerate(border_verts):
-                    kd.insert(vert.co, j)
-                kd.balance()
-
-            # Add coutour vertices and edges
             contour = []
-            contour_edges = []
-            for j,co in enumerate(co_list):
-                contour.append(bm.verts.new( vec2_to_vec3(co,0,scale_factor) ))
-            for j,vert in enumerate(contour):
-                contour_edges.append(bm.edges.new([vert, contour[j-1]]) )
-        
-            # Interconnect contour and inner vertices
-            if len(inner)>0:
-                inter_verts = []
-                for vert in contour:
-                    loc, idx, dist = kd.find(vert.co)
-                    inter_verts.append( border_verts[idx] )     
-                border_faces = []
+            inner = []
+            # Method 1: generate a grid inside the stroke
+            if self.mesh_style == 'QUAD':
+                # Generate a 2D grid filling the shape
+                inner_verts_co = np.zeros((self.resolution-1, self.resolution-1, 2))
+                inner_verts_co[:,:,0] =  np.linspace(u_min, u_max, num=self.resolution, endpoint=False)[1:]
+                inner_verts_co[:,:,1] =  np.linspace(v_min, v_max, num=self.resolution, endpoint=False)[1:,None]
+
+                # Exclude points outside the shape
+                inner_verts = []
+                for u in range(self.resolution-1):
+                    verts_row = []
+                    for v in range(self.resolution-1):
+                        crossing_number = crossing_number_2d_up(stroke_list[i], inner_verts_co[u,v,0], inner_verts_co[u,v,1], scale_factor)
+                        if crossing_number%2 == 1:
+                            verts_row.append( bm.verts.new(vec2_to_vec3(inner_verts_co[u,v],0,scale_factor)) )
+                        else:
+                            verts_row.append(None)
+                    inner_verts.append(verts_row)
+
+                # Connect inner edges and faces       
+                for u,row in enumerate(inner_verts):
+                    for v,vert in enumerate(row):
+                        if u>0 and inner_verts[u][v] and inner_verts[u-1][v]:
+                            bm.edges.new([inner_verts[u][v], inner_verts[u-1][v]])
+                        if v>0 and inner_verts[u][v] and inner_verts[u][v-1]:
+                            bm.edges.new([inner_verts[u][v], inner_verts[u][v-1]])        
+                bmesh.ops.holes_fill(bm, edges = bm.edges, sides=4)
+
+                # Remove isolated vertices
+                while True:
+                    to_remove = []
+                    for vert in bm.verts:
+                        if len(vert.link_faces)<1:
+                            to_remove.append(vert)
+                        elif len(vert.link_faces)+1 < len(vert.link_edges):
+                            to_remove.append(vert)
+                    for vert in to_remove:
+                        bm.verts.remove(vert)
+                    if len(to_remove)==0:
+                        break
+                inner = list(bm.verts)   
+
+                # Mark the border vertices and edges
+                if len(inner)>0:
+                    border_edges = []
+                    border_verts = []
+                    for vert in bm.verts:
+                        if len(vert.link_faces)<4:
+                            border_verts.append(vert)
+                    for edge in bm.edges:
+                        if len(edge.link_faces)<2:
+                            border_edges.append(edge)
+
+                    kd = kdtree.KDTree(len(border_verts))
+                    for j,vert in enumerate(border_verts):
+                        kd.insert(vert.co, j)
+                    kd.balance()
+
+                # Add coutour vertices and edges
+                contour_edges = []
+                for j,co in enumerate(co_list):
+                    contour.append(bm.verts.new( vec2_to_vec3(co,0,scale_factor) ))
                 for j,vert in enumerate(contour):
-                    if inter_verts[j-1] == inter_verts[j]:
-                        border_faces.append( bm.faces.new([contour[j], contour[j-1], inter_verts[j]]) )
+                    contour_edges.append(bm.edges.new([vert, contour[j-1]]) )
+            
+                # Interconnect contour and inner vertices
+                if len(inner)>0:
+                    inter_verts = []
+                    for vert in contour:
+                        loc, idx, dist = kd.find(vert.co)
+                        inter_verts.append( border_verts[idx] )     
+                    border_faces = []
+                    for j,vert in enumerate(contour):
+                        if inter_verts[j-1] == inter_verts[j]:
+                            border_faces.append( bm.faces.new([contour[j], contour[j-1], inter_verts[j]]) )
+                        else:
+                            border_faces.append( bm.faces.new([contour[j], contour[j-1]] + 
+                                            find_loop_seq(border_edges, inter_verts[j-1], inter_verts[j]) ) )
+                    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)  
+                else:
+                    bm.faces.new(contour)
+            
+            # Method 2: use the triangle library
+            elif self.mesh_style=='TRI':
+                segs = []
+                for j,co in enumerate(co_list):
+                    segs.append( [j, (j+1)%len(co_list)] )
+
+                # Refer to: https://rufat.be/triangle/API.html
+                tr_input = dict(vertices = co_list, segments = np.array(segs))
+                area_limit = (u_max-u_min)*(v_max-v_min)/(self.resolution**2)
+                tr_output = tr.triangulate(tr_input, 'pqa'+str(area_limit))
+                # Generate vertices and triangle faces
+                for co in tr_output['vertices']:
+                    bm.verts.new(vec2_to_vec3(co,0,scale_factor)) 
+                bm.verts.ensure_lookup_table()
+                for f in tr_output['triangles']:
+                    v_list = (bm.verts[f[2]], bm.verts[f[1]], bm.verts[f[0]])
+                    bm.faces.new(v_list)    
+
+                # Identify contour vertices from inner vertices
+                src_v = None
+                contour_set = set()
+                contour_edges = set()
+                for vert in bm.verts:
+                    if vert.is_boundary:
+                        contour_set.add(vert)
+                        if not src_v:
+                            src_v = vert
                     else:
-                        border_faces.append( bm.faces.new([contour[j], contour[j-1]] + 
-                                        find_loop_seq(border_edges, inter_verts[j-1], inter_verts[j]) ) )
-                bmesh.ops.recalc_face_normals(bm, faces=bm.faces)  
-            else:
-                bm.faces.new(contour)
+                        inner.append(vert)
+                for edge in bm.edges:
+                    if edge.is_boundary:
+                        contour_edges.add(edge)
+                # Sort the contour vertices
+                contour = find_loop_seq(contour_edges, src_v, src_v) 
+                # Keep the direction consistent
+                tmp_co_list = []
+                for vert in contour:
+                    tmp_co_list.append(vec3_to_vec2(vert.co)*scale_factor)
+                if not pyclipper.Orientation(tmp_co_list):
+                    contour.reverse()
 
             # Normal map calculation from the stroke tangent
             norm_u_ref = []
@@ -227,7 +288,7 @@ class MeshGenerationByNormal(bpy.types.Operator):
             u_ref=np.array(u_ref)
             v_ref=np.array(v_ref)
 
-            # Nromal map interpolation for inner points
+            # Normal map interpolation for inner points
             for vert in inner:
                 weights = 1 / ((u_ref - vec3_to_vec2(vert.co)[0])**2 + (v_ref - vec3_to_vec2(vert.co)[1])**2)
                 weights /= np.sum(weights)
@@ -237,12 +298,11 @@ class MeshGenerationByNormal(bpy.types.Operator):
                 vert[normal_map_layer] = [ 0.5 * (norm.x + 1) , 0.5 * (norm.z + 1), 0.5 * (norm.y+1)]
 
             # UV projection, required for correct tangent direction
-            bm.verts.ensure_lookup_table()
             for face in bm.faces:
                 for loop in face.loops:
-                    co = vec3_to_vec2(bm.verts[loop.vert.index].co)
+                    co = vec3_to_vec2(loop.vert.co)
                     loop[uv_layer].uv = ( (co[0]*scale_factor-u_min)/(u_max-u_min),
-                                            -(co[1]*scale_factor-v_min)/(v_max-v_min))
+                                           1 -(co[1]*scale_factor-v_min)/(v_max-v_min))
 
             # Set vertex color from the stroke's both vertex and fill colors
             fill_base_color = [1,1,1,1]

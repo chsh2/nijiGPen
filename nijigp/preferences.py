@@ -21,6 +21,9 @@ class InstallDependencies(bpy.types.Operator):
         res = subprocess.call([python_exe, '-m', 'pip', 'install', 'pyclipper'])
         if res > 0:
             self.report({"ERROR"}, "Cannot install the package PyClipper.")
+        res = subprocess.call([python_exe, '-m', 'pip', 'install', 'triangle'])
+        if res > 0:
+            self.report({"ERROR"}, "Cannot install the package triangle.")
 
         self.report({"INFO"}, "Python packages installed successfully.")
         return {"FINISHED"}
