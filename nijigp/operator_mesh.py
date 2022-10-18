@@ -12,17 +12,23 @@ class MeshGenerationByNormal(bpy.types.Operator):
     bl_category = 'View'
     bl_options = {'REGISTER', 'UNDO'}
 
+    vertical_gap: bpy.props.FloatProperty(
+            name='Resolution',
+            default=0.05, min=0,
+            unit='LENGTH',
+            description='Mininum vertical space between generated meshes'
+    )    
     mesh_style: bpy.props.EnumProperty(
             name='Mesh Style',
             items=[('TRI', 'Delaunay Triangulation', ''),
                     ('QUAD', 'Grid', '')],
-            default='QUAD',
+            default='TRI',
             description='Method of creating faces inside the stroke shape'
     )
     resolution: bpy.props.IntProperty(
             name='Resolution',
-            default=20, min=2, max=100,
-            description='Cuts of the generated grid'
+            default=20, min=2, soft_max=100,
+            description='Relative dimension of polygons of the generated mesh'
     )
     keep_original: bpy.props.BoolProperty(
             name='Keep Original',
@@ -32,12 +38,15 @@ class MeshGenerationByNormal(bpy.types.Operator):
 
     def draw(self, context):
         layout = self.layout
-        layout.label(text = "Geometry Options:")
+        layout.label(text = "Multi-Object Alignment:")
         box1 = layout.box()
-        box1.label(text = "Mesh Style:")
-        box1.prop(self, "mesh_style", text = "")        
-        box1.prop(self, "resolution", text = "Resolution")
-        box1.prop(self, "keep_original", text = "Keep Original")
+        box1.prop(self, "vertical_gap", text = "Vertical Gap")
+        layout.label(text = "Geometry Options:")
+        box2 = layout.box()
+        box2.label(text = "Mesh Style:")
+        box2.prop(self, "mesh_style", text = "")        
+        box2.prop(self, "resolution", text = "Resolution")
+        box2.prop(self, "keep_original", text = "Keep Original")
 
     def execute(self, context):
         import numpy as np
@@ -126,6 +135,8 @@ class MeshGenerationByNormal(bpy.types.Operator):
                 if not e1 or not e2:
                     return [src_vert, dst_vert]
 
+        generated_objects = []
+        vertical_pos_list = []
         def process_single_stroke(i, co_list):
             """
             Mesh is generated with following 3 types of vertices:
@@ -323,6 +334,21 @@ class MeshGenerationByNormal(bpy.types.Operator):
                 #v[vertex_color_layer] = [vertex_color.r, vertex_color.g, vertex_color.b, fill_base_color[3]]
                 v[vertex_color_layer] = [linear_to_srgb(fill_base_color[0]), linear_to_srgb(fill_base_color[1]), linear_to_srgb(fill_base_color[2]), fill_base_color[3]]
 
+            # Determine the depth coordinate by ray-casting to every mesh generated earlier
+            vertical_pos = 0
+            for j,obj in enumerate(generated_objects):
+                for v in bm.verts:
+                    res, loc, norm, idx = obj.ray_cast(v.co, get_depth_direction())
+                    if res:
+                        vertical_pos = max(vertical_pos, vertical_pos_list[j])
+                        break
+            vertical_pos += self.vertical_gap
+
+            # Update vertices locations and make a new BVHTree
+            for v in bm.verts:
+                set_depth(v, vertical_pos)
+            vertical_pos_list.append(vertical_pos)
+
             bm.to_mesh(new_mesh)
             bm.free()
 
@@ -330,6 +356,7 @@ class MeshGenerationByNormal(bpy.types.Operator):
             new_object = bpy.data.objects.new(mesh_names[i], new_mesh)
             bpy.context.collection.objects.link(new_object)
             new_object.parent = current_gp_obj
+            generated_objects.append(new_object)
 
             # Assign material
             if "nijigp_mat_with_normal" not in bpy.data.materials:
@@ -631,10 +658,6 @@ class MeshGenerationByOffsetting(bpy.types.Operator):
                 fill_base_color[1] = fill_base_color[1] * (1-alpha) + alpha * stroke_list[i].vertex_color_fill[1]
                 fill_base_color[2] = fill_base_color[2] * (1-alpha) + alpha * stroke_list[i].vertex_color_fill[2]
             for v in bm.verts:
-                # Not supported until Blender 3.2; Currently, using a homemade function instead
-                #vertex_color = Color([fill_base_color[0], fill_base_color[1], fill_base_color[2]])
-                #vertex_color = vertex_color.from_scene_linear_to_srgb()
-                #v[vertex_color_layer] = [vertex_color.r, vertex_color.g, vertex_color.b, fill_base_color[3]]
                 v[vertex_color_layer] = [linear_to_srgb(fill_base_color[0]), linear_to_srgb(fill_base_color[1]), linear_to_srgb(fill_base_color[2]), fill_base_color[3]]
 
             bm.to_mesh(new_mesh)
@@ -682,7 +705,7 @@ class MeshGenerationByOffsetting(bpy.types.Operator):
                 new_object.data.use_remesh_preserve_vertex_colors = True
                 bpy.ops.object.voxel_remesh("EXEC_DEFAULT")
 
-            #new_object.data.use_auto_smooth = self.postprocess_shade_smooth
+            new_object.data.use_auto_smooth = self.postprocess_shade_smooth
 
         for i,co_list in enumerate(poly_list):
             process_single_stroke(i, co_list)

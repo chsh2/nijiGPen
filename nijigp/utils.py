@@ -93,6 +93,16 @@ def set_depth(point, depth):
     if scene.nijigp_working_plane == 'X-Y':    
         point.co.z = depth
 
+def get_depth_direction():
+    """Return a vector pointing to the positive side of the depth dimension"""
+    scene = bpy.context.scene
+    if scene.nijigp_working_plane == 'X-Z':    
+        return Vector((0,-1,0))
+    if scene.nijigp_working_plane == 'Y-Z':    
+        return Vector((1,0,0))
+    if scene.nijigp_working_plane == 'X-Y':    
+        return Vector((0,0,1))
+
 def get_2d_squared_distance(co1, scale_factor1, co2, scale_factor2):
     """Euclidean distance that takes the scale factors into consideration"""
     delta = [co1[0]/scale_factor1 - co2[0]/scale_factor2, co1[1]/scale_factor1 - co2[1]/scale_factor2]
