@@ -48,11 +48,11 @@ class NIJIGP_PT_draw_panel_io(bpy.types.Panel):
 
         layout.label(text="Shapes from Clipboard:")
         row = layout.row()
-        row.operator("nijigp.paste_svg", text="Paste SVG Codes", icon="PASTEDOWN")
+        row.operator("gpencil.nijigp_paste_svg", text="Paste SVG Codes", icon="PASTEDOWN")
 
         layout.label(text="Palettes and Colors:")
         row = layout.row()
-        row.operator("nijigp.paste_xml_palette", text="Paste XML Palette", icon="PASTEDOWN")
+        row.operator("gpencil.nijigp_paste_xml_palette", text="Paste XML Palette", icon="PASTEDOWN")
         
 
 class NIJIGP_PT_edit_panel_io(bpy.types.Panel):
@@ -70,11 +70,11 @@ class NIJIGP_PT_edit_panel_io(bpy.types.Panel):
 
         layout.label(text="Shapes from Clipboard:")
         row = layout.row()
-        row.operator("nijigp.paste_svg", text="Paste SVG Codes", icon="PASTEDOWN")
+        row.operator("gpencil.nijigp_paste_svg", text="Paste SVG Codes", icon="PASTEDOWN")
 
         layout.label(text="Palettes and Colors:")
         row = layout.row()
-        row.operator("nijigp.paste_xml_palette", text="Paste XML Palette", icon="PASTEDOWN")
+        row.operator("gpencil.nijigp_paste_xml_palette", text="Paste XML Palette", icon="PASTEDOWN")
 
 class NIJIGP_PT_draw_panel_polygon(bpy.types.Panel):
     bl_idname = 'NIJIGP_PT_draw_panel_polygon'
@@ -90,7 +90,7 @@ class NIJIGP_PT_draw_panel_polygon(bpy.types.Panel):
 
         layout.label(text="Stroke Operations:")
         row = layout.row()
-        row.operator("nijigp.bool_last", text="Boolean with Last Stroke", icon="MOD_BOOLEAN")
+        row.operator("gpencil.nijigp_bool_last", text="Boolean with Last Stroke", icon="MOD_BOOLEAN")
         layout.label(text="Affect only:")
         row = layout.row()
         row.prop(scene, "nijigp_draw_bool_material_constraint", text = "Same Material")
@@ -113,9 +113,9 @@ class NIJIGP_PT_edit_panel_polygon(bpy.types.Panel):
 
         layout.label(text="Stroke Operations:")
         row = layout.row()
-        row.operator("nijigp.offset_selected", text="Offset Selected", icon="MOD_SKIN")
+        row.operator("gpencil.nijigp_offset_selected", text="Offset Selected", icon="MOD_SKIN")
         row = layout.row()
-        row.operator("nijigp.bool_selected", text="Boolean of Selected", icon="MOD_BOOLEAN")
+        row.operator("gpencil.nijigp_bool_selected", text="Boolean of Selected", icon="MOD_BOOLEAN")
 
 class NIJIGP_PT_edit_panel_mesh(bpy.types.Panel):
     bl_idname = 'NIJIGP_PT_edit_panel_mesh'
@@ -135,7 +135,7 @@ class NIJIGP_PT_edit_panel_mesh(bpy.types.Panel):
         row.operator("gpencil.stroke_smooth", text="Smooth")
         layout.label(text="Generation Methods:")
         row = layout.row()
-        row.operator("nijigp.mesh_generation_offset", text="Offset to Mesh", icon="CONE")
+        row.operator("gpencil.nijigp_mesh_generation_offset", text="Frustum by Offset", icon="CONE")
         row = layout.row()
-        row.operator("nijigp.mesh_generation_normal", text="Planar with Normals", icon="NORMALS_FACE")
+        row.operator("gpencil.nijigp_mesh_generation_normal", text="Planar with Normals", icon="NORMALS_FACE")
 

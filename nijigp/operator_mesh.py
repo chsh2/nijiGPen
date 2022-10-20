@@ -7,7 +7,7 @@ from mathutils import *
 
 class MeshGenerationByNormal(bpy.types.Operator):
     """Generate a planar mesh with an interpolated normal map calculated from the selected strokes"""
-    bl_idname = "nijigp.mesh_generation_normal"
+    bl_idname = "gpencil.nijigp_mesh_generation_normal"
     bl_label = "Convert to Meshes by Normal Interpolation"
     bl_category = 'View'
     bl_options = {'REGISTER', 'UNDO'}
@@ -62,10 +62,10 @@ class MeshGenerationByNormal(bpy.types.Operator):
         if self.mesh_style == 'TRI':
             if context.object.data.use_multiedit:
                 context.object.data.use_multiedit = False
-                bpy.ops.nijigp.offset_selected()
+                bpy.ops.gpencil.nijigp_offset_selected()
                 context.object.data.use_multiedit = True
             else:
-                bpy.ops.nijigp.offset_selected()
+                bpy.ops.gpencil.nijigp_offset_selected()
 
         # Convert selected strokes to 2D polygon point lists
         current_gp_obj = context.object
@@ -389,7 +389,7 @@ class MeshGenerationByNormal(bpy.types.Operator):
 
 class MeshGenerationByOffsetting(bpy.types.Operator):
     """Generate an embossed mesh by offsetting the selected strokes"""
-    bl_idname = "nijigp.mesh_generation_offset"
+    bl_idname = "gpencil.nijigp_mesh_generation_offset"
     bl_label = "Convert to Meshes by Offsetting"
     bl_category = 'View'
     bl_options = {'REGISTER', 'UNDO'}

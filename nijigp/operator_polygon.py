@@ -5,7 +5,7 @@ from .utils import *
 
 class OffsetSelectedOperator(bpy.types.Operator):
     """Offset or inset the selected strokes"""
-    bl_idname = "nijigp.offset_selected"
+    bl_idname = "gpencil.nijigp_offset_selected"
     bl_label = "Offset Selected"
     bl_category = 'View'
     bl_options = {'REGISTER', 'UNDO'}
@@ -216,7 +216,7 @@ class OffsetSelectedOperator(bpy.types.Operator):
 
 class BoolSelectedOperator(bpy.types.Operator):
     """Execute boolean operations on selected strokes"""
-    bl_idname = "nijigp.bool_selected"
+    bl_idname = "gpencil.nijigp_bool_selected"
     bl_label = "Boolean of Selected"
     bl_category = 'View'
     bl_options = {'REGISTER', 'UNDO'}
@@ -418,7 +418,7 @@ class BoolSelectedOperator(bpy.types.Operator):
 
 class BoolLastOperator(bpy.types.Operator):
     """Execute boolean operations with the latest drawn strokes"""
-    bl_idname = "nijigp.bool_last"
+    bl_idname = "gpencil.nijigp_bool_last"
     bl_label = "Boolean with Last Stroke"
     bl_category = 'View'
     bl_options = {'REGISTER', 'UNDO'}

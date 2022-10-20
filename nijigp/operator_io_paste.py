@@ -5,7 +5,7 @@ from .utils import *
 
 class PasteSVGOperator(bpy.types.Operator):
     """Convert SVG codes in the clipboard to strokes and insert them in the current Grease Pencil object"""
-    bl_idname = "nijigp.paste_svg"
+    bl_idname = "gpencil.nijigp_paste_svg"
     bl_label = "Paste SVG Codes"
     bl_category = 'View'
     bl_options = {'REGISTER', 'UNDO'}
@@ -135,7 +135,7 @@ class PasteSVGOperator(bpy.types.Operator):
 
 class PasteXMLOperator(bpy.types.Operator):
     """Parse XML messages in the clipboard to create a new palette"""
-    bl_idname = "nijigp.paste_xml_palette"
+    bl_idname = "gpencil.nijigp_paste_xml_palette"
     bl_label = "Paste XML Palette"
     bl_category = 'View'
     bl_options = {'REGISTER', 'UNDO'}
