@@ -46,13 +46,15 @@ class NIJIGP_PT_draw_panel_io(bpy.types.Panel):
         scene = context.scene
         obj = context.object
 
-        layout.label(text="Shapes from Clipboard:")
+        layout.label(text="Clipboard Utilities:")
         row = layout.row()
         row.operator("gpencil.nijigp_paste_svg", text="Paste SVG Codes", icon="PASTEDOWN")
-
-        layout.label(text="Palettes and Colors:")
         row = layout.row()
         row.operator("gpencil.nijigp_paste_xml_palette", text="Paste XML Palette", icon="PASTEDOWN")
+
+        layout.label(text="File Import:")
+        row = layout.row()
+        row.operator("gpencil.nijigp_extract_lineart", text="Line Art from Image", icon="LINE_DATA")
         
 
 class NIJIGP_PT_edit_panel_io(bpy.types.Panel):
@@ -68,13 +70,15 @@ class NIJIGP_PT_edit_panel_io(bpy.types.Panel):
         scene = context.scene
         obj = context.object
 
-        layout.label(text="Shapes from Clipboard:")
+        layout.label(text="Clipboard Utilities:")
         row = layout.row()
         row.operator("gpencil.nijigp_paste_svg", text="Paste SVG Codes", icon="PASTEDOWN")
-
-        layout.label(text="Palettes and Colors:")
         row = layout.row()
         row.operator("gpencil.nijigp_paste_xml_palette", text="Paste XML Palette", icon="PASTEDOWN")
+
+        layout.label(text="File Import:")
+        row = layout.row()
+        row.operator("gpencil.nijigp_extract_lineart", text="Line Art from Image", icon="LINE_DATA")
 
 class NIJIGP_PT_draw_panel_polygon(bpy.types.Panel):
     bl_idname = 'NIJIGP_PT_draw_panel_polygon'

@@ -15,7 +15,7 @@ import bpy
 bl_info = {
     "name" : "nijiGPen",
     "author" : "https://github.com/chsh2/nijiGPen",
-    "description" : "Tools modifying Grease Pencil strokes in the 2D (XZ) plane",
+    "description" : "Tools modifying Grease Pencil strokes in a 2D plane",
     "blender" : (3, 3, 0),
     "version" : (0, 2, 0),
     "location" : "View3D > Sidebar > NijiGP, in Draw and Edit mode of Grease Pencil objects",
