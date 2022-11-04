@@ -26,6 +26,8 @@ Different from most add-ons, NijiGPen heavily relies on third-party Python packa
 
 3. **Enable the NijiGPen add-on, and a new panel "Dependency Management" will appear. Click "Refresh" to check if packages are installed, and click "Install" button for those missing. This step requires the Internet connection.**
 
+![image](https://user-images.githubusercontent.com/110356534/199868050-60927e38-88fe-422c-9495-aae62986f9c5.png)
+
 Alternatively, the depedencies can also be installed manually. You can open a terminal in Blender's Python directory (e.g., `blender/3.xx/python/bin`) and execute the following commands:
 ```
 python -m ensurepip --upgrade
