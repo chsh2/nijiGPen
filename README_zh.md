@@ -24,6 +24,8 @@ Blender 3.0以上版本 (3.3最佳)
 2. 在Blender的【偏好设置】面板中安装该zip文件。
 3. **启用插件，面板中将出现如下图所示的Python包管理器。刷新以检测状态，然后点击按钮安装缺失的包。**
 
+![image](https://user-images.githubusercontent.com/110356534/199868050-60927e38-88fe-422c-9495-aae62986f9c5.png)
+
 如果第三步卡住或失败，可以尝试在命令行工具中进入Blender的Python目录（该目录通常是`blender/3.xx/python/bin`这样的命名）并手动输入如下命令：
 
 ```
