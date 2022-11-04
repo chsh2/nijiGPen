@@ -103,6 +103,7 @@ class OffsetSelectedOperator(bpy.types.Operator):
             import pyclipper
         except ImportError:
             self.report({"ERROR"}, "Please install dependencies in the Preferences panel.")
+            return {'FINISHED'}
         clipper = pyclipper.PyclipperOffset()
         clipper.MiterLimit = math.inf
 
@@ -150,7 +151,7 @@ class OffsetSelectedOperator(bpy.types.Operator):
             # Convert selected strokes to 2D polygon point lists
             for i,frame in layer_frame_map.items():
                 layer = current_gp_obj.data.layers[i]
-                # It is possible to have a layer with no 'strokes' attribute
+                # Consider the case where active_frame is None
                 if not layer.lock and hasattr(frame, "strokes"):
                     for j,stroke in enumerate(frame.strokes):
                         if stroke.select:
@@ -288,6 +289,7 @@ class BoolSelectedOperator(bpy.types.Operator):
             import pyclipper
         except ImportError:
             self.report({"ERROR"}, "Please install dependencies in the Preferences panel.")
+            return {'FINISHED'}
         clipper = pyclipper.Pyclipper()
 
         op = pyclipper.CT_UNION
@@ -331,7 +333,6 @@ class BoolSelectedOperator(bpy.types.Operator):
             # Convert selected strokes to 2D polygon point lists
             for i,frame in layer_frame_map.items():
                 layer = current_gp_obj.data.layers[i]
-                # It is possible to have a layer with no 'strokes' attribute
                 if not layer.lock and hasattr(frame, "strokes"):
                     for j,stroke in enumerate(frame.strokes):
                         if stroke.select:
@@ -458,6 +459,7 @@ class BoolLastOperator(bpy.types.Operator):
             import pyclipper
         except ImportError:
             self.report({"ERROR"}, "Please install dependencies in the Preferences panel.")
+            return {'FINISHED'}
         clipper = pyclipper.Pyclipper()
 
         op = pyclipper.CT_UNION

@@ -92,6 +92,7 @@ class ExtractLineartOperator(bpy.types.Operator, ImportHelper):
             import numpy as np
         except:
             self.report({"ERROR"}, "Please install Scikit-Image in the Preferences panel.")
+            return {'FINISHED'}
 
         # Import the image file and read pixels
         img_obj = image_utils.load_image(self.filepath, check_existing=True) # type: bpy.types.Image
@@ -198,5 +199,6 @@ class ExtractLineartOperator(bpy.types.Operator, ImportHelper):
                     point.vertex_color[0] = denoised_mat[img_co[0], img_co[1], min(0, img_obj.channels-1)]
                     point.vertex_color[1] = denoised_mat[img_co[0], img_co[1], min(1, img_obj.channels-1)]
                     point.vertex_color[2] = denoised_mat[img_co[0], img_co[1], min(2, img_obj.channels-1)]
+            strokes[-1].select = True
 
         return {'FINISHED'}

@@ -30,6 +30,12 @@ class MeshGenerationByNormal(bpy.types.Operator):
             default=20, min=2, soft_max=100,
             description='Relative dimension of polygons of the generated mesh'
     )
+    max_vertical_angle: bpy.props.FloatProperty(
+            name='Max Vertical Angle',
+            default=math.pi / 2, min=0, max=math.pi / 2,
+            unit='ROTATION',
+            description='Vertical angle of the normal vector at the boundary vertices'
+    ) 
     keep_original: bpy.props.BoolProperty(
             name='Keep Original',
             default=True,
@@ -46,6 +52,7 @@ class MeshGenerationByNormal(bpy.types.Operator):
         box2.label(text = "Mesh Style:")
         box2.prop(self, "mesh_style", text = "")        
         box2.prop(self, "resolution", text = "Resolution")
+        box2.prop(self, "max_vertical_angle")
         box2.prop(self, "keep_original", text = "Keep Original")
 
     def execute(self, context):
@@ -55,6 +62,7 @@ class MeshGenerationByNormal(bpy.types.Operator):
             import triangle as tr
         except ImportError:
             self.report({"ERROR"}, "Please install dependencies in the Preferences panel.")
+            return {'FINISHED'}
         
         # Preprocess using Offset operator
         # The triangle library may crash in several cases, which should be avoided with every effort
@@ -289,7 +297,8 @@ class MeshGenerationByNormal(bpy.types.Operator):
                 norm = Vector([vec3_to_vec2(contour[j].co)[1] -  vec3_to_vec2(contour[j-1].co)[1]
                                 , 0
                                 , vec3_to_vec2(contour[j].co)[0] -  vec3_to_vec2(contour[j-1].co)[0]]).normalized()
-                vert[normal_map_layer] = [ 0.5 * (norm.x + 1), 0.5 * (norm.z + 1), 0.5]
+                norm = norm * math.sin(self.max_vertical_angle) + Vector((0,math.cos(self.max_vertical_angle),0))
+                vert[normal_map_layer] = [ 0.5 * (norm.x + 1), 0.5 * (norm.z + 1), 0.5 * (norm.y + 1)]
                 norm_u_ref.append(norm.x)
                 norm_v_ref.append(norm.z)
                 u_ref.append(vec3_to_vec2(contour[j].co)[0])
@@ -305,7 +314,7 @@ class MeshGenerationByNormal(bpy.types.Operator):
                 weights /= np.sum(weights)
                 norm_u = np.dot(norm_u_ref, weights)
                 norm_v = np.dot(norm_v_ref, weights)
-                norm = Vector([norm_u, np.sqrt(1-norm_u**2-norm_v**2), norm_v])
+                norm = Vector([norm_u, np.sqrt(math.sin(self.max_vertical_angle)**2-norm_u**2-norm_v**2) + math.cos(self.max_vertical_angle), norm_v])
                 vert[normal_map_layer] = [ 0.5 * (norm.x + 1) , 0.5 * (norm.z + 1), 0.5 * (norm.y+1)]
 
             # UV projection, required for correct tangent direction
@@ -501,6 +510,7 @@ class MeshGenerationByOffsetting(bpy.types.Operator):
             import pyclipper
         except ImportError:
             self.report({"ERROR"}, "Please install dependencies in the Preferences panel.")
+            return {'FINISHED'}
         clipper = pyclipper.PyclipperOffset()
         clipper.MiterLimit = math.inf
         jt = pyclipper.JT_ROUND
