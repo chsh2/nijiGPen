@@ -53,7 +53,11 @@ class PasteSVGOperator(bpy.types.Operator):
 
         # Import SVG file
         bpy.ops.object.mode_set(mode='OBJECT')
-        bpy.ops.wm.gpencil_import_svg("EXEC_DEFAULT", filepath = svg_path, resolution = self.svg_resolution, scale = self.svg_scale)
+        if bpy.app.version > (3, 3, 0):
+            svg_dirname, svg_filename = os.path.split(svg_path)
+            bpy.ops.wm.gpencil_import_svg("EXEC_DEFAULT", filepath=svg_path, directory=svg_dirname, files=[{"name":svg_filename}], resolution = self.svg_resolution, scale = self.svg_scale)
+        else:
+            bpy.ops.wm.gpencil_import_svg("EXEC_DEFAULT", filepath = svg_path, resolution = self.svg_resolution, scale = self.svg_scale)
         new_gp_obj = context.object
 
         # Copy all strokes to the existing GP object
