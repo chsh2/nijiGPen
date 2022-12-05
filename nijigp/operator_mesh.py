@@ -5,6 +5,8 @@ import bmesh
 from .utils import *
 from mathutils import *
 
+MAX_DEPTH = 4096
+
 class MeshGenerationByNormal(bpy.types.Operator):
     """Generate a planar mesh with an interpolated normal map calculated from the selected strokes"""
     bl_idname = "gpencil.nijigp_mesh_generation_normal"
@@ -144,7 +146,9 @@ class MeshGenerationByNormal(bpy.types.Operator):
                     return [src_vert, dst_vert]
 
         generated_objects = []
-        vertical_pos_list = []
+        for obj in current_gp_obj.children:
+            if 'nijigp_mesh' in obj:
+                generated_objects.append(obj)
         def process_single_stroke(i, co_list):
             """
             Mesh is generated with following 3 types of vertices:
@@ -347,22 +351,25 @@ class MeshGenerationByNormal(bpy.types.Operator):
             vertical_pos = 0
             for j,obj in enumerate(generated_objects):
                 for v in bm.verts:
-                    res, loc, norm, idx = obj.ray_cast(v.co, get_depth_direction())
+                    ray_emitter = Vector(v.co)
+                    set_depth(ray_emitter, MAX_DEPTH)
+                    res, loc, norm, idx = obj.ray_cast(ray_emitter, -get_depth_direction())
                     if res:
-                        vertical_pos = max(vertical_pos, vertical_pos_list[j])
-                        break
+                        vertical_pos = max(vertical_pos, vec3_to_depth(loc))
+                        if obj['nijigp_mesh'] == 'planar':
+                            break
             vertical_pos += self.vertical_gap
 
             # Update vertices locations and make a new BVHTree
             for v in bm.verts:
                 set_depth(v, vertical_pos)
-            vertical_pos_list.append(vertical_pos)
 
             bm.to_mesh(new_mesh)
             bm.free()
 
             # Object generation
             new_object = bpy.data.objects.new(mesh_names[i], new_mesh)
+            new_object['nijigp_mesh'] = 'planar'
             bpy.context.collection.objects.link(new_object)
             new_object.parent = current_gp_obj
             generated_objects.append(new_object)
@@ -403,7 +410,12 @@ class MeshGenerationByOffsetting(bpy.types.Operator):
     bl_category = 'View'
     bl_options = {'REGISTER', 'UNDO'}
 
-    # Define properties
+    vertical_gap: bpy.props.FloatProperty(
+            name='Resolution',
+            default=0, min=0,
+            unit='LENGTH',
+            description='Mininum vertical space between generated meshes'
+    ) 
     offset_amount: bpy.props.FloatProperty(
             name='Offset',
             default=0.1, soft_min=0, unit='LENGTH',
@@ -480,26 +492,29 @@ class MeshGenerationByOffsetting(bpy.types.Operator):
 
     def draw(self, context):
         layout = self.layout
-        layout.label(text = "Geometry Options:")
+        layout.label(text = "Multi-Object Alignment:")
         box1 = layout.box()
-        box1.prop(self, "offset_amount", text = "Offset Amount")
-        box1.prop(self, "resolution", text = "Resolution")
-        box1.label(text = "Corner Shape")
-        box1.prop(self, "corner_shape", text = "")
-        box1.label(text = "Slope Style")
-        box1.prop(self, "slope_style", text = "")
-        box1.label(text = "Extrude Method")
-        box1.prop(self, "extrude_method", text = "")
-        box1.prop(self, "keep_original", text = "Keep Original")
+        box1.prop(self, "vertical_gap", text = "Vertical Gap")
+        layout.label(text = "Geometry Options:")
+        box2 = layout.box()
+        box2.prop(self, "offset_amount", text = "Offset Amount")
+        box2.prop(self, "resolution", text = "Resolution")
+        box2.label(text = "Corner Shape")
+        box2.prop(self, "corner_shape", text = "")
+        box2.label(text = "Slope Style")
+        box2.prop(self, "slope_style", text = "")
+        box2.label(text = "Extrude Method")
+        box2.prop(self, "extrude_method", text = "")
+        box2.prop(self, "keep_original", text = "Keep Original")
 
         layout.label(text = "Post-Processing Options:")
-        box2 = layout.box()
-        box2.prop(self, "postprocess_double_sided", text = "Double-Sided")  
-        box2.prop(self, "postprocess_shade_smooth", text = "Shade Smooth")
-        row = box2.row()
+        box3 = layout.box()
+        box3.prop(self, "postprocess_double_sided", text = "Double-Sided")  
+        box3.prop(self, "postprocess_shade_smooth", text = "Shade Smooth")
+        row = box3.row()
         row.prop(self, "postprocess_merge", text='Merge By')
         row.prop(self, "merge_distance", text='Distance')
-        row = box2.row()
+        row = box3.row()
         row.prop(self, "postprocess_remesh", text='Remesh')
         row.prop(self, "remesh_voxel_size", text='Voxel Size')
 
@@ -534,6 +549,10 @@ class MeshGenerationByOffsetting(bpy.types.Operator):
                         mesh_names.append('Offset_' + layer.info + '_' + str(j))
         poly_list, scale_factor = stroke_to_poly(stroke_list, scale = True)
 
+        generated_objects = []
+        for obj in current_gp_obj.children:
+            if 'nijigp_mesh' in obj:
+                generated_objects.append(obj)
         def process_single_stroke(i, co_list):
             '''
             Function that processes each stroke separately
@@ -670,13 +689,29 @@ class MeshGenerationByOffsetting(bpy.types.Operator):
             for v in bm.verts:
                 v[vertex_color_layer] = [linear_to_srgb(fill_base_color[0]), linear_to_srgb(fill_base_color[1]), linear_to_srgb(fill_base_color[2]), fill_base_color[3]]
 
+            # Determine the depth coordinate by ray-casting to every mesh generated earlier
+            vertical_pos = 0
+            for j,obj in enumerate(generated_objects):
+                for v in bm.verts:
+                    ray_emitter = Vector(v.co)
+                    set_depth(ray_emitter, MAX_DEPTH)
+                    res, loc, norm, idx = obj.ray_cast(ray_emitter, -get_depth_direction())
+                    if res:
+                        vertical_pos = max(vertical_pos, vec3_to_depth(loc))
+                        if obj['nijigp_mesh'] == 'planar':
+                            break
+            vertical_pos += self.vertical_gap
+
             bm.to_mesh(new_mesh)
             bm.free()
 
             # Object generation
             new_object = bpy.data.objects.new(mesh_names[i], new_mesh)
+            new_object['nijigp_mesh'] = 'frustum'
+            set_depth(new_object.location, vertical_pos)
             bpy.context.collection.objects.link(new_object)
             new_object.parent = current_gp_obj
+            generated_objects.append(new_object)
 
             # Assign material
             if "nijigp_mat" not in bpy.data.materials:
@@ -716,6 +751,12 @@ class MeshGenerationByOffsetting(bpy.types.Operator):
                 bpy.ops.object.voxel_remesh("EXEC_DEFAULT")
 
             new_object.data.use_auto_smooth = self.postprocess_shade_smooth
+
+            # Apply transform, necessary because of the movement in depth
+            mb = new_object.matrix_basis
+            if hasattr(new_object.data, "transform"):
+                new_object.data.transform(mb)
+            new_object.location = Vector((0, 0, 0))
 
         for i,co_list in enumerate(poly_list):
             process_single_stroke(i, co_list)

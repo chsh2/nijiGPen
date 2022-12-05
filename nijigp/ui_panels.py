@@ -94,7 +94,11 @@ class NIJIGP_PT_draw_panel_polygon(bpy.types.Panel):
 
         layout.label(text="Stroke Operations:")
         row = layout.row()
-        row.operator("gpencil.nijigp_bool_last", text="Boolean with Last Stroke", icon="MOD_BOOLEAN")
+        row.operator("gpencil.nijigp_bool_last", text="Boolean with Last Stroke")
+        row = layout.row()
+        row.operator("gpencil.nijigp_bool_last", text="+", icon="SELECT_EXTEND").operation_type = 'UNION'
+        row.operator("gpencil.nijigp_bool_last", text="-", icon="SELECT_SUBTRACT").operation_type = 'DIFFERENCE'
+        row.operator("gpencil.nijigp_bool_last", text="×", icon="SELECT_INTERSECT").operation_type = 'INTERSECTION'
         layout.label(text="Affect only:")
         row = layout.row()
         row.prop(scene, "nijigp_draw_bool_material_constraint", text = "Same Material")
@@ -119,7 +123,11 @@ class NIJIGP_PT_edit_panel_polygon(bpy.types.Panel):
         row = layout.row()
         row.operator("gpencil.nijigp_offset_selected", text="Offset Selected", icon="MOD_SKIN")
         row = layout.row()
-        row.operator("gpencil.nijigp_bool_selected", text="Boolean of Selected", icon="MOD_BOOLEAN")
+        row.operator("gpencil.nijigp_bool_selected", text="Boolean of Selected")
+        row = layout.row()
+        row.operator("gpencil.nijigp_bool_selected", text="+", icon="SELECT_EXTEND").operation_type = 'UNION'
+        row.operator("gpencil.nijigp_bool_selected", text="-", icon="SELECT_SUBTRACT").operation_type = 'DIFFERENCE'
+        row.operator("gpencil.nijigp_bool_selected", text="×", icon="SELECT_INTERSECT").operation_type = 'INTERSECTION'
 
 class NIJIGP_PT_edit_panel_mesh(bpy.types.Panel):
     bl_idname = 'NIJIGP_PT_edit_panel_mesh'

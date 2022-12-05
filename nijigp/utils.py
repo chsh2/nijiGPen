@@ -86,12 +86,16 @@ def vec3_to_depth(co):
 def set_depth(point, depth):
     """Set depth to a GP point"""
     scene = bpy.context.scene
+    if hasattr(point, 'co'):
+        target = point.co
+    else:
+        target = point
     if scene.nijigp_working_plane == 'X-Z':    
-        point.co.y = -depth
+        target.y = -depth
     if scene.nijigp_working_plane == 'Y-Z':    
-        point.co.x = depth
+        target.x = depth
     if scene.nijigp_working_plane == 'X-Y':    
-        point.co.z = depth
+        target.z = depth
 
 def get_depth_direction():
     """Return a vector pointing to the positive side of the depth dimension"""
