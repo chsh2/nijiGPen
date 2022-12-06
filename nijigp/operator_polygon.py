@@ -291,6 +291,7 @@ class BoolSelectedOperator(bpy.types.Operator):
             self.report({"ERROR"}, "Please install dependencies in the Preferences panel.")
             return {'FINISHED'}
         clipper = pyclipper.Pyclipper()
+        clipper.PreserveCollinear = True
 
         op = pyclipper.CT_UNION
         if self.operation_type == 'INTERSECTION':
@@ -461,7 +462,8 @@ class BoolLastOperator(bpy.types.Operator):
             self.report({"ERROR"}, "Please install dependencies in the Preferences panel.")
             return {'FINISHED'}
         clipper = pyclipper.Pyclipper()
-
+        clipper.PreserveCollinear = True
+        
         op = pyclipper.CT_UNION
         if self.operation_type == 'INTERSECTION':
             op = pyclipper.CT_INTERSECTION
