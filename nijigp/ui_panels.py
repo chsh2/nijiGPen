@@ -139,15 +139,37 @@ class NIJIGP_PT_edit_panel_mesh(bpy.types.Panel):
 
     def draw(self, context):
         layout = self.layout
-        scene = context.scene
-        obj = context.object
+        
         layout.label(text="Preprocessing:")
         row = layout.row()
         row.operator("gpencil.stroke_sample", text="Resample")
         row.operator("gpencil.stroke_smooth", text="Smooth")
+
         layout.label(text="Generation Methods:")
         row = layout.row()
         row.operator("gpencil.nijigp_mesh_generation_offset", text="Frustum by Offset", icon="CONE")
         row = layout.row()
         row.operator("gpencil.nijigp_mesh_generation_normal", text="Planar with Normals", icon="NORMALS_FACE")
 
+        layout.label(text="Mesh Management:")
+        row = layout.row()
+        row.operator("gpencil.nijigp_mesh_management", text="Hide").action = 'HIDE'
+        row.operator("gpencil.nijigp_mesh_management", text="Show").action = 'SHOW'
+        row.operator("gpencil.nijigp_mesh_management", text="Clear").action = 'CLEAR'
+
+class NIJIGP_PT_draw_panel_mesh(bpy.types.Panel):
+    bl_idname = 'NIJIGP_PT_draw_panel_mesh'
+    bl_label = "Strokes to Meshes"
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "NijiGP"
+    bl_context = "greasepencil_paint"
+
+    def draw(self, context):
+        layout = self.layout
+
+        layout.label(text="Mesh Management:")
+        row = layout.row()
+        row.operator("gpencil.nijigp_mesh_management", text="Hide").action = 'HIDE'
+        row.operator("gpencil.nijigp_mesh_management", text="Show").action = 'SHOW'
+        row.operator("gpencil.nijigp_mesh_management", text="Clear").action = 'CLEAR'

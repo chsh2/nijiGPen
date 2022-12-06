@@ -7,6 +7,38 @@ from mathutils import *
 
 MAX_DEPTH = 4096
 
+class MeshManagement(bpy.types.Operator):
+    """Manage mesh objects generated from the active GPencil object"""
+    bl_idname = "gpencil.nijigp_mesh_management"
+    bl_label = "Generated Mesh Management"
+    bl_category = 'View'
+    bl_options = {'REGISTER', 'UNDO'}
+
+    action: bpy.props.EnumProperty(
+            name='Action',
+            items=[('HIDE', 'Hide', ''),
+                    ('SHOW', 'Show', ''),
+                    ('CLEAR', 'Clear', '')],
+            default='SHOW',
+            description='Actions to perform on children meshes'
+    )  
+
+    def draw(self, context):
+        layout = self.layout
+        row = layout.row()
+        row.prop(self, "action", text = "Action")
+
+    def execute(self, context):
+        current_gp_obj = context.object
+        for obj in current_gp_obj.children:
+            if 'nijigp_mesh' in obj:
+                obj.hide_set(self.action == 'HIDE')
+                obj.hide_render = (self.action == 'HIDE')
+                if self.action == 'CLEAR':
+                    bpy.data.objects.remove(obj, do_unlink=True)
+
+        return {'FINISHED'}
+
 class MeshGenerationByNormal(bpy.types.Operator):
     """Generate a planar mesh with an interpolated normal map calculated from the selected strokes"""
     bl_idname = "gpencil.nijigp_mesh_generation_normal"
@@ -15,11 +47,19 @@ class MeshGenerationByNormal(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO'}
 
     vertical_gap: bpy.props.FloatProperty(
-            name='Resolution',
+            name='Vertical Gap',
             default=0.05, min=0,
             unit='LENGTH',
             description='Mininum vertical space between generated meshes'
     )    
+    ignore_mode: bpy.props.EnumProperty(
+            name='Ignore',
+            items=[('NONE', 'None', ''),
+                    ('LINE', 'All Lines', ''),
+                    ('OPEN', 'All Open Lines', '')],
+            default='NONE',
+            description='Skip strokes without fill'
+    )
     mesh_style: bpy.props.EnumProperty(
             name='Mesh Style',
             items=[('TRI', 'Delaunay Triangulation', ''),
@@ -49,6 +89,7 @@ class MeshGenerationByNormal(bpy.types.Operator):
         layout.label(text = "Multi-Object Alignment:")
         box1 = layout.box()
         box1.prop(self, "vertical_gap", text = "Vertical Gap")
+        box1.prop(self, "ignore_mode")
         layout.label(text = "Geometry Options:")
         box2 = layout.box()
         box2.label(text = "Mesh Style:")
@@ -66,6 +107,17 @@ class MeshGenerationByNormal(bpy.types.Operator):
             self.report({"ERROR"}, "Please install dependencies in the Preferences panel.")
             return {'FINISHED'}
         
+        current_gp_obj = context.object
+        # Ignore specific strokes by deselecting them
+        for i,layer in enumerate(current_gp_obj.data.layers):
+            if not layer.lock and hasattr(layer.active_frame, "strokes"):
+                for j,stroke in enumerate(layer.active_frame.strokes):
+                    if stroke.select:
+                        if self.ignore_mode == 'LINE' and is_stroke_line(stroke, current_gp_obj):
+                            stroke.select = False
+                        if self.ignore_mode == 'OPEN' and is_stroke_line(stroke, current_gp_obj) and not stroke.use_cyclic:
+                            stroke.select = False
+
         # Preprocess using Offset operator
         # The triangle library may crash in several cases, which should be avoided with every effort
         # https://www.cs.cmu.edu/~quake/triangle.trouble.html
@@ -78,7 +130,6 @@ class MeshGenerationByNormal(bpy.types.Operator):
                 bpy.ops.gpencil.nijigp_offset_selected()
 
         # Convert selected strokes to 2D polygon point lists
-        current_gp_obj = context.object
         stroke_info = []
         stroke_list = []
         mesh_names = []
@@ -411,11 +462,19 @@ class MeshGenerationByOffsetting(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO'}
 
     vertical_gap: bpy.props.FloatProperty(
-            name='Resolution',
+            name='Vertical Gap',
             default=0, min=0,
             unit='LENGTH',
             description='Mininum vertical space between generated meshes'
     ) 
+    ignore_mode: bpy.props.EnumProperty(
+            name='Ignore',
+            items=[('NONE', 'None', ''),
+                    ('LINE', 'All Lines', ''),
+                    ('OPEN', 'All Open Lines', '')],
+            default='NONE',
+            description='Skip strokes without fill'
+    )
     offset_amount: bpy.props.FloatProperty(
             name='Offset',
             default=0.1, soft_min=0, unit='LENGTH',
@@ -495,6 +554,7 @@ class MeshGenerationByOffsetting(bpy.types.Operator):
         layout.label(text = "Multi-Object Alignment:")
         box1 = layout.box()
         box1.prop(self, "vertical_gap", text = "Vertical Gap")
+        box1.prop(self, "ignore_mode")
         layout.label(text = "Geometry Options:")
         box2 = layout.box()
         box2.prop(self, "offset_amount", text = "Offset Amount")
@@ -544,6 +604,10 @@ class MeshGenerationByOffsetting(bpy.types.Operator):
             if not layer.lock and hasattr(layer.active_frame, "strokes"):
                 for j,stroke in enumerate(layer.active_frame.strokes):
                     if stroke.select:
+                        if self.ignore_mode == 'LINE' and is_stroke_line(stroke, current_gp_obj):
+                            continue
+                        if self.ignore_mode == 'OPEN' and is_stroke_line(stroke, current_gp_obj) and not stroke.use_cyclic:
+                            continue
                         stroke_info.append([stroke, i, j])
                         stroke_list.append(stroke)
                         mesh_names.append('Offset_' + layer.info + '_' + str(j))

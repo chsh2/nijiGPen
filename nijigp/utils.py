@@ -225,6 +225,14 @@ def overlapping_strokes(s1, s2):
 
     return False
 
+def is_stroke_line(stroke, gp_obj):
+    """
+    Check if a stroke does not have fill material
+    """
+    mat_idx = stroke.material_index
+    material = gp_obj.material_slots[mat_idx].material
+    return not material.grease_pencil.show_fill
+
 def is_stroke_locked(stroke, gp_obj):
     """
     Check if a stroke has the material that is being locked or invisible
