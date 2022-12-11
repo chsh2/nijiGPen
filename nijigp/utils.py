@@ -40,7 +40,7 @@ def load_stroke_selection(gp_obj, select_map):
                 else:
                     stroke.select = False
 
-def vec3_to_vec2(co):
+def vec3_to_vec2(co) -> Vector:
     """Convert 3D coordinates into 2D"""
     scene = bpy.context.scene
     if scene.nijigp_working_plane == 'X-Z':
@@ -50,7 +50,7 @@ def vec3_to_vec2(co):
     if scene.nijigp_working_plane == 'X-Y':
         return Vector([co.x, -co.y])
 
-def vec2_to_vec3(co, depth, scale_factor):
+def vec2_to_vec3(co, depth, scale_factor) -> Vector:
     """Convert 2D coordinates into 3D"""
     scene = bpy.context.scene
     if scene.nijigp_working_plane == 'X-Z':
@@ -97,7 +97,7 @@ def set_depth(point, depth):
     if scene.nijigp_working_plane == 'X-Y':    
         target.z = depth
 
-def get_depth_direction():
+def get_depth_direction() -> Vector:
     """Return a vector pointing to the positive side of the depth dimension"""
     scene = bpy.context.scene
     if scene.nijigp_working_plane == 'X-Z':    
