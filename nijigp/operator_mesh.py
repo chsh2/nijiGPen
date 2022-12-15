@@ -48,7 +48,7 @@ class MeshGenerationByNormal(bpy.types.Operator):
 
     vertical_gap: bpy.props.FloatProperty(
             name='Vertical Gap',
-            default=0.05, min=0,
+            default=0.01, min=0,
             unit='LENGTH',
             description='Mininum vertical space between generated meshes'
     )    
@@ -67,10 +67,26 @@ class MeshGenerationByNormal(bpy.types.Operator):
             default='TRI',
             description='Method of creating faces inside the stroke shape'
     )
+    transition: bpy.props.BoolProperty(
+            name='Transition',
+            default=False,
+            description='Add transition effects at vertices near the open ends, if there is another generated planar mesh below'
+    )
+    transition_length: bpy.props.FloatProperty(
+            name='Transition Length',
+            default=0.1, min=0.001,
+            unit='LENGTH',
+            description='The distance from a vertex to the open edge of the stroke, below which transparency will be applied and the normal vector will be adjusted'
+    ) 
     contour_subdivision: bpy.props.IntProperty(
             name='Contour Subdivision',
             default=2, min=0, soft_max=5,
             description='Generate denser mesh near the contour for better quality shading'
+    )
+    contour_trim: bpy.props.BoolProperty(
+            name='Contour Trim',
+            default=True,
+            description='Dissolve points on the contour to reduce the number of n-gons'
     )
     resolution: bpy.props.IntProperty(
             name='Resolution',
@@ -94,6 +110,9 @@ class MeshGenerationByNormal(bpy.types.Operator):
         layout.label(text = "Multi-Object Alignment:")
         box1 = layout.box()
         box1.prop(self, "vertical_gap", text = "Vertical Gap")
+        row = box1.row()
+        row.prop(self, "transition")
+        row.prop(self, "transition_length", text = "Length")
         box1.prop(self, "ignore_mode")
         layout.label(text = "Geometry Options:")
         box2 = layout.box()
@@ -101,6 +120,8 @@ class MeshGenerationByNormal(bpy.types.Operator):
         box2.prop(self, "mesh_style", text = "")   
         if self.mesh_style == 'TRI':
             box2.prop(self, "contour_subdivision", text = "Contour Subdivision")
+        elif self.mesh_style == 'QUAD':
+            box2.prop(self, "contour_trim", text = "Contour Trim")
         box2.prop(self, "resolution", text = "Resolution")
         box2.prop(self, "max_vertical_angle")
         box2.prop(self, "keep_original", text = "Keep Original")
@@ -226,6 +247,14 @@ class MeshGenerationByNormal(bpy.types.Operator):
                 bpy.ops.object.delete()
                 bpy.context.view_layer.objects.active = current_gp_obj
 
+                # Trim the boundary in BMesh
+                if self.contour_trim:
+                    to_trim = []
+                    for vert in bm.verts:
+                        if vert.is_boundary and len(vert.link_edges)==2:
+                            to_trim.append(vert)
+                    bmesh.ops.dissolve_verts(bm, verts=to_trim)
+
             # Method 2: use the triangle library
             elif self.mesh_style=='TRI':
                 segs = []
@@ -297,16 +326,39 @@ class MeshGenerationByNormal(bpy.types.Operator):
 
             # Determine the depth coordinate by ray-casting to every mesh generated earlier
             vertical_pos = 0
+            ray_receiver = {}
             for j,obj in enumerate(generated_objects):
                 for v in bm.verts:
                     ray_emitter = Vector(v.co)
                     set_depth(ray_emitter, MAX_DEPTH)
                     res, loc, norm, idx = obj.ray_cast(ray_emitter, -get_depth_direction())
                     if res:
-                        vertical_pos = max(vertical_pos, vec3_to_depth(loc))
-                        if obj['nijigp_mesh'] == 'planar':
-                            break
+                        depth = vec3_to_depth(loc)
+                        vertical_pos = max(depth, vertical_pos)
+                        if self.transition and 'NormalMap' in obj.data.attributes:
+                            if v not in ray_receiver or ray_receiver[v][2]<depth:
+                                ray_receiver[v] = (obj, idx, depth)
             vertical_pos += self.vertical_gap
+
+            # Adjust transparency and normal vector values if transition is enabled
+            if self.transition and not stroke_list[i].use_cyclic:
+                for v in bm.verts:
+                    if v in ray_receiver:
+                        # Get the normal vector of the mesh below the current one
+                        receiver_obj = ray_receiver[v][0]
+                        receiver_face = receiver_obj.data.polygons[ray_receiver[v][1]]
+                        receiver_norm = Vector((0,0,0))
+                        for vid in receiver_face.vertices:
+                            receiver_norm += receiver_obj.data.attributes['NormalMap'].data[vid].vector
+                        receiver_norm /= len(receiver_face.vertices)
+
+                        # Change values based on the vertex's distance to the open edge
+                        nearest_point, portion = geometry.intersect_point_line(v.co, stroke_list[i].points[0].co, stroke_list[i].points[-1].co)
+                        nearest_point = stroke_list[i].points[0].co if portion<0 else stroke_list[i].points[-1].co if portion > 1 else nearest_point
+                        dist = (v.co - nearest_point).length
+                        weight = smoothstep(dist/self.transition_length)
+                        v[normal_map_layer] = weight * v[normal_map_layer] + (1-weight) *receiver_norm
+                        v[vertex_color_layer][3] = weight
 
             # Update vertices locations and make a new BVHTree
             for v in bm.verts:
@@ -326,6 +378,9 @@ class MeshGenerationByNormal(bpy.types.Operator):
             if "nijigp_mat_with_normal" not in bpy.data.materials:
                 new_mat = bpy.data.materials.new("nijigp_mat_with_normal")
                 new_mat.use_nodes = True
+                new_mat.blend_method = 'BLEND'
+                new_mat.show_transparent_back = False
+                new_mat.use_backface_culling = False
                 attr_node = new_mat.node_tree.nodes.new("ShaderNodeAttribute")
                 attr_node.attribute_name = 'Color'
                 normal_attr_node = new_mat.node_tree.nodes.new("ShaderNodeAttribute")

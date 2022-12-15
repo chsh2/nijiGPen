@@ -98,7 +98,6 @@ class ExtractLineartOperator(bpy.types.Operator, ImportHelper):
         try:
             import skimage.morphology
             import skimage.filters
-            import skimage.io
             import numpy as np
         except:
             self.report({"ERROR"}, "Please install Scikit-Image in the Preferences panel.")

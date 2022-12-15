@@ -15,6 +15,13 @@ def linear_to_srgb(color):
         s_color = 1.055 * math.pow(color, 1/2.4) - 0.055
     return s_color
 
+def smoothstep(x):
+    if x<0:
+        return 0
+    if x>1:
+        return 1
+    return 3*(x**2) - 2*(x**3)
+
 def save_stroke_selection(gp_obj):
     """
     Record the selection state of a Grease Pencil object to a map
