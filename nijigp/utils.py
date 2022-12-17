@@ -6,7 +6,7 @@ SCALE_CONSTANT = 8192
 
 def linear_to_srgb(color):
     """
-    Convert a Linear RGB value to an sRGB one. Can be replaced by from_scene_linear_to_srgb() from Blender 3.2
+    Convert a Linear RGB value to an sRGB one. Can be replaced by from_scene_linear_to_srgb() if Blender version >= 3.2
     """
     s_color = 0
     if color < 0.0031308:
@@ -14,6 +14,26 @@ def linear_to_srgb(color):
     else:
         s_color = 1.055 * math.pow(color, 1/2.4) - 0.055
     return s_color
+
+def srgb_to_linear(color):
+    '''
+     Can be replaced by from_srgb_to_scene_linear() if Blender version >= 3.2
+    '''
+    if color<0:
+        return 0
+    elif color<0.04045:
+        return color/12.92
+    else:
+        return ((color+0.055)/1.055)**2.4
+
+def hex_to_rgb(h, to_linear = False) -> Color:
+    r = (h & 0xff0000) >> 16 
+    g = (h & 0x00ff00) >> 8
+    b = (h & 0x0000ff)
+    if to_linear:
+        return Color((srgb_to_linear(r/255.0), srgb_to_linear(g/255.0), srgb_to_linear(b/255.0)))
+    else:
+        return Color((r/255.0, g/255.0, b/255.0))
 
 def smoothstep(x):
     if x<0:

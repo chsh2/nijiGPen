@@ -157,22 +157,36 @@ class PasteXMLOperator(bpy.types.Operator):
 
     def execute(self, context):
         import xml.etree.ElementTree as ET
-        xml_str = context.window_manager.clipboard
+        clipboard_str = context.window_manager.clipboard
 
-        root = ET.fromstring(xml_str)
         palette_name = 'Pasted_Palette'
         colors_to_add = []
 
-        entries = root.findall('color')
-        for color_entry in entries:
-            info = color_entry.attrib
-            if 'r' in info:
-                r = int(info['r']) / 255.0
-                g = int(info['g']) / 255.0
-                b = int(info['b']) / 255.0
-                colors_to_add.append(Color([r,g,b]))
+        try:
+            root = ET.fromstring(clipboard_str)
+            entries = root.findall('color')
+            for color_entry in entries:
+                info = color_entry.attrib
+                if 'r' in info:
+                    r = int(info['r']) / 255.0
+                    g = int(info['g']) / 255.0
+                    b = int(info['b']) / 255.0
+                    colors_to_add.append(Color([r,g,b]))
+                elif 'rgb' in info:
+                    h = int(info['rgb'], 16)
+                    colors_to_add.append(hex_to_rgb(h))
                 if 'name' in info:
                     palette_name = info['name']
+        except:
+            # If the string is not XML, regard it as a list and try to extract hex codes
+            alnum_str = "".join(filter(str.isalnum, clipboard_str))
+            palette_name = clipboard_str
+            i = 0
+            while(i+5<len(alnum_str)):
+                hex_str = alnum_str[i:i+6]
+                h = int(hex_str, 16)
+                colors_to_add.append(hex_to_rgb(h))
+                i += 6
 
         if len(colors_to_add) == 0:
             self.report({"INFO"}, "No available colors found in the clipboard.")
