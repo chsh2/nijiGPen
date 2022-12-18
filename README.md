@@ -85,7 +85,6 @@ Currently, a number of limitations exist in different aspects. Some of them may 
 
 - Vertex groups will not be kept after either an Offset or a Boolean operation.
 - If a Boolean operation leads to holes, corresponding strokes will generate but do not appear transparent. You can apply Holdout materials manually.
-- Point radius (pressure) is currently ignored in the Line mode of Offset/Boolean operations.
 
 ### SVG Pasting
 
