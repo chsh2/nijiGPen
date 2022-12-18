@@ -28,11 +28,7 @@ Different from most add-ons, NijiGPen heavily relies on third-party Python packa
 
 ![image](https://user-images.githubusercontent.com/110356534/199868050-60927e38-88fe-422c-9495-aae62986f9c5.png)
 
-Alternatively, the depedencies can also be installed manually. You can open a terminal in Blender's Python directory (e.g., `blender/3.xx/python/bin`) and execute the following commands:
-```
-python -m ensurepip --upgrade
-python -m pip install pyclipper triangle scikit-image
-```
+It is recommended to use this add-on with the portable version of Blender, or Blender installed in a non-system folder through the official installer. Otherwise, additional actions may be required. Please refer to the [Wiki page](https://github.com/chsh2/nijiGPen/wiki/Dependency-Installation) for more information.
 
 ## Upgrade
 **Blender Upgrade:** After upgrading Blender to a new version, the Installation Step 3 (Dependency Management) should be executed again.
