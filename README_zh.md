@@ -26,14 +26,10 @@ Blender 3.0以上版本 (3.3最佳)
 
 ![image](https://user-images.githubusercontent.com/110356534/199868050-60927e38-88fe-422c-9495-aae62986f9c5.png)
 
-如果第三步卡住或失败，可以尝试在命令行工具中进入Blender的Python目录（该目录通常是`blender/3.xx/python/bin`这样的命名）并手动输入如下命令：
+注意：
 
-```
-python -m ensurepip --upgrade
-python -m pip install pyclipper triangle scikit-image
-```
-
-注意：这一过程中要求网络畅通并且能够访问到pip的源服务器。如有困难，请考虑使用VPN或修改pip源等方法。
+ - 这一过程中要求网络畅通并且能够访问到pip的源服务器。如有困难，请考虑使用VPN或修改pip源等方法。
+ - 推荐将Blender安装于非系统目录，否则可能需要使用管理员权限运行Blender才能成功安装Python包。详情请查看[Wiki页面](https://github.com/chsh2/nijiGPen/wiki/Dependency-Installation)。
 
 ## 升级说明
 
@@ -78,7 +74,6 @@ https://www.bilibili.com/video/bv1tg411C77g
 
 - 插件默认在任一正交平面（XZ, YZ或XY）进行运算。如果想要在其它平面中使用功能，请旋转对应的Grease Pencil物体，但不要应用变换。
 - 执行布尔或偏移运算后，笔画的顶点组数据不会保持。
-- 在布尔或偏移运算的线条模式中，压感暂时不会被考虑（线条的每个点被视作同样宽）。
 - 如果布尔运算使图形出现孔洞，孔洞不会显示为透明。可手动将其改为具有“阻隔”属性的材质来解决问题。
 - 粘贴SVG代码时，如果图形较为复杂，孔洞自动检测功能有可能失效。
 - 生成3D网格时，3.1或以下版本不会自动生成顶点颜色。
