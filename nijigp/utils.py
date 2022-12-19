@@ -3,6 +3,7 @@ import bpy
 from mathutils import *
 
 SCALE_CONSTANT = 8192
+LINE_WIDTH_FACTOR = 2000.0
 
 def linear_to_srgb(color):
     """
@@ -17,7 +18,7 @@ def linear_to_srgb(color):
 
 def srgb_to_linear(color):
     '''
-     Can be replaced by from_srgb_to_scene_linear() if Blender version >= 3.2
+    Can be replaced by from_srgb_to_scene_linear() if Blender version >= 3.2
     '''
     if color<0:
         return 0

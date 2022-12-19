@@ -142,7 +142,7 @@ class NIJIGP_PT_edit_panel_mesh(bpy.types.Panel):
         
         layout.label(text="Preprocessing:")
         row = layout.row()
-        row.operator("gpencil.stroke_sample", text="Resample")
+        row.operator("gpencil.stroke_sample", text="Resample").length = 0.02
         row.operator("gpencil.stroke_smooth", text="Smooth")
 
         layout.label(text="Generation Methods:")

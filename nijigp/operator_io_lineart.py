@@ -216,7 +216,7 @@ class ExtractLineartOperator(bpy.types.Operator, ImportHelper):
                     point_count += 1
 
                 frame_strokes.new()
-                frame_strokes[-1].line_width = int(line_thickness / scale_factor * 2000)
+                frame_strokes[-1].line_width = int(line_thickness / scale_factor * LINE_WIDTH_FACTOR)
                 frame_strokes[-1].points.add(point_count)
 
                 for i,point in enumerate(frame_strokes[-1].points):

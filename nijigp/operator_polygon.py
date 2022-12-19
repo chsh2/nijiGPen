@@ -511,7 +511,6 @@ class BoolLastOperator(bpy.types.Operator):
         poly_list, scale_factor = stroke_to_poly(stroke_list, scale = True, correct_orientation = True)
 
         # Convert line to poly shape if needed
-        # TODO: find a more precise formulation
         if self.clip_mode == 'LINE':
             clipper_offset = pyclipper.PyclipperOffset()
             jt = pyclipper.JT_ROUND
@@ -519,7 +518,7 @@ class BoolLastOperator(bpy.types.Operator):
             if clip_stroke.end_cap_mode == 'FLAT':
                 et = pyclipper.ET_OPENBUTT
             clipper_offset.AddPath(poly_list[0], join_type = jt, end_type = et)
-            poly_list[0] = clipper_offset.Execute(clip_stroke.line_width * 0.0005 * scale_factor)[0]
+            poly_list[0] = clipper_offset.Execute(clip_stroke.line_width / LINE_WIDTH_FACTOR * scale_factor)[0]
 
         # Operate on the last stroke with any other stroke one by one
         for j in range(1, len(stroke_list)):
