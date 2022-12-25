@@ -3,6 +3,129 @@ import os
 import math
 from .utils import *
 
+class HoleProcessingOperator(bpy.types.Operator):
+    """Reorder strokes and assign holdout materials to holes inside another stroke"""
+    bl_idname = "gpencil.nijigp_hole_processing"
+    bl_label = "Hole Processing"
+    bl_category = 'View'
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        try:
+            import pyclipper
+        except ImportError:
+            self.report({"ERROR"}, "Please install dependencies in the Preferences panel.")
+            return {'FINISHED'}
+        import numpy as np
+        gp_obj: bpy.types.Object = context.object
+
+        frames_to_process = []
+        if gp_obj.data.use_multiedit:
+            # Process every selected frame
+            for i,layer in enumerate(gp_obj.data.layers):
+                for j,frame in enumerate(layer.frames):
+                    if frame.select:
+                        frames_to_process.append(frame)
+        else:
+            # Process only the active frame of each layer
+            for i,layer in enumerate(gp_obj.data.layers):
+                if layer.active_frame:
+                    frames_to_process.append(layer.active_frame)
+
+        def is_poly_in_poly(poly1, poly2):
+            '''
+            False if either at least one point is outside, or all points are on the boundary
+            '''
+            inner_count = 0
+            for co in poly1:
+                res = pyclipper.PointInPolygon(co, poly2)
+                if res == 0:
+                    return False
+                if res == 1:
+                    inner_count += 1
+            return inner_count > 0
+
+        material_idx_map = {}
+        def change_material(stroke):
+            '''
+            Duplicate the stroke's material but enable holdout for it. Reuse existing material if possible.
+            '''
+            src_mat_idx = stroke.material_index
+            src_mat = gp_obj.material_slots[src_mat_idx].material
+            src_mat_name = gp_obj.material_slots[src_mat_idx].name
+
+            if src_mat.grease_pencil.use_fill_holdout:
+                return
+
+            # Case 1: holdout material available in cache
+            if src_mat_idx in material_idx_map:
+                stroke.material_index = material_idx_map[src_mat_idx]
+                return
+
+            # Case 2: holdout material has been added to this object
+            dst_mat_name = src_mat_name + '_Holdout'
+            for i,material_slot in enumerate(gp_obj.material_slots):
+                if dst_mat_name == material_slot.name:
+                    stroke.material_index = i
+                    material_idx_map[src_mat_idx] = i
+                    return
+
+            # Case 3: create a new material
+            dst_mat: bpy.types.Material = src_mat.copy()
+            dst_mat.name = dst_mat_name
+            dst_mat.grease_pencil.fill_color = (0,0,0,1)
+            dst_mat.grease_pencil.use_fill_holdout = True
+            gp_obj.data.materials.append(dst_mat)
+            dst_mat_idx = len(gp_obj.data.materials)-1
+            material_idx_map[src_mat_idx] = dst_mat_idx
+            stroke.material_index = dst_mat_idx
+
+        def process_one_frame(frame):
+            select_map = save_stroke_selection(gp_obj)
+            strokes = frame.strokes
+            to_process = []
+            for stroke in strokes:
+                if stroke.select and not is_stroke_line(stroke, gp_obj):
+                    to_process.append(stroke)
+
+            # Initialize the relationship matrix
+            poly_list, scale_factor = stroke_to_poly(to_process, True)
+            relation_mat = np.zeros((len(to_process),len(to_process)))
+            for i in range(len(to_process)):
+                for j in range(len(to_process)):
+                    if i!=j and is_poly_in_poly(poly_list[i], poly_list[j]):
+                        relation_mat[i][j] = 1
+            
+            # Iteratively process and exclude outmost strokes
+            processed = set()
+            is_hole = False
+            while len(processed) < len(to_process):
+                bpy.ops.gpencil.select_all(action='DESELECT')
+                idx_list = []
+                for i in range(len(to_process)):
+                    if np.sum(relation_mat[i]) == 0 and i not in processed:
+                        idx_list.append(i)
+
+                for i in idx_list:
+                    processed.add(i)
+                    relation_mat[:,i] = 0
+                    to_process[i].select = True
+                    if is_hole:
+                        change_material(to_process[i])
+                bpy.ops.gpencil.stroke_arrange("EXEC_DEFAULT", direction='TOP')
+
+                is_hole = not is_hole
+                if len(idx_list)==0:
+                    break
+
+            load_stroke_selection(gp_obj, select_map)
+
+
+        for frame in frames_to_process:
+            process_one_frame(frame)
+
+        return {'FINISHED'}
+
 class OffsetSelectedOperator(bpy.types.Operator):
     """Offset or inset the selected strokes"""
     bl_idname = "gpencil.nijigp_offset_selected"
