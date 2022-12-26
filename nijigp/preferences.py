@@ -128,8 +128,9 @@ class NijiGPAddonPreferences(bpy.types.AddonPreferences):
 
     cache_folder: bpy.props.StringProperty(
         name='Cache Folder',
-        description='Location storing temporary files',
-        default=os.path.join(os.path.dirname(__file__), 'tmp')
+        subtype='DIR_PATH',
+        description='Location storing temporary files. Use the default temporary folder when empty',
+        default=''
     )
 
     extra_buttons: bpy.props.BoolProperty(

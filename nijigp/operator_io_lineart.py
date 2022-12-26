@@ -2,7 +2,6 @@ import os
 import bpy
 from bpy_extras.io_utils import ImportHelper
 from bpy_extras import image_utils
-from numpy import size
 from .utils import *
 
 class ExtractLineartOperator(bpy.types.Operator, ImportHelper):

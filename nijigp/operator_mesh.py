@@ -1,5 +1,4 @@
 import bpy
-import os
 import math
 import bmesh
 from .utils import *

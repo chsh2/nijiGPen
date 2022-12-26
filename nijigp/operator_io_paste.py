@@ -21,11 +21,6 @@ class PasteSVGOperator(bpy.types.Operator):
             min=0, max=100, default=10,
             description='Scale of pasted SVG',
             )
-    auto_holdout: bpy.props.BoolProperty(
-            name='Auto Holdout',
-            default=False,
-            description='Change materials of holes (SVG polygons with negative area) to holdout and move holes to front'
-    )
 
     def draw(self, context):
         layout = self.layout
@@ -46,7 +41,10 @@ class PasteSVGOperator(bpy.types.Operator):
         # Convert clipboard data to SVG file
         svg_str = context.window_manager.clipboard
         #svg_path = os.path.join(context.preferences.filepaths.temporary_directory, "clipboard.svg")
-        svg_path = os.path.join(preferences.cache_folder, "clipboard.svg")
+        if len(preferences.cache_folder)>0:
+            svg_path = os.path.join(preferences.cache_folder, "clipboard.svg")
+        else:
+            svg_path = os.path.join(bpy.app.tempdir, "clipboard.svg")
         svg_file = open(svg_path, "w")
         svg_file.write(svg_str)
         svg_file.close()
@@ -71,57 +69,6 @@ class PasteSVGOperator(bpy.types.Operator):
         context.view_layer.objects.active = current_gp_obj
         bpy.ops.object.mode_set(mode='EDIT_GPENCIL')
         bpy.ops.gpencil.select_all(action='DESELECT')
-
-        # Holes processing
-        if self.auto_holdout:
-            # Create a new material with fill holdout
-            holdout_material = bpy.data.materials.new("SVG_Holdout")
-            bpy.data.materials.create_gpencil_data(holdout_material)
-            holdout_material.grease_pencil.show_stroke = False
-            holdout_material.grease_pencil.show_fill = True
-            holdout_material.grease_pencil.use_fill_holdout = True
-            context.object.data.materials.append(holdout_material)
-            holdout_material_index = len(context.object.data.materials) -1
-
-            # Detect holes using even-odd rule (roughly)
-            for i in range(len(context.object.data.layers) - num_layers):
-                strokes = context.object.data.layers[i].active_frame.strokes
-                to_process = []
-                outer_shapes = []
-                for stroke in strokes:
-                    to_process.append(stroke)
-                    outer_shapes.append(stroke)
-                is_hole = False
-
-                while len(to_process)>0 and len(outer_shapes)>0:
-                    crossing_number_list = []
-                    is_hole = (not is_hole)
-
-                    # Judge whether a stroke is inside another one
-                    # Roughly computed by sampling only one point on each curve to avoid too much calculation
-                    for stroke_src in to_process:
-                        sample_point = vec3_to_vec2(stroke_src.points[len(stroke_src.points)//2].co)
-                        crossing_number = 0
-                        for stroke_dst in outer_shapes:
-                            if stroke_dst != stroke_src:
-                                poly_list, _ = stroke_to_poly([stroke_dst])
-                                co_list = poly_list[0]
-                                for j, co in enumerate(co_list):
-                                    crossing_number += raycast_2d_up(sample_point[0], sample_point[1], co_list[j][0], co_list[j][1], co_list[j-1][0], co_list[j-1][1])
-                        crossing_number_list.append(crossing_number)  
-
-                    # Process the inner strokes
-                    outer_shapes = []
-                    for j,crossing_number in enumerate(crossing_number_list):
-                        if crossing_number % 2 == 1:
-                            if is_hole:
-                                to_process[j].material_index = holdout_material_index
-                            to_process[j].select = True
-                            outer_shapes.append(to_process[j]) 
-                    for stroke in outer_shapes:
-                        to_process.remove(stroke)              
-                    bpy.ops.gpencil.stroke_arrange("EXEC_DEFAULT", direction='TOP')
-                    bpy.ops.gpencil.select_all(action='DESELECT')
 
         # Select pasted strokes
         bpy.ops.gpencil.select_all(action='DESELECT')

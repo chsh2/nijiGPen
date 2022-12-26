@@ -92,7 +92,6 @@ class NIJIGP_PT_draw_panel_polygon(bpy.types.Panel):
         layout = self.layout
         scene = context.scene
 
-        layout.label(text="Stroke Operations:")
         row = layout.row()
         row.operator("gpencil.nijigp_bool_last", text="Boolean with Last Stroke")
         row = layout.row()
@@ -119,7 +118,8 @@ class NIJIGP_PT_edit_panel_polygon(bpy.types.Panel):
         scene = context.scene
         obj = context.object
 
-        layout.label(text="Stroke Operations:")
+        row = layout.row()
+        row.operator("gpencil.nijigp_hole_processing", text="Hole Holdout", icon="MESH_TORUS")
         row = layout.row()
         row.operator("gpencil.nijigp_offset_selected", text="Offset Selected", icon="MOD_SKIN")
         row = layout.row()

@@ -1,5 +1,4 @@
 import bpy
-import os
 import math
 from .utils import *
 
@@ -9,6 +8,16 @@ class HoleProcessingOperator(bpy.types.Operator):
     bl_label = "Hole Processing"
     bl_category = 'View'
     bl_options = {'REGISTER', 'UNDO'}
+
+    rearrange: bpy.props.BoolProperty(
+            name='Rearrange Strokes',
+            default=True,
+            description='Move holes to the top, which may be useful for handling some imported SVG shapes'
+    )
+    def draw(self, context):
+        layout = self.layout
+        row = layout.row()
+        row.prop(self, "rearrange")
 
     def execute(self, context):
         try:
@@ -112,7 +121,8 @@ class HoleProcessingOperator(bpy.types.Operator):
                     to_process[i].select = True
                     if is_hole:
                         change_material(to_process[i])
-                bpy.ops.gpencil.stroke_arrange("EXEC_DEFAULT", direction='TOP')
+                if self.rearrange:
+                    bpy.ops.gpencil.stroke_arrange("EXEC_DEFAULT", direction='TOP')
 
                 is_hole = not is_hole
                 if len(idx_list)==0:
