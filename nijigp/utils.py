@@ -200,7 +200,7 @@ def stroke_to_poly(stroke_list, scale = False, correct_orientation = False):
     """
 
     import pyclipper
-    scale_factor = [1, 1]
+    scale_factor = 1
     poly_list = []
     w_bound = [math.inf, -math.inf]
     h_bound = [math.inf, -math.inf]

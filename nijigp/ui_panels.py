@@ -1,4 +1,3 @@
-from ctypes import alignment
 import bpy
 
 class NIJIGP_PT_draw_panel_setting(bpy.types.Panel):
@@ -56,7 +55,6 @@ class NIJIGP_PT_draw_panel_io(bpy.types.Panel):
         row = layout.row()
         row.operator("gpencil.nijigp_extract_lineart", text="Line Art from Image", icon="LINE_DATA")
         
-
 class NIJIGP_PT_edit_panel_io(bpy.types.Panel):
     bl_idname = 'NIJIGP_PT_edit_panel_io'
     bl_label = "Import/Export"
@@ -82,7 +80,7 @@ class NIJIGP_PT_edit_panel_io(bpy.types.Panel):
 
 class NIJIGP_PT_draw_panel_polygon(bpy.types.Panel):
     bl_idname = 'NIJIGP_PT_draw_panel_polygon'
-    bl_label = "Polygon Operations"
+    bl_label = "Polygon Operators"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
     bl_category = "NijiGP"
@@ -104,10 +102,9 @@ class NIJIGP_PT_draw_panel_polygon(bpy.types.Panel):
         row = layout.row()
         row.prop(scene, "nijigp_draw_bool_fill_constraint", text = "Strokes with Fills")
 
-
 class NIJIGP_PT_edit_panel_polygon(bpy.types.Panel):
     bl_idname = 'NIJIGP_PT_edit_panel_polygon'
-    bl_label = "Polygon Operations"
+    bl_label = "Polygon Operators"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
     bl_category = "NijiGP"
@@ -173,3 +170,17 @@ class NIJIGP_PT_draw_panel_mesh(bpy.types.Panel):
         row.operator("gpencil.nijigp_mesh_management", text="Hide").action = 'HIDE'
         row.operator("gpencil.nijigp_mesh_management", text="Show").action = 'SHOW'
         row.operator("gpencil.nijigp_mesh_management", text="Clear").action = 'CLEAR'
+
+class NIJIGP_PT_edit_panel_line(bpy.types.Panel):
+    bl_idname = 'NIJIGP_PT_edit_panel_line'
+    bl_label = "Line Operators"
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "NijiGP"
+    bl_context = "greasepencil_edit"
+
+    def draw(self, context):
+        layout = self.layout
+        layout.label(text="Line Cleanup (Beta):")
+        row = layout.row()
+        row.operator("gpencil.nijigp_fit_selected", text="Fit Selected", icon="MOD_SMOOTH")
