@@ -14,10 +14,17 @@ class HoleProcessingOperator(bpy.types.Operator):
             default=True,
             description='Move holes to the top, which may be useful for handling some imported SVG shapes'
     )
+    separate_colors: bpy.props.BoolProperty(
+            name='Separate Colors',
+            default=False,
+            description='Detect holes separately for each vertex fill color'
+    )
     def draw(self, context):
         layout = self.layout
         row = layout.row()
         row.prop(self, "rearrange")
+        row = layout.row()
+        row.prop(self, "separate_colors")
 
     def execute(self, context):
         try:
@@ -94,7 +101,7 @@ class HoleProcessingOperator(bpy.types.Operator):
             strokes = frame.strokes
             to_process = []
             for stroke in strokes:
-                if stroke.select and not is_stroke_line(stroke, gp_obj):
+                if stroke.select:
                     to_process.append(stroke)
 
             # Initialize the relationship matrix
@@ -102,15 +109,21 @@ class HoleProcessingOperator(bpy.types.Operator):
             relation_mat = np.zeros((len(to_process),len(to_process)))
             for i in range(len(to_process)):
                 for j in range(len(to_process)):
-                    if i!=j and is_poly_in_poly(poly_list[i], poly_list[j]):
+                    if i!=j and is_poly_in_poly(poly_list[i], poly_list[j]) and not is_stroke_line(to_process[j], gp_obj):
                         relation_mat[i][j] = 1
             
+            # Record each vertex color
+            is_hole_map = {0: False}
+            if self.separate_colors:
+                for stroke in to_process:
+                    is_hole_map[tuple(stroke.vertex_color_fill)] = False
+
             # Iteratively process and exclude outmost strokes
             processed = set()
-            is_hole = False
             while len(processed) < len(to_process):
                 bpy.ops.gpencil.select_all(action='DESELECT')
                 idx_list = []
+                color_modified = set()
                 for i in range(len(to_process)):
                     if np.sum(relation_mat[i]) == 0 and i not in processed:
                         idx_list.append(i)
@@ -119,12 +132,15 @@ class HoleProcessingOperator(bpy.types.Operator):
                     processed.add(i)
                     relation_mat[:,i] = 0
                     to_process[i].select = True
-                    if is_hole:
+                    key = tuple(to_process[i].vertex_color_fill) if self.separate_colors else 0
+                    if is_hole_map[key] and not is_stroke_line(to_process[i], gp_obj):
                         change_material(to_process[i])
+                    color_modified.add(key)
                 if self.rearrange:
                     bpy.ops.gpencil.stroke_arrange("EXEC_DEFAULT", direction='TOP')
 
-                is_hole = not is_hole
+                for color in color_modified:
+                    is_hole_map[color] = not is_hole_map[color]
                 if len(idx_list)==0:
                     break
 

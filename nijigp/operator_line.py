@@ -139,7 +139,12 @@ class FitSelectedOperator(bpy.types.Operator):
     pressure_variance: bpy.props.FloatProperty(
             name='Pressure Variance',
             description='Increase the point radius at positions where lines are repeatedly drawn',
-            default=0.05, soft_max=0.2, min=0
+            default=5, soft_max=20, min=0, subtype='PERCENTAGE'
+    )
+    max_pressure: bpy.props.FloatProperty(
+            name='Maximum Pressure',
+            description='Upper bound of the point radius',
+            default=150, soft_max=200, min=100, subtype='PERCENTAGE'
     )
     line_width: bpy.props.IntProperty(
             name='Base Line Width',
@@ -179,6 +184,7 @@ class FitSelectedOperator(bpy.types.Operator):
         box2 = layout.box()        
         box2.prop(self, "line_width")
         box2.prop(self, "pressure_variance")
+        box2.prop(self, "max_pressure")
         box2.prop(self, "output_layer", text='Layer', icon='OUTLINER_DATA_GP_LAYER')
         box2.prop(self, "output_material", text='Material', icon='MATERIAL')
         box2.prop(self, "keep_original")
@@ -199,7 +205,7 @@ class FitSelectedOperator(bpy.types.Operator):
         co_list, pressure_list = fit_2d_strokes(stroke_list, 
                                                 search_radius=self.detection_radius/LINE_WIDTH_FACTOR, 
                                                 smoothness_factor=self.smoothness, 
-                                                pressure_delta=self.pressure_variance,
+                                                pressure_delta=self.pressure_variance * 0.01,
                                                 operator=self)
         if co_list is None:
             return {'FINISHED'}
@@ -230,7 +236,7 @@ class FitSelectedOperator(bpy.types.Operator):
         new_stroke.points.add(co_list.shape[0])
         for i,point in enumerate(new_stroke.points):
             point.co = vec2_to_vec3(co_list[i], depth=0, scale_factor=1)
-            point.pressure = pressure_list[i]
+            point.pressure = min(pressure_list[i], self.max_pressure*0.01)
         bpy.ops.gpencil.select_all(action='DESELECT')
         new_stroke.select = True
         bpy.ops.transform.translate()

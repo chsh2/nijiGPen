@@ -11,6 +11,11 @@ class PasteSVGOperator(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO'}
 
     # Define properties
+    svg_name: bpy.props.StringProperty(
+            name='Name',
+            default='',
+            description='Rename the layer and materials of the pasted shape if not empty'
+    )
     svg_resolution: bpy.props.IntProperty(
             name='Resolution',
             min=1, max=50, default=10,
@@ -21,9 +26,16 @@ class PasteSVGOperator(bpy.types.Operator):
             min=0, max=100, default=10,
             description='Scale of pasted SVG',
             )
+    auto_holdout: bpy.props.BoolProperty(
+            name='Auto Holdout',
+            default=False,
+            description='Change materials of holes (SVG polygons with negative area) to holdout and move holes to front'
+    )
 
     def draw(self, context):
         layout = self.layout
+        row = layout.row()
+        row.prop(self, "svg_name")
         row = layout.row()
         row.prop(self, "svg_resolution", text = "Resolution")
         row = layout.row()
@@ -58,6 +70,15 @@ class PasteSVGOperator(bpy.types.Operator):
             bpy.ops.wm.gpencil_import_svg("EXEC_DEFAULT", filepath = svg_path, resolution = self.svg_resolution, scale = self.svg_scale)
         new_gp_obj = context.object
 
+        # Rename the layer and materials of the pasted figure
+        if len(self.svg_name)>0:
+            new_gp_obj.data.layers.active.info = self.svg_name
+            fig_name = self.svg_name
+        else:
+            fig_name = new_gp_obj.data.layers.active.info
+        for slot in new_gp_obj.material_slots:
+            slot.material.name = fig_name
+
         # Copy all strokes to the existing GP object
         current_gp_obj.select_set(True)
         bpy.ops.gpencil.layer_duplicate_object(mode='ALL', only_active=False)
@@ -81,6 +102,9 @@ class PasteSVGOperator(bpy.types.Operator):
             bpy.ops.transform.rotate(value=math.pi/2, orient_axis='X', orient_type='LOCAL')
         if bpy.context.scene.nijigp_working_plane == 'Y-Z':
             bpy.ops.transform.rotate(value=-math.pi/2, orient_axis='Z', orient_type='LOCAL')
+
+        if self.auto_holdout:
+            bpy.ops.gpencil.nijigp_hole_processing(rearrange=True, separate_colors=True)
 
         return {'FINISHED'}
 
