@@ -61,6 +61,8 @@ NijiGPen provides with the following functions:
         - Line Mode: turn a line into a shape
         - Corner Mode: a bevel-like effect
         - Color tint
+- 2D Line Algorithms
+    - Sketch Cleanup: fitting multiple strokes into a single smooth one
 - 3D Mesh Generation
     - Frustum: multiple slope/corner styles available
     - Planar: with a normal map and therefore 3D shading
@@ -96,6 +98,16 @@ Currently, a number of limitations exist in different aspects. Some of them may 
 
 ## Credits
 
+The functions of this add-on are implemented with the following packages:
+
 - [Pyclipper](https://github.com/fonttools/pyclipper) wrapper by [Maxime Chalton](https://sites.google.com/site/maxelsbackyard/home/pyclipper) and the [Clipper](http://www.angusj.com/delphi/clipper.php) library by [Angus Johnson](http://www.angusj.com/delphi/clipper.php)
 - [Triangle](https://github.com/drufat/triangle) by Dzhelil Rufat and [Jonathan Richard Shewchuk](http://www.cs.berkeley.edu/~jrs)
 - [Scikit-image](https://scikit-image.org/) 
+
+Besides, although not using the codes directly or implementing the same algorithm, the functions of this add-on are largely inspired by the following works:
+
+ - Lee, In-Kwon. "Curve reconstruction from unorganized points." Computer aided geometric design 17, no. 2 (2000): 161-177.
+ - Liu, Chenxi, Enrique Rosales, and Alla Sheffer. "Strokeaggregator: Consolidating raw sketches into artist-intended curve drawings." ACM Transactions on Graphics (TOG) 37, no. 4 (2018): 1-15.
+ - Dvorožňák, Marek, Daniel Sýkora, Cassidy Curtis, Brian Curless, Olga Sorkine-Hornung, and David Salesin. "Monster mash: a single-view approach to casual 3D modeling and animation." ACM Transactions on Graphics (TOG) 39, no. 6 (2020): 1-12.
+ - Johnston, Scott F. "Lumo: illumination for cel animation." In Proceedings of the 2nd international symposium on Non-photorealistic animation and rendering, pp. 45-ff. 2002.
+
