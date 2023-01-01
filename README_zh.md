@@ -58,6 +58,8 @@ https://www.bilibili.com/video/bv1tg411C77g
     - 偏移
         - 图形膨胀与收缩
         - 将线条变为图形
+- 2D线条运算
+    - 线稿清理：从多条手绘线条中提取出单一平滑线条 
 - 3D生成
     - 基于偏移的算法：生成多种样式的3D网格物体（斜面、圆角和等高线图）
     - 基于法线的算法：生成平面网格和法线贴图
@@ -82,6 +84,16 @@ https://www.bilibili.com/video/bv1tg411C77g
 
 ## 致谢
 
+本插件使用了下列Python库：
+
 - [Pyclipper](https://github.com/fonttools/pyclipper) wrapper by [Maxime Chalton](https://sites.google.com/site/maxelsbackyard/home/pyclipper) and the [Clipper](http://www.angusj.com/delphi/clipper.php) library by [Angus Johnson](http://www.angusj.com/delphi/clipper.php)
 - [Triangle](https://github.com/drufat/triangle) by Dzhelil Rufat and [Jonathan Richard Shewchuk](http://www.cs.berkeley.edu/~jrs)
 - [Scikit-image](https://scikit-image.org/) 
+
+另外，虽然没有直接使用代码或算法，本插件的功能受到以下研究工作的启发：
+
+- Lee, In-Kwon. "Curve reconstruction from unorganized points." Computer aided geometric design 17, no. 2 (2000): 161-177.
+- Liu, Chenxi, Enrique Rosales, and Alla Sheffer. "Strokeaggregator: Consolidating raw sketches into artist-intended curve drawings." ACM Transactions on Graphics (TOG) 37, no. 4 (2018): 1-15.
+- Dvorožňák, Marek, Daniel Sýkora, Cassidy Curtis, Brian Curless, Olga Sorkine-Hornung, and David Salesin. "Monster mash: a single-view approach to casual 3D modeling and animation." ACM Transactions on Graphics (TOG) 39, no. 6 (2020): 1-12.
+- Johnston, Scott F. "Lumo: illumination for cel animation." In Proceedings of the 2nd international symposium on Non-photorealistic animation and rendering, pp. 45-ff. 2002.
+
