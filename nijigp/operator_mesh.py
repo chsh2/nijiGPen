@@ -98,6 +98,11 @@ class MeshGenerationByNormal(bpy.types.Operator):
             unit='ROTATION',
             description='Vertical angle of the normal vector at the boundary vertices'
     ) 
+    vertical_scale: bpy.props.FloatProperty(
+            name='Vertical Scale',
+            default=1, soft_max=5, soft_min=-5,
+            description='Scale the vertical component of generated normal vectors. Negative values result in concave shapes'
+    )
     keep_original: bpy.props.BoolProperty(
             name='Keep Original',
             default=True,
@@ -123,6 +128,7 @@ class MeshGenerationByNormal(bpy.types.Operator):
             box2.prop(self, "contour_trim", text = "Contour Trim")
         box2.prop(self, "resolution", text = "Resolution")
         box2.prop(self, "max_vertical_angle")
+        box2.prop(self, "vertical_scale")
         box2.prop(self, "keep_original", text = "Keep Original")
 
     def execute(self, context):
@@ -295,6 +301,8 @@ class MeshGenerationByNormal(bpy.types.Operator):
                     norm_u = np.dot(contour_normal_array[:,0], weights)
                     norm_v = np.dot(contour_normal_array[:,2], weights)
                     norm = Vector([norm_u, np.sqrt(max(0,math.sin(self.max_vertical_angle)**2-norm_u**2-norm_v**2)) + math.cos(self.max_vertical_angle), norm_v])
+                # Scale vertical components
+                norm = Vector((norm.x * self.vertical_scale, norm.y, norm.z * self.vertical_scale)).normalized()
                 vert[normal_map_layer] = [ 0.5 * (norm.x + 1) , 0.5 * (norm.z + 1), 0.5 * (norm.y+1)]
 
             # UV projection, required for correct tangent direction

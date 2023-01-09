@@ -2,7 +2,7 @@ import bpy
 import math
 from .utils import *
 
-def fit_2d_strokes(strokes, search_radius, smoothness_factor = 1, pressure_delta = 0, operator = None):
+def fit_2d_strokes(strokes, search_radius, smoothness_factor = 1, pressure_delta = 0, closed = False, operator = None):
     '''
     Fit points from multiple strokes to a single curve, by executing the following operations:
         1. Delaunay triangulation
@@ -117,9 +117,17 @@ def fit_2d_strokes(strokes, search_radius, smoothness_factor = 1, pressure_delta
         co_raw[i] += unit_normal_vector * sum_normal_offset
 
     # Postprocessing: B-spline fitting
-    tck, u = splprep([co_raw[:,0], co_raw[:,1]], s=total_length**2 * smoothness_factor * 0.001)
-    co_fit = np.array(splev(u, tck)).transpose()
-    tck2, u2 = splprep([np.linspace(0,1,len(path_whole)), pressure_raw])
+    if smoothness_factor is None:
+        return co_raw, pressure_raw
+
+    pressure_index = np.linspace(0,1,len(path_whole))
+    if closed:
+        co_raw = np.append(co_raw, [co_raw[0]], axis=0)
+        pressure_index = np.append(pressure_index, 0)
+        pressure_raw = np.append(pressure_raw, pressure_raw[0])
+    tck, u = splprep([co_raw[:,0], co_raw[:,1]], s=total_length**2 * smoothness_factor * 0.001, per=closed)
+    co_fit = np.array(splev(u, tck)).transpose()    
+    tck2, u2 = splprep([pressure_index, pressure_raw], per=closed)
     pressure_fit = np.array(splev(u2, tck2))[1]
 
     return co_fit, pressure_fit
@@ -136,6 +144,11 @@ class FitSelectedOperator(bpy.types.Operator):
             description='A point will try to merge with points from other strokes if the distance is smaller than this value',
             default=50, min=1, soft_max=100, subtype='PIXEL'
     )
+    closed: bpy.props.BoolProperty(
+            name='Closed Stroke',
+            default=False,
+            description='Treat selected strokes as a closed shape'
+    )
     pressure_variance: bpy.props.FloatProperty(
             name='Pressure Variance',
             description='Increase the point radius at positions where lines are repeatedly drawn',
@@ -151,10 +164,30 @@ class FitSelectedOperator(bpy.types.Operator):
             description='The minimum width of the newly generated stroke',
             default=10, min=1, soft_max=100, subtype='PIXEL'
     )   
-    smoothness: bpy.props.FloatProperty(
-            name='Smoothness',
+    postprocessing_method: bpy.props.EnumProperty(
+        name='Methods',
+        description='Algorithms to generate a smooth stroke',
+        options={'ENUM_FLAG'},
+        items = [
+            ('SPLPREP', 'B-Spline', ''),
+            ('RESAMPLE', 'Resample', '')
+            ],
+        default={'SPLPREP'}
+    )
+    b_smoothness: bpy.props.FloatProperty(
+            name='B-Spline Smoothness',
             description='Smoothness factor when applying the B-spline fitting algorithm',
-            default=2, soft_max=100, min=0
+            default=1, soft_max=100, min=0
+    )
+    resample_length: bpy.props.FloatProperty(
+            name='Resample Length',
+            description='',
+            default=0.02, min=0
+    )
+    smooth_repeat: bpy.props.IntProperty(
+            name='Smooth Repeat',
+            description='',
+            default=2, min=1, max=1000
     )
     output_layer: bpy.props.StringProperty(
         name='Output Layer',
@@ -176,18 +209,29 @@ class FitSelectedOperator(bpy.types.Operator):
 
     def draw(self, context):
         layout = self.layout
-        layout.label(text = "Fitting Options:")
+        layout.label(text = "Input Options:")
         box1 = layout.box()
         box1.prop(self, "detection_radius")
-        box1.prop(self, "smoothness")
+        box1.prop(self, "closed")
+        
+        layout.label(text = "Post-Processing Options:")
+        box2 = layout.box()
+        row = box2.row()
+        row.prop(self, "postprocessing_method")  
+        if 'SPLPREP' in self.postprocessing_method:
+            box2.prop(self, "b_smoothness")
+        if 'RESAMPLE' in self.postprocessing_method:
+            box2.prop(self, "resample_length")
+            box2.prop(self, "smooth_repeat")
+
         layout.label(text = "Output Options:")
-        box2 = layout.box()        
-        box2.prop(self, "line_width")
-        box2.prop(self, "pressure_variance")
-        box2.prop(self, "max_pressure")
-        box2.prop(self, "output_layer", text='Layer', icon='OUTLINER_DATA_GP_LAYER')
-        box2.prop(self, "output_material", text='Material', icon='MATERIAL')
-        box2.prop(self, "keep_original")
+        box3 = layout.box()   
+        box3.prop(self, "line_width")
+        box3.prop(self, "pressure_variance")
+        box3.prop(self, "max_pressure")
+        box3.prop(self, "output_layer", text='Layer', icon='OUTLINER_DATA_GP_LAYER')
+        box3.prop(self, "output_material", text='Material', icon='MATERIAL')
+        box3.prop(self, "keep_original")
 
     def execute(self, context):
         import numpy as np
@@ -202,10 +246,12 @@ class FitSelectedOperator(bpy.types.Operator):
                         stroke_list.append(stroke)
         
         # Execute the fitting function
+        b_smoothness = self.b_smoothness if 'SPLPREP' in self.postprocessing_method else None
         co_list, pressure_list = fit_2d_strokes(stroke_list, 
                                                 search_radius=self.detection_radius/LINE_WIDTH_FACTOR, 
-                                                smoothness_factor=self.smoothness, 
+                                                smoothness_factor=b_smoothness, 
                                                 pressure_delta=self.pressure_variance * 0.01,
+                                                closed = self.closed,
                                                 operator=self)
         if co_list is None:
             return {'FINISHED'}
@@ -238,7 +284,13 @@ class FitSelectedOperator(bpy.types.Operator):
             point.co = vec2_to_vec3(co_list[i], depth=0, scale_factor=1)
             point.pressure = min(pressure_list[i], self.max_pressure*0.01)
         bpy.ops.gpencil.select_all(action='DESELECT')
+        new_stroke.use_cyclic = self.closed
         new_stroke.select = True
         bpy.ops.transform.translate()
+
+        # Post-processing
+        if 'RESAMPLE' in self.postprocessing_method:
+            bpy.ops.gpencil.stroke_sample(length=self.resample_length)
+            bpy.ops.gpencil.stroke_smooth(repeat=self.smooth_repeat)
 
         return {'FINISHED'}
