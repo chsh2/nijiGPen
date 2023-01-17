@@ -94,7 +94,7 @@ class MeshGenerationByNormal(bpy.types.Operator):
     )
     max_vertical_angle: bpy.props.FloatProperty(
             name='Max Vertical Angle',
-            default=math.pi / 2, min=0, max=math.pi / 2,
+            default=math.pi / 2, min=math.pi / -2, max=math.pi / 2,
             unit='ROTATION',
             description='Vertical angle of the normal vector at the boundary vertices'
     ) 
