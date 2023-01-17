@@ -326,9 +326,10 @@ def poly_to_stroke(co_list, stroke_info, gp_obj, scale_factor, rearrange = True,
     # Copy point properties
     for i in range(N):
         new_i = (i + index_offset) % N
-        src_point = stroke_info[ref_stroke_index_list[new_i]][0].points[ref_point_index_list[new_i]]
+        src_stroke = stroke_info[ref_stroke_index_list[new_i]][0]
+        src_point = src_stroke.points[ref_point_index_list[new_i]]
         dst_point = new_stroke.points[i]
-        dst_point.pressure = src_point.pressure
+        dst_point.pressure = src_point.pressure * src_stroke.line_width / new_stroke.line_width
         dst_point.strength = src_point.strength
         dst_point.uv_factor = src_point.uv_factor
         dst_point.uv_fill = src_point.uv_fill
