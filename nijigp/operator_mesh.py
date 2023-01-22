@@ -588,16 +588,35 @@ class MeshGenerationByOffsetting(bpy.types.Operator):
             vert_counter = 0
             offset_interval = self.offset_amount / self.resolution * scale_factor
             for j in range(self.resolution):
-                new_contour = clipper.Execute( -offset_interval * j)
+                clipper_res = clipper.Execute( -offset_interval * j)
                 # STEP style requires duplicating each contour
                 for _ in range(1 + int(self.slope_style=='STEP')):
-                    contours.append( new_contour )
+                    new_contour = []
                     new_idx_list = []
-                    for poly in new_contour:
-                        num_vert = len(poly)
+                    for poly in clipper_res:
+                        # Merge points in advance for specific methods
+                        true_poly = []
+                        if not self.postprocess_merge or not self.extrude_method=='ACUTE':
+                            true_poly = poly
+                        else:
+                            for k,point in enumerate(poly):
+                                if k==0:
+                                    true_poly.append(point)
+                                    continue
+                                p0 = vec2_to_vec3(point,0,scale_factor)
+                                p1 = vec2_to_vec3(true_poly[-1],0,scale_factor)
+                                if (p0-p1).length > self.merge_distance:
+                                    true_poly.append(point)
+                            if len(true_poly)<3:
+                                true_poly = poly
+
+                        num_vert = len(true_poly)
                         new_idx_list.append( (vert_counter, vert_counter + num_vert) )
                         vert_counter += num_vert
+                        new_contour.append(true_poly)
+                    contours.append(new_contour)
                     vert_idx_list.append(new_idx_list)
+                    
 
             # Mesh generation
             new_mesh = bpy.data.meshes.new(mesh_names[i])
