@@ -183,4 +183,6 @@ class NIJIGP_PT_edit_panel_line(bpy.types.Panel):
         layout = self.layout
         layout.label(text="Line Cleanup (Beta):")
         row = layout.row()
+        row.operator("gpencil.nijigp_select_similar", text="Select Similar", icon="SELECT_SET")
+        row = layout.row()
         row.operator("gpencil.nijigp_fit_selected", text="Fit Selected", icon="MOD_SMOOTH")

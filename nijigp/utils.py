@@ -78,7 +78,7 @@ def vec3_to_vec2(co) -> Vector:
     if scene.nijigp_working_plane == 'X-Y':
         return Vector([co.x, -co.y])
 
-def vec2_to_vec3(co, depth, scale_factor) -> Vector:
+def vec2_to_vec3(co, depth = 0.0, scale_factor = 1.0) -> Vector:
     """Convert 2D coordinates into 3D"""
     scene = bpy.context.scene
     if scene.nijigp_working_plane == 'X-Z':
@@ -88,7 +88,7 @@ def vec2_to_vec3(co, depth, scale_factor) -> Vector:
     if scene.nijigp_working_plane == 'X-Y':
         return Vector([co[0] / scale_factor, -co[1] / scale_factor, depth])
 
-def set_vec2(point, co, scale_factor = 1):
+def set_vec2(point, co, scale_factor = 1.0):
     """Set 2D coordinates to a GP point"""
     scene = bpy.context.scene
     if scene.nijigp_working_plane == 'X-Z':    
@@ -140,12 +140,7 @@ def get_2d_squared_distance(co1, scale_factor1, co2, scale_factor2):
     delta = [co1[0]/scale_factor1 - co2[0]/scale_factor2, co1[1]/scale_factor1 - co2[1]/scale_factor2]
     return delta[0]*delta[0] + delta[1]*delta[1]
 
-def overlapping_strokes(s1, s2):
-    """
-    Check if two strokes overlap with each other. Ignore the cases involving holes
-    """
-    
-    # First, check if bounding boxes overlap
+def overlapping_bounding_box(s1, s2):
     scene = bpy.context.scene
     if scene.nijigp_working_plane == 'X-Z':
         if s1.bound_box_max[0] < s2.bound_box_min[0] or s1.bound_box_max[2] < s2.bound_box_min[2]:
@@ -162,6 +157,16 @@ def overlapping_strokes(s1, s2):
             return False
         if s2.bound_box_max[0] < s1.bound_box_min[0] or s2.bound_box_max[1] < s1.bound_box_min[1]:
             return False
+    return True    
+
+def overlapping_strokes(s1, s2):
+    """
+    Check if two strokes overlap with each other. Ignore the cases involving holes
+    """
+    
+    # First, check if bounding boxes overlap
+    if not overlapping_bounding_box(s1, s2):
+        return False
     
     # Then check every pair of edge
     N1 = len(s1.points)

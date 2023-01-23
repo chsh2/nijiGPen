@@ -1,5 +1,6 @@
 import bpy
 import math
+from mathutils import *
 from .utils import *
 
 def fit_2d_strokes(strokes, search_radius, smoothness_factor = 1, pressure_delta = 0, closed = False, operator = None):
@@ -131,6 +132,107 @@ def fit_2d_strokes(strokes, search_radius, smoothness_factor = 1, pressure_delta
     pressure_fit = np.array(splev(u2, tck2))[1]
 
     return co_fit, pressure_fit
+
+def distance_between_lines(co_list1, co_list2, kdt1 = None, kdt2 = None, threshold = 0.05, min_body_overlap = 2, angle_penalty = 3):
+    '''
+    Calculating the similarity between two lines, by segmenting a line into three parts: head, body and tail.
+    The purpose is to take different cases into consideration, such as:
+        - Two lines are only overlapped partailly
+        - One line is approximately a subset of the other line
+    '''
+    n1 = len(co_list1)
+    n2 = len(co_list2)
+    # Do not apply to lines with too few points
+    if n1<2 or n2<2:
+        return math.inf
+    
+    # Generate the KDTrees if not provided
+    if not kdt1:
+        kdt1 = kdtree.KDTree(n1)
+        for i in range(n1):
+            kdt1.insert(vec2_to_vec3(co_list1[i]), i)
+        kdt1.balance()
+    if not kdt2:
+        kdt2 = kdtree.KDTree(n2)
+        for i in range(n2):
+            kdt2.insert(vec2_to_vec3(co_list2[i]), i)
+        kdt2.balance()        
+
+    # Segment the lines by identifying head and tail
+    # Both head and tail should have at least 1 element
+    # Range of body: (head_idx, tail_idx)
+    head_idx1, head_idx2 = None, None
+    tail_idx1, tail_idx2 = None, None
+    head_cost1, head_cost2, body_cost1, body_cost2, tail_cost1, tail_cost2 = 0, 0, 0, 0, 0, 0
+    # Line 1
+    for i in range(n1-1):
+        _, _, dist = kdt2.find(vec2_to_vec3(co_list1[i]))
+        head_idx1 = i
+        head_cost1 += dist
+        if dist < threshold:
+            break
+    for i in range(n1-1, head_idx1, -1):
+        _, _, dist = kdt2.find(vec2_to_vec3(co_list1[i]))
+        tail_idx1 = i
+        tail_cost1 += dist
+        if dist < threshold:
+            break
+    for i in range(head_idx1+1, tail_idx1):
+        _, j, dist = kdt2.find(vec2_to_vec3(co_list1[i]))
+        j = min(j, n2-2)
+        angle_diff = (Vector(co_list1[i])-Vector(co_list1[i-1])).angle(Vector(co_list2[j+1])-Vector(co_list2[j]))
+        body_cost1 += dist * (1 + angle_penalty * float(angle_diff > math.pi/2))
+
+    # Line 2
+    for i in range(n2-1):
+        _, _, dist = kdt1.find(vec2_to_vec3(co_list2[i]))
+        head_idx2 = i
+        head_cost2 += dist
+        if dist < threshold:
+            break
+    for i in range(n2-1, head_idx2, -1):
+        _, _, dist = kdt1.find(vec2_to_vec3(co_list2[i]))
+        tail_idx2 = i
+        tail_cost2 += dist
+        if dist < threshold:
+            break
+    for i in range(head_idx2+1, tail_idx2):
+        _, j, dist = kdt1.find(vec2_to_vec3(co_list2[i]))
+        j = min(j, n1-2)
+        angle_diff = (Vector(co_list2[i])-Vector(co_list2[i-1])).angle(Vector(co_list1[j+1])-Vector(co_list1[j]))
+        body_cost2 += dist * (1 + angle_penalty * float(angle_diff > math.pi/2))
+
+    body_count1 = max(tail_idx1-head_idx1-1, 1)
+    body_count2 = max(tail_idx2-head_idx2-1, 1)
+    if body_count1 < min_body_overlap and body_count2 < min_body_overlap:
+        return math.inf
+
+    # Get the final average distance
+    total_cost = 0
+    total_count = 0
+    # Head distance
+    if (head_cost1 / (head_idx1+1)) < (head_cost2 / (head_idx2+1)):
+        total_cost += head_cost1
+        total_count += head_idx1+1
+    else:
+        total_cost += head_cost2
+        total_count += head_idx2+1
+    # Body distance
+    if (body_cost1/body_count1) < (body_cost2/body_count2):
+        total_cost += body_cost1
+        total_count += body_count1
+    else:
+        total_cost += body_cost2
+        total_count += body_count2
+    # Tail distance
+    if (tail_cost1 / (n1-tail_idx1)) < (tail_cost2 / (n2-tail_idx2)):
+        total_cost += tail_cost1
+        total_count += (n1-tail_idx1)
+    else:
+        total_cost += tail_cost2
+        total_count += (n2-tail_idx2)
+    return total_cost/total_count
+    
 
 class FitSelectedOperator(bpy.types.Operator):
     """Fit select strokes or points to a new stroke"""
@@ -292,5 +394,73 @@ class FitSelectedOperator(bpy.types.Operator):
         if 'RESAMPLE' in self.postprocessing_method:
             bpy.ops.gpencil.stroke_sample(length=self.resample_length)
             bpy.ops.gpencil.stroke_smooth(repeat=self.smooth_repeat)
+
+        return {'FINISHED'}
+    
+class SelectSimilarOperator(bpy.types.Operator):
+    """Find similar strokes to the selected ones in the same frame and layer"""
+    bl_idname = "gpencil.nijigp_select_similar"
+    bl_label = "Select Similar"
+    bl_category = 'View'
+    bl_options = {'REGISTER', 'UNDO'}  
+
+    line_space: bpy.props.IntProperty(
+            name='Line Space',
+            description='The approximate space between two lines drawn',
+            default=50, min=1, soft_max=100, subtype='PIXEL'
+    )
+    same_material: bpy.props.BoolProperty(
+            name='Same Material',
+            description='Ignore strokes with materials different from selected ones',
+            default=True
+    )
+
+    def draw(self, context):
+        layout = self.layout
+        layout.prop(self, "line_space")
+        layout.prop(self, "same_material")
+
+    def execute(self, context):
+        gp_obj: bpy.types.Object = context.object
+        threshold_ratio = 3.0 / LINE_WIDTH_FACTOR
+
+        # Get the scope of searching
+        frames_to_search = []
+        stroke_list = []
+        for layer in gp_obj.data.layers:
+            for frame in layer.frames:
+                for stroke in frame.strokes:
+                    if stroke.select and not is_stroke_locked(stroke, gp_obj):
+                        stroke_list.append(stroke)
+                        frames_to_search.append(frame)
+
+        # Initialization
+        poly_list, _ = stroke_to_poly(stroke_list, scale = False, correct_orientation = False)
+        kdt_list = []
+        def stroke_to_kdtree(co_list):
+            n = len(co_list)
+            kdt = kdtree.KDTree(n)
+            for i in range(n):
+                kdt.insert(vec2_to_vec3(co_list[i]), i)
+            kdt.balance()
+            return kdt
+        for i,stroke in enumerate(stroke_list):
+            kdt_list.append(stroke_to_kdtree(poly_list[i]))
+
+        # Check every stroke in target frames
+        for frame in frames_to_search:
+            for stroke in frame.strokes:
+                tmp, _ = stroke_to_poly([stroke], scale = False, correct_orientation = False)
+                co_list = tmp[0]
+                kdt = stroke_to_kdtree(co_list)
+                for i,src_stroke in enumerate(stroke_list):
+                    if self.same_material and src_stroke.material_index != stroke.material_index:
+                        continue
+                    if not overlapping_bounding_box(stroke, src_stroke):
+                        continue
+                    line_dist = distance_between_lines(co_list, poly_list[i], kdt, kdt_list[i], threshold_ratio * self.line_space)
+                    if line_dist < self.line_space / LINE_WIDTH_FACTOR:
+                        stroke.select = True
+                        break
 
         return {'FINISHED'}
