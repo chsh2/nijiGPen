@@ -133,105 +133,54 @@ def fit_2d_strokes(strokes, search_radius, smoothness_factor = 1, pressure_delta
 
     return co_fit, pressure_fit
 
-def distance_between_lines(co_list1, co_list2, kdt1 = None, kdt2 = None, threshold = 0.05, min_body_overlap = 2, angle_penalty = 3):
+def distance_to_another_stroke(co_list1, co_list2, kdt2 = None, angular_tolerance = math.pi/4, correct_orientation = True):
     '''
-    Calculating the similarity between two lines, by segmenting a line into three parts: head, body and tail.
-    The purpose is to take different cases into consideration, such as:
-        - Two lines are only overlapped partailly
-        - One line is approximately a subset of the other line
+    Calculating the similarity between two lines
     '''
+    import numpy as np
     n1 = len(co_list1)
     n2 = len(co_list2)
-    # Do not apply to lines with too few points
     if n1<2 or n2<2:
         return math.inf
-    
+
     # Generate the KDTrees if not provided
-    if not kdt1:
-        kdt1 = kdtree.KDTree(n1)
-        for i in range(n1):
-            kdt1.insert(vec2_to_vec3(co_list1[i]), i)
-        kdt1.balance()
     if not kdt2:
         kdt2 = kdtree.KDTree(n2)
         for i in range(n2):
             kdt2.insert(vec2_to_vec3(co_list2[i]), i)
         kdt2.balance()        
 
-    # Segment the lines by identifying head and tail
-    # Both head and tail should have at least 1 element
-    # Range of body: (head_idx, tail_idx)
-    head_idx1, head_idx2 = None, None
-    tail_idx1, tail_idx2 = None, None
-    head_cost1, head_cost2, body_cost1, body_cost2, tail_cost1, tail_cost2 = 0, 0, 0, 0, 0, 0
-    # Line 1
-    for i in range(n1-1):
-        _, _, dist = kdt2.find(vec2_to_vec3(co_list1[i]))
-        head_idx1 = i
-        head_cost1 += dist
-        if dist < threshold:
-            break
-    for i in range(n1-1, head_idx1, -1):
-        _, _, dist = kdt2.find(vec2_to_vec3(co_list1[i]))
-        tail_idx1 = i
-        tail_cost1 += dist
-        if dist < threshold:
-            break
-    for i in range(head_idx1+1, tail_idx1):
-        _, j, dist = kdt2.find(vec2_to_vec3(co_list1[i]))
-        j = min(j, n2-2)
-        angle_diff = (Vector(co_list1[i])-Vector(co_list1[i-1])).angle(Vector(co_list2[j+1])-Vector(co_list2[j]))
-        body_cost1 += dist * (1 + angle_penalty * float(angle_diff > math.pi/2))
+    # Get point-wise distance values
+    idx_arr = np.zeros(n1, dtype='int')
+    dist_arr = np.zeros(n1)
+    for i in range(n1):
+        _, idx_arr[i], dist_arr[i] = kdt2.find(vec2_to_vec3(co_list1[i]))
 
-    # Line 2
-    for i in range(n2-1):
-        _, _, dist = kdt1.find(vec2_to_vec3(co_list2[i]))
-        head_idx2 = i
-        head_cost2 += dist
-        if dist < threshold:
-            break
-    for i in range(n2-1, head_idx2, -1):
-        _, _, dist = kdt1.find(vec2_to_vec3(co_list2[i]))
-        tail_idx2 = i
-        tail_cost2 += dist
-        if dist < threshold:
-            break
-    for i in range(head_idx2+1, tail_idx2):
-        _, j, dist = kdt1.find(vec2_to_vec3(co_list2[i]))
-        j = min(j, n1-2)
-        angle_diff = (Vector(co_list2[i])-Vector(co_list2[i-1])).angle(Vector(co_list1[j+1])-Vector(co_list1[j]))
-        body_cost2 += dist * (1 + angle_penalty * float(angle_diff > math.pi/2))
+    # Calculate the orientation difference of two lines
+    contact_idx1 = np.argmin(dist_arr)
+    contact_idx2 = min(idx_arr[contact_idx1], n2-2)
+    contact_idx1 = min(contact_idx1, n1-2)
+    direction1 = Vector(co_list1[contact_idx1+1]) - Vector(co_list1[contact_idx1])
+    direction2 = Vector(co_list2[contact_idx2+1]) - Vector(co_list2[contact_idx2])
+    angle_diff = direction1.angle(direction2)
 
-    body_count1 = max(tail_idx1-head_idx1-1, 1)
-    body_count2 = max(tail_idx2-head_idx2-1, 1)
-    if body_count1 < min_body_overlap and body_count2 < min_body_overlap:
+    # Three cases of directions: similar, opposite or different
+    end2 = n2-1
+    if correct_orientation and angle_diff > math.pi / 2:
+        angle_diff = math.pi - angle_diff
+        end2 = 0
+    if angle_diff > angular_tolerance:
         return math.inf
-
-    # Get the final average distance
-    total_cost = 0
-    total_count = 0
-    # Head distance
-    if (head_cost1 / (head_idx1+1)) < (head_cost2 / (head_idx2+1)):
-        total_cost += head_cost1
-        total_count += head_idx1+1
-    else:
-        total_cost += head_cost2
-        total_count += head_idx2+1
-    # Body distance
-    if (body_cost1/body_count1) < (body_cost2/body_count2):
-        total_cost += body_cost1
-        total_count += body_count1
-    else:
-        total_cost += body_cost2
-        total_count += body_count2
-    # Tail distance
-    if (tail_cost1 / (n1-tail_idx1)) < (tail_cost2 / (n2-tail_idx2)):
-        total_cost += tail_cost1
-        total_count += (n1-tail_idx1)
-    else:
-        total_cost += tail_cost2
-        total_count += (n2-tail_idx2)
+    
+    # Calculate the total cost
+    total_cost, total_count = 0.0, 0.0
+    for i in range(n1):
+        total_cost += dist_arr[i]
+        total_count += 1
+        if idx_arr[i] == end2:
+            break
     return total_cost/total_count
+    
     
 
 class FitSelectedOperator(bpy.types.Operator):
@@ -404,10 +353,15 @@ class SelectSimilarOperator(bpy.types.Operator):
     bl_category = 'View'
     bl_options = {'REGISTER', 'UNDO'}  
 
-    line_space: bpy.props.IntProperty(
-            name='Line Space',
+    gap_size: bpy.props.IntProperty(
+            name='Gap Size',
             description='The approximate space between two lines drawn',
             default=50, min=1, soft_max=100, subtype='PIXEL'
+    )
+    angular_tolerance: bpy.props.FloatProperty(
+            name='Angular Tolerance',
+            description='Two lines will not be regarded as similar with their directions deviated more than this value',
+            default=math.pi/3, min=math.pi/18, max=math.pi/2, unit='ROTATION'
     )
     same_material: bpy.props.BoolProperty(
             name='Same Material',
@@ -417,12 +371,12 @@ class SelectSimilarOperator(bpy.types.Operator):
 
     def draw(self, context):
         layout = self.layout
-        layout.prop(self, "line_space")
+        layout.prop(self, "gap_size")
+        layout.prop(self, "angular_tolerance")
         layout.prop(self, "same_material")
 
     def execute(self, context):
         gp_obj: bpy.types.Object = context.object
-        threshold_ratio = 3.0 / LINE_WIDTH_FACTOR
 
         # Get the scope of searching
         frames_to_search = []
@@ -458,8 +412,9 @@ class SelectSimilarOperator(bpy.types.Operator):
                         continue
                     if not overlapping_bounding_box(stroke, src_stroke):
                         continue
-                    line_dist = distance_between_lines(co_list, poly_list[i], kdt, kdt_list[i], threshold_ratio * self.line_space)
-                    if line_dist < self.line_space / LINE_WIDTH_FACTOR:
+                    line_dist1 = distance_to_another_stroke(co_list, poly_list[i], kdt_list[i], self.angular_tolerance)
+                    line_dist2 = distance_to_another_stroke(poly_list[i], co_list, kdt, self.angular_tolerance)
+                    if min(line_dist1, line_dist2) < self.gap_size / LINE_WIDTH_FACTOR:
                         stroke.select = True
                         break
 
