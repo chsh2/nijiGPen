@@ -28,9 +28,8 @@ def fit_2d_strokes(strokes, search_radius, smoothness_factor = 1, pressure_delta
     for i,stroke in enumerate(strokes):
         if len(stroke.points)<2:
             continue
-        for j,point in enumerate(stroke.points):
-            if point.select:
-                total_point_count += 1
+        total_point_count += len(stroke.points)
+
     if total_point_count<3:
         return None, None
     kdt = kdtree.KDTree(total_point_count)
@@ -46,7 +45,7 @@ def fit_2d_strokes(strokes, search_radius, smoothness_factor = 1, pressure_delta
         if len(stroke.points)<2:
             continue
         for j,point in enumerate(stroke.points):
-            if point.select and (poly_list[i][j][0],poly_list[i][j][1]) not in co_set:
+            if (poly_list[i][j][0],poly_list[i][j][1]) not in co_set:
                 co_set.add((poly_list[i][j][0],poly_list[i][j][1]))
                 kdt.insert(vec2_to_vec3(poly_list[i][j],0,1), kdt_idx)
                 kdt_idx += 1
@@ -368,25 +367,33 @@ class SelectSimilarOperator(bpy.types.Operator):
             description='Ignore strokes with materials different from selected ones',
             default=True
     )
+    repeat: bpy.props.BoolProperty(
+            name='Repeat',
+            description='Keep expanding selection until no new similar strokes found',
+            default=False
+    )
 
     def draw(self, context):
         layout = self.layout
         layout.prop(self, "gap_size")
         layout.prop(self, "angular_tolerance")
         layout.prop(self, "same_material")
+        layout.prop(self, "repeat")
 
     def execute(self, context):
         gp_obj: bpy.types.Object = context.object
 
         # Get the scope of searching
-        frames_to_search = []
-        stroke_list = []
+        frame_list, frame_set = [], set()
+        stroke_list, stroke_set = [], set()
         for layer in gp_obj.data.layers:
             for frame in layer.frames:
                 for stroke in frame.strokes:
                     if stroke.select and not is_stroke_locked(stroke, gp_obj):
                         stroke_list.append(stroke)
-                        frames_to_search.append(frame)
+                        frame_list.append(frame)
+                        stroke_set.add(stroke)
+                        frame_set.add(frame)
 
         # Initialization
         poly_list, _ = stroke_to_poly(stroke_list, scale = False, correct_orientation = False)
@@ -402,20 +409,37 @@ class SelectSimilarOperator(bpy.types.Operator):
             kdt_list.append(stroke_to_kdtree(poly_list[i]))
 
         # Check every stroke in target frames
-        for frame in frames_to_search:
-            for stroke in frame.strokes:
-                tmp, _ = stroke_to_poly([stroke], scale = False, correct_orientation = False)
-                co_list = tmp[0]
-                kdt = stroke_to_kdtree(co_list)
-                for i,src_stroke in enumerate(stroke_list):
-                    if self.same_material and src_stroke.material_index != stroke.material_index:
-                        continue
-                    if not overlapping_bounding_box(stroke, src_stroke):
-                        continue
-                    line_dist1 = distance_to_another_stroke(co_list, poly_list[i], kdt_list[i], self.angular_tolerance)
-                    line_dist2 = distance_to_another_stroke(poly_list[i], co_list, kdt, self.angular_tolerance)
-                    if min(line_dist1, line_dist2) < self.gap_size / LINE_WIDTH_FACTOR:
-                        stroke.select = True
-                        break
+        while True:
+            new_strokes = []
+            new_stroke_frames= []
+            for frame in frame_set:
+                for stroke in frame.strokes:
+                    tmp, _ = stroke_to_poly([stroke], scale = False, correct_orientation = False)
+                    co_list = tmp[0]
+                    kdt = stroke_to_kdtree(co_list)
+                    for i,src_stroke in enumerate(stroke_list):
+                        if frame_list[i] != frame:
+                            continue
+                        if self.same_material and src_stroke.material_index != stroke.material_index:
+                            continue
+                        if not overlapping_bounding_box(stroke, src_stroke):
+                            continue
+
+                        line_dist1 = distance_to_another_stroke(co_list, poly_list[i], kdt_list[i], self.angular_tolerance)
+                        line_dist2 = distance_to_another_stroke(poly_list[i], co_list, kdt, self.angular_tolerance)
+                        if min(line_dist1, line_dist2) < self.gap_size / LINE_WIDTH_FACTOR:
+                            stroke.select = True
+                            # In repeat selection mode, add the stroke's information for the next iteration
+                            if stroke not in stroke_set and self.repeat:
+                                stroke_set.add(stroke)
+                                new_strokes.append(stroke)
+                                new_stroke_frames.append(frame)
+                                poly_list.append(co_list)
+                                kdt_list.append(kdt)
+                            break
+            if len(new_strokes) < 1:
+                break
+            stroke_list += new_strokes
+            frame_list += new_stroke_frames
 
         return {'FINISHED'}
