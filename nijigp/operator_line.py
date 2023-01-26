@@ -3,6 +3,14 @@ import math
 from mathutils import *
 from .utils import *
 
+def stroke_to_kdtree(co_list):
+    n = len(co_list)
+    kdt = kdtree.KDTree(n)
+    for i in range(n):
+        kdt.insert(vec2_to_vec3(co_list[i]), i)
+    kdt.balance()
+    return kdt
+
 def fit_2d_strokes(strokes, search_radius, smoothness_factor = 1, pressure_delta = 0, closed = False, operator = None):
     '''
     Fit points from multiple strokes to a single curve, by executing the following operations:
@@ -137,10 +145,13 @@ def distance_to_another_stroke(co_list1, co_list2, kdt2 = None, angular_toleranc
     Calculating the similarity between two lines
     '''
     import numpy as np
+    # Some algorithms do not support infinity; use a finite number instead.
+    no_similarity = 65535
+
     n1 = len(co_list1)
     n2 = len(co_list2)
     if n1<2 or n2<2:
-        return math.inf
+        return no_similarity
 
     # Generate the KDTrees if not provided
     if not kdt2:
@@ -169,7 +180,7 @@ def distance_to_another_stroke(co_list1, co_list2, kdt2 = None, angular_toleranc
         angle_diff = math.pi - angle_diff
         end2 = 0
     if angle_diff > angular_tolerance:
-        return math.inf
+        return no_similarity
     
     # Calculate the total cost
     total_cost, total_count = 0.0, 0.0
@@ -179,19 +190,18 @@ def distance_to_another_stroke(co_list1, co_list2, kdt2 = None, angular_toleranc
         if idx_arr[i] == end2:
             break
     return total_cost/total_count
-    
-    
+      
 
 class FitSelectedOperator(bpy.types.Operator):
     """Fit select strokes or points to a new stroke"""
     bl_idname = "gpencil.nijigp_fit_selected"
-    bl_label = "Fit Selected Strokes"
+    bl_label = "Single-Line Fit"
     bl_category = 'View'
     bl_options = {'REGISTER', 'UNDO'}    
 
-    detection_radius: bpy.props.IntProperty(
-            name='Detection Radius',
-            description='A point will try to merge with points from other strokes if the distance is smaller than this value',
+    gap_size: bpy.props.IntProperty(
+            name='Line Spacing',
+            description='Strokes with gap smaller than this may be merged.',
             default=50, min=1, soft_max=100, subtype='PIXEL'
     )
     closed: bpy.props.BoolProperty(
@@ -261,7 +271,7 @@ class FitSelectedOperator(bpy.types.Operator):
         layout = self.layout
         layout.label(text = "Input Options:")
         box1 = layout.box()
-        box1.prop(self, "detection_radius")
+        box1.prop(self, "gap_size")
         box1.prop(self, "closed")
         
         layout.label(text = "Post-Processing Options:")
@@ -298,7 +308,7 @@ class FitSelectedOperator(bpy.types.Operator):
         # Execute the fitting function
         b_smoothness = self.b_smoothness if 'SPLPREP' in self.postprocessing_method else None
         co_list, pressure_list = fit_2d_strokes(stroke_list, 
-                                                search_radius=self.detection_radius/LINE_WIDTH_FACTOR, 
+                                                search_radius=2*self.gap_size/LINE_WIDTH_FACTOR, 
                                                 smoothness_factor=b_smoothness, 
                                                 pressure_delta=self.pressure_variance * 0.01,
                                                 closed = self.closed,
@@ -353,8 +363,8 @@ class SelectSimilarOperator(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO'}  
 
     gap_size: bpy.props.IntProperty(
-            name='Gap Size',
-            description='The approximate space between two lines drawn',
+            name='Line Spacing',
+            description='Strokes with gap smaller than this may be regarded similar.',
             default=50, min=1, soft_max=100, subtype='PIXEL'
     )
     angular_tolerance: bpy.props.FloatProperty(
@@ -398,13 +408,7 @@ class SelectSimilarOperator(bpy.types.Operator):
         # Initialization
         poly_list, _ = stroke_to_poly(stroke_list, scale = False, correct_orientation = False)
         kdt_list = []
-        def stroke_to_kdtree(co_list):
-            n = len(co_list)
-            kdt = kdtree.KDTree(n)
-            for i in range(n):
-                kdt.insert(vec2_to_vec3(co_list[i]), i)
-            kdt.balance()
-            return kdt
+
         for i,stroke in enumerate(stroke_list):
             kdt_list.append(stroke_to_kdtree(poly_list[i]))
 
@@ -441,5 +445,217 @@ class SelectSimilarOperator(bpy.types.Operator):
                 break
             stroke_list += new_strokes
             frame_list += new_stroke_frames
+
+        return {'FINISHED'}
+    
+class ClusterAndFit(bpy.types.Operator):
+    """Dividing select strokes into clusters and fit each of them to a new stroke"""
+    bl_idname = "gpencil.nijigp_cluster_and_fit"
+    bl_label = "Multi-Line Fit"
+    bl_category = 'View'
+    bl_options = {'REGISTER', 'UNDO'}    
+
+    cluster_criterion: bpy.props.EnumProperty(
+            name='Criterion',
+            items=[ ('DIST', 'By Distance', ''),
+                    ('NUM', 'By Number', '')],
+            default='DIST',
+            description='The criterion determining how many clusters selected strokes will be divided into'
+    )
+    cluster_dist: bpy.props.FloatProperty(
+            name='Min Distance',
+            default=0.05, min=0,
+            unit='LENGTH',
+            description='The mininum distance between two clusters'
+    ) 
+    cluster_num: bpy.props.IntProperty(
+            name='Max Number',
+            default=5, min=1,
+            description='The maximum number of clusters'
+    )
+    gap_size: bpy.props.IntProperty(
+            name='Line Spacing',
+            description='Strokes with gap smaller than this may be merged.',
+            default=50, min=1, soft_max=100, subtype='PIXEL'
+    )
+    closed: bpy.props.BoolProperty(
+            name='Closed Stroke',
+            default=False,
+            description='Treat selected strokes as a closed shape'
+    )
+    pressure_variance: bpy.props.FloatProperty(
+            name='Pressure Variance',
+            description='Increase the point radius at positions where lines are repeatedly drawn',
+            default=5, soft_max=20, min=0, subtype='PERCENTAGE'
+    )
+    max_pressure: bpy.props.FloatProperty(
+            name='Maximum Pressure',
+            description='Upper bound of the point radius',
+            default=150, soft_max=200, min=100, subtype='PERCENTAGE'
+    )
+    line_width: bpy.props.IntProperty(
+            name='Base Line Width',
+            description='The minimum width of the newly generated stroke',
+            default=10, min=1, soft_max=100, subtype='PIXEL'
+    )   
+    postprocessing_method: bpy.props.EnumProperty(
+        name='Methods',
+        description='Algorithms to generate a smooth stroke',
+        options={'ENUM_FLAG'},
+        items = [
+            ('SPLPREP', 'B-Spline', ''),
+            ('RESAMPLE', 'Resample', '')
+            ],
+        default={'SPLPREP'}
+    )
+    b_smoothness: bpy.props.FloatProperty(
+            name='B-Spline Smoothness',
+            description='Smoothness factor when applying the B-spline fitting algorithm',
+            default=1, soft_max=100, min=0
+    )
+    resample_length: bpy.props.FloatProperty(
+            name='Resample Length',
+            description='',
+            default=0.02, min=0
+    )
+    smooth_repeat: bpy.props.IntProperty(
+            name='Smooth Repeat',
+            description='',
+            default=2, min=1, max=1000
+    )
+    output_layer: bpy.props.StringProperty(
+        name='Output Layer',
+        description='Draw the new stroke in this layer. If empty, draw to the active layer',
+        default='',
+        search=lambda self, context, edit_text: [layer.info for layer in context.object.data.layers]
+    )
+    output_material: bpy.props.StringProperty(
+        name='Output Material',
+        description='Draw the new stroke using this material. If empty, use the active material',
+        default='',
+        search=lambda self, context, edit_text: [material.name for material in context.object.data.materials if material]
+    )
+    keep_original: bpy.props.BoolProperty(
+            name='Keep Original',
+            default=True,
+            description='Do not delete the original stroke'
+    )
+
+    def draw(self, context):
+        layout = self.layout
+
+        layout.label(text = "Clustering Options:")
+        box0 = layout.box()
+        box0.prop(self, "cluster_criterion")
+        if self.cluster_criterion == 'DIST':
+            box0.prop(self, "cluster_dist")
+        else:
+            box0.prop(self, "cluster_num")
+
+        layout.label(text = "Input Options:")
+        box1 = layout.box()
+        box1.prop(self, "gap_size")
+        box1.prop(self, "closed")
+        
+        layout.label(text = "Post-Processing Options:")
+        box2 = layout.box()
+        row = box2.row()
+        row.prop(self, "postprocessing_method")  
+        if 'SPLPREP' in self.postprocessing_method:
+            box2.prop(self, "b_smoothness")
+        if 'RESAMPLE' in self.postprocessing_method:
+            box2.prop(self, "resample_length")
+            box2.prop(self, "smooth_repeat")
+
+        layout.label(text = "Output Options:")
+        box3 = layout.box()   
+        box3.prop(self, "line_width")
+        box3.prop(self, "pressure_variance")
+        box3.prop(self, "max_pressure")
+        box3.prop(self, "output_layer", text='Layer', icon='OUTLINER_DATA_GP_LAYER')
+        box3.prop(self, "output_material", text='Material', icon='MATERIAL')
+        box3.prop(self, "keep_original")
+
+    def execute(self, context):
+        import numpy as np
+        try:
+            from scipy.cluster.hierarchy import linkage, fcluster
+        except ImportError:
+            self.report({"ERROR"}, "Please install dependencies in the Preferences panel.")
+            return {'FINISHED'}
+
+        # Get input strokes
+        gp_obj = context.object
+        stroke_list = []
+        for i,layer in enumerate(gp_obj.data.layers):
+            if layer.active_frame and not layer.lock:
+                for stroke in layer.active_frame.strokes:
+                    if stroke.select:
+                        stroke_list.append(stroke)
+        if len(stroke_list)<2:
+            self.report({"INFO"}, "Please select at least two strokes.")
+            return {'FINISHED'}
+
+        # Get stroke information
+        poly_list, _ = stroke_to_poly(stroke_list, scale = False, correct_orientation = False)
+        kdt_list = []
+        for co_list in poly_list:
+            kdt_list.append(stroke_to_kdtree(co_list))
+
+        # Get stroke distance matrix
+        dist_mat = []
+        for i,co_list1 in enumerate(poly_list):
+            for j,co_list2 in enumerate(poly_list):
+                if i<j:
+                    dist1 = distance_to_another_stroke(poly_list[i], poly_list[j], kdt_list[j])
+                    dist2 = distance_to_another_stroke(poly_list[j], poly_list[i], kdt_list[i])
+                    dist_mat.append(min(dist1,dist2))
+
+        # Hierarchy clustering algorithm
+        linkage_mat = linkage(dist_mat, method='single')
+        if self.cluster_criterion == 'DIST':
+            cluster_res = fcluster(linkage_mat, self.cluster_dist, criterion='distance')
+        else:
+            cluster_res = fcluster(linkage_mat, self.cluster_num, criterion='maxclust')
+                 
+        # Place strokes in clusters
+        cluster_map = {}
+        for i,stroke in enumerate(stroke_list):
+            cluster_idx = cluster_res[i]
+            if cluster_idx not in cluster_map:
+                cluster_map[cluster_idx] = []
+            cluster_map[cluster_idx].append(stroke)
+
+        # For debugging: mark clusters with colors
+        '''
+        print(cluster_res)
+        for cluster in cluster_map:
+            color_mark = [np.random.rand(),np.random.rand(),np.random.rand()]
+            for stroke in cluster_map[cluster]:
+                for point in stroke.points:
+                    point.vertex_color[0] = color_mark[0]
+                    point.vertex_color[1] = color_mark[1]
+                    point.vertex_color[2] = color_mark[2]
+                    point.vertex_color[3] = 1
+                    point.strength = 1
+        '''
+
+        # Process each cluster one by one
+        for cluster in cluster_map:
+            bpy.ops.gpencil.select_all(action='DESELECT')
+            for stroke in cluster_map[cluster]:
+                stroke.select = True
+            bpy.ops.gpencil.nijigp_fit_selected(gap_size = self.gap_size,
+                                            closed = self.closed,
+                                            pressure_variance = self.pressure_variance,
+                                            max_pressure = self.max_pressure,
+                                            line_width = self.line_width,
+                                            postprocessing_method = self.postprocessing_method,
+                                            b_smoothness = self.b_smoothness,
+                                            resample_length = self.resample_length,
+                                            smooth_repeat = self.smooth_repeat,
+                                            output_layer = self.output_layer,
+                                            output_material = self.output_material,
+                                            keep_original = self.keep_original)
 
         return {'FINISHED'}

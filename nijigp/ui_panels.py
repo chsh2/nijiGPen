@@ -185,4 +185,6 @@ class NIJIGP_PT_edit_panel_line(bpy.types.Panel):
         row = layout.row()
         row.operator("gpencil.nijigp_select_similar", text="Select Similar", icon="SELECT_SET")
         row = layout.row()
-        row.operator("gpencil.nijigp_fit_selected", text="Fit Selected", icon="MOD_SMOOTH")
+        row.operator("gpencil.nijigp_fit_selected", text="Single-Line Fit", icon="MOD_SMOOTH")
+        row = layout.row()
+        row.operator("gpencil.nijigp_cluster_and_fit", text="Multi-Line Fit", icon="CURVES")
