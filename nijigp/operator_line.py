@@ -308,7 +308,7 @@ class FitSelectedOperator(bpy.types.Operator):
         # Execute the fitting function
         b_smoothness = self.b_smoothness if 'SPLPREP' in self.postprocessing_method else None
         co_list, pressure_list = fit_2d_strokes(stroke_list, 
-                                                search_radius=2*self.gap_size/LINE_WIDTH_FACTOR, 
+                                                search_radius=self.gap_size/LINE_WIDTH_FACTOR, 
                                                 smoothness_factor=b_smoothness, 
                                                 pressure_delta=self.pressure_variance * 0.01,
                                                 closed = self.closed,
@@ -641,6 +641,7 @@ class ClusterAndFit(bpy.types.Operator):
         '''
 
         # Process each cluster one by one
+        generated_strokes = []
         for cluster in cluster_map:
             bpy.ops.gpencil.select_all(action='DESELECT')
             for stroke in cluster_map[cluster]:
@@ -657,5 +658,14 @@ class ClusterAndFit(bpy.types.Operator):
                                             output_layer = self.output_layer,
                                             output_material = self.output_material,
                                             keep_original = self.keep_original)
-
+            # Record the stroke selection status
+            for i,layer in enumerate(gp_obj.data.layers):
+                if layer.active_frame and not layer.lock:
+                    for stroke in layer.active_frame.strokes:
+                        if stroke.select:
+                            generated_strokes.append(stroke)
+        
+        # Select all generated strokes
+        for stroke in generated_strokes:
+            stroke.select = True
         return {'FINISHED'}
