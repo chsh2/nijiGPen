@@ -191,17 +191,13 @@ def distance_to_another_stroke(co_list1, co_list2, kdt2 = None, angular_toleranc
             break
     return total_cost/total_count
       
-
-class FitSelectedOperator(bpy.types.Operator):
-    """Fit select strokes or points to a new stroke"""
-    bl_idname = "gpencil.nijigp_fit_selected"
-    bl_label = "Single-Line Fit"
-    bl_category = 'View'
-    bl_options = {'REGISTER', 'UNDO'}    
-
-    gap_size: bpy.props.IntProperty(
+class CommonFittingConfig:
+    """
+    Options shared by all line-fitting operators
+    """
+    line_sampling_size: bpy.props.IntProperty(
             name='Line Spacing',
-            description='Strokes with gap smaller than this may be merged.',
+            description='Strokes with gap smaller than this may be merged',
             default=50, min=1, soft_max=100, subtype='PIXEL'
     )
     closed: bpy.props.BoolProperty(
@@ -266,12 +262,19 @@ class FitSelectedOperator(bpy.types.Operator):
             default=True,
             description='Do not delete the original stroke'
     )
+    
+class FitSelectedOperator(CommonFittingConfig, bpy.types.Operator):
+    """Fit select strokes or points to a new stroke"""
+    bl_idname = "gpencil.nijigp_fit_selected"
+    bl_label = "Single-Line Fit"
+    bl_category = 'View'
+    bl_options = {'REGISTER', 'UNDO'}    
 
     def draw(self, context):
         layout = self.layout
         layout.label(text = "Input Options:")
         box1 = layout.box()
-        box1.prop(self, "gap_size")
+        box1.prop(self, "line_sampling_size")
         box1.prop(self, "closed")
         
         layout.label(text = "Post-Processing Options:")
@@ -308,7 +311,7 @@ class FitSelectedOperator(bpy.types.Operator):
         # Execute the fitting function
         b_smoothness = self.b_smoothness if 'SPLPREP' in self.postprocessing_method else None
         co_list, pressure_list = fit_2d_strokes(stroke_list, 
-                                                search_radius=self.gap_size/LINE_WIDTH_FACTOR, 
+                                                search_radius=self.line_sampling_size/LINE_WIDTH_FACTOR, 
                                                 smoothness_factor=b_smoothness, 
                                                 pressure_delta=self.pressure_variance * 0.01,
                                                 closed = self.closed,
@@ -356,15 +359,15 @@ class FitSelectedOperator(bpy.types.Operator):
         return {'FINISHED'}
     
 class SelectSimilarOperator(bpy.types.Operator):
-    """Find similar strokes to the selected ones in the same frame and layer"""
+    """Find similar strokes with the selected ones that may belong to the same part of the drawing"""
     bl_idname = "gpencil.nijigp_select_similar"
     bl_label = "Select Similar"
     bl_category = 'View'
     bl_options = {'REGISTER', 'UNDO'}  
 
-    gap_size: bpy.props.IntProperty(
+    line_sampling_size: bpy.props.IntProperty(
             name='Line Spacing',
-            description='Strokes with gap smaller than this may be regarded similar.',
+            description='Strokes with gap smaller than this may be regarded similar',
             default=50, min=1, soft_max=100, subtype='PIXEL'
     )
     angular_tolerance: bpy.props.FloatProperty(
@@ -385,7 +388,7 @@ class SelectSimilarOperator(bpy.types.Operator):
 
     def draw(self, context):
         layout = self.layout
-        layout.prop(self, "gap_size")
+        layout.prop(self, "line_sampling_size")
         layout.prop(self, "angular_tolerance")
         layout.prop(self, "same_material")
         layout.prop(self, "repeat")
@@ -431,7 +434,7 @@ class SelectSimilarOperator(bpy.types.Operator):
 
                         line_dist1 = distance_to_another_stroke(co_list, poly_list[i], kdt_list[i], self.angular_tolerance)
                         line_dist2 = distance_to_another_stroke(poly_list[i], co_list, kdt, self.angular_tolerance)
-                        if min(line_dist1, line_dist2) < self.gap_size / LINE_WIDTH_FACTOR:
+                        if min(line_dist1, line_dist2) < self.line_sampling_size / LINE_WIDTH_FACTOR:
                             stroke.select = True
                             # In repeat selection mode, add the stroke's information for the next iteration
                             if stroke not in stroke_set and self.repeat:
@@ -448,7 +451,7 @@ class SelectSimilarOperator(bpy.types.Operator):
 
         return {'FINISHED'}
     
-class ClusterAndFit(bpy.types.Operator):
+class ClusterAndFit(CommonFittingConfig, bpy.types.Operator):
     """Dividing select strokes into clusters and fit each of them to a new stroke"""
     bl_idname = "gpencil.nijigp_cluster_and_fit"
     bl_label = "Multi-Line Fit"
@@ -473,73 +476,6 @@ class ClusterAndFit(bpy.types.Operator):
             default=5, min=1,
             description='The maximum number of clusters'
     )
-    gap_size: bpy.props.IntProperty(
-            name='Line Spacing',
-            description='Strokes with gap smaller than this may be merged.',
-            default=50, min=1, soft_max=100, subtype='PIXEL'
-    )
-    closed: bpy.props.BoolProperty(
-            name='Closed Stroke',
-            default=False,
-            description='Treat selected strokes as a closed shape'
-    )
-    pressure_variance: bpy.props.FloatProperty(
-            name='Pressure Variance',
-            description='Increase the point radius at positions where lines are repeatedly drawn',
-            default=5, soft_max=20, min=0, subtype='PERCENTAGE'
-    )
-    max_pressure: bpy.props.FloatProperty(
-            name='Maximum Pressure',
-            description='Upper bound of the point radius',
-            default=150, soft_max=200, min=100, subtype='PERCENTAGE'
-    )
-    line_width: bpy.props.IntProperty(
-            name='Base Line Width',
-            description='The minimum width of the newly generated stroke',
-            default=10, min=1, soft_max=100, subtype='PIXEL'
-    )   
-    postprocessing_method: bpy.props.EnumProperty(
-        name='Methods',
-        description='Algorithms to generate a smooth stroke',
-        options={'ENUM_FLAG'},
-        items = [
-            ('SPLPREP', 'B-Spline', ''),
-            ('RESAMPLE', 'Resample', '')
-            ],
-        default={'SPLPREP'}
-    )
-    b_smoothness: bpy.props.FloatProperty(
-            name='B-Spline Smoothness',
-            description='Smoothness factor when applying the B-spline fitting algorithm',
-            default=1, soft_max=100, min=0
-    )
-    resample_length: bpy.props.FloatProperty(
-            name='Resample Length',
-            description='',
-            default=0.02, min=0
-    )
-    smooth_repeat: bpy.props.IntProperty(
-            name='Smooth Repeat',
-            description='',
-            default=2, min=1, max=1000
-    )
-    output_layer: bpy.props.StringProperty(
-        name='Output Layer',
-        description='Draw the new stroke in this layer. If empty, draw to the active layer',
-        default='',
-        search=lambda self, context, edit_text: [layer.info for layer in context.object.data.layers]
-    )
-    output_material: bpy.props.StringProperty(
-        name='Output Material',
-        description='Draw the new stroke using this material. If empty, use the active material',
-        default='',
-        search=lambda self, context, edit_text: [material.name for material in context.object.data.materials if material]
-    )
-    keep_original: bpy.props.BoolProperty(
-            name='Keep Original',
-            default=True,
-            description='Do not delete the original stroke'
-    )
 
     def draw(self, context):
         layout = self.layout
@@ -554,7 +490,7 @@ class ClusterAndFit(bpy.types.Operator):
 
         layout.label(text = "Input Options:")
         box1 = layout.box()
-        box1.prop(self, "gap_size")
+        box1.prop(self, "line_sampling_size")
         box1.prop(self, "closed")
         
         layout.label(text = "Post-Processing Options:")
@@ -646,7 +582,7 @@ class ClusterAndFit(bpy.types.Operator):
             bpy.ops.gpencil.select_all(action='DESELECT')
             for stroke in cluster_map[cluster]:
                 stroke.select = True
-            bpy.ops.gpencil.nijigp_fit_selected(gap_size = self.gap_size,
+            bpy.ops.gpencil.nijigp_fit_selected(line_sampling_size = self.line_sampling_size,
                                             closed = self.closed,
                                             pressure_variance = self.pressure_variance,
                                             max_pressure = self.max_pressure,
