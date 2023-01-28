@@ -98,7 +98,11 @@ def fit_2d_strokes(strokes, search_radius, smoothness_factor = 1, pressure_delta
         return dist_sum, [node]+path    
     _, path_half = tree_dfs(mst, 0, None)
     total_length, path_whole = tree_dfs(mst, path_half[-1], None)    
-
+    
+    # The fitting method needs at least 4 points
+    if len(path_whole)<4:
+        return None, None
+    
     # Get the points in the tree as the input of postprocessing
     co_raw = np.zeros((len(path_whole), 2))
     pressure_raw = np.ones(len(path_whole))
@@ -451,7 +455,7 @@ class SelectSimilarOperator(bpy.types.Operator):
 
         return {'FINISHED'}
     
-class ClusterAndFit(CommonFittingConfig, bpy.types.Operator):
+class ClusterAndFitOperator(CommonFittingConfig, bpy.types.Operator):
     """Dividing select strokes into clusters and fit each of them to a new stroke"""
     bl_idname = "gpencil.nijigp_cluster_and_fit"
     bl_label = "Multi-Line Fit"
@@ -605,3 +609,100 @@ class ClusterAndFit(CommonFittingConfig, bpy.types.Operator):
         for stroke in generated_strokes:
             stroke.select = True
         return {'FINISHED'}
+    
+class PinchSelectedOperator(bpy.types.Operator):
+    """Pinch and join strokes with their ends close to each other"""
+    bl_idname = "gpencil.nijigp_pinch"
+    bl_label = "Pinch Together"
+    bl_category = 'View'
+    bl_options = {'REGISTER', 'UNDO'}    
+
+    threshold: bpy.props.FloatProperty(
+            name='Threshold',
+            default=0.05, min=0,
+            unit='LENGTH',
+            description='If either end of a stroke is close to another stroke end, the two strokes will be pinched together'
+    ) 
+    join_strokes: bpy.props.BoolProperty(
+            name='Join Strokes',
+            default=False,
+            description='Join pinched strokes together if possible'
+    )
+
+    def draw(self, context):
+        layout = self.layout
+
+        layout.prop(self, "threshold")
+        layout.prop(self, "join_strokes")
+
+    def execute(self, context):
+
+        # Get input strokes
+        gp_obj = context.object
+        stroke_list = []
+        for i,layer in enumerate(gp_obj.data.layers):
+            if layer.active_frame and not layer.lock:
+                for stroke in layer.active_frame.strokes:
+                    if stroke.select and len(stroke.points)>1 and not stroke.use_cyclic:
+                        stroke_list.append(stroke)
+        if len(stroke_list)<2:
+            self.report({"INFO"}, "Please select at least two strokes.")
+            return {'FINISHED'}
+
+        # Calculate the relationship of strokes
+        num_chains = 0
+        stroke_chain_idx = {}
+        point_offset = {}
+        for i,stroke in enumerate(stroke_list):
+            for point in [stroke.points[0], stroke.points[-1]]:
+                if point in point_offset:
+                    continue
+                for j,stroke0 in enumerate(stroke_list):
+                    if point in point_offset:
+                        break
+                    for point0 in [stroke0.points[0], stroke0.points[-1]]:
+                        # The case where two points are close and not paired
+                        if i!=j and point0 not in point_offset and (vec3_to_vec2(point0.co)-vec3_to_vec2(point.co)).length < self.threshold:
+                            # Assign the stroke to a chain
+                            if stroke0 in stroke_chain_idx and stroke in stroke_chain_idx:
+                                pass
+                            elif stroke0 in stroke_chain_idx:
+                                stroke_chain_idx[stroke] = stroke_chain_idx[stroke0]
+                            elif stroke in stroke_chain_idx:
+                                stroke_chain_idx[stroke0] = stroke_chain_idx[stroke]
+                            else:
+                                stroke_chain_idx[stroke] = num_chains
+                                stroke_chain_idx[stroke0] = num_chains
+                                num_chains += 1
+
+                            # Calculate the offset value
+                            center = 0.5 * (vec3_to_vec2(point0.co)+vec3_to_vec2(point.co))
+                            point_offset[point] = center - vec3_to_vec2(point.co)
+                            point_offset[point0] = center - vec3_to_vec2(point0.co)
+                            break
+        # Padding zeros for ends without offsets
+        for i,stroke in enumerate(stroke_list):
+            for point in [stroke.points[0], stroke.points[-1]]:
+                if point not in point_offset:
+                    point_offset[point] = Vector((0,0))
+
+        # Apply offsets
+        for i,stroke in enumerate(stroke_list):
+            for j,point in enumerate(stroke.points):
+                w1, w2 = 1-j/(len(stroke.points)-1), j/(len(stroke.points)-1)
+                new_co = vec3_to_vec2(point.co)
+                new_co += point_offset[stroke.points[0]] * w1 + point_offset[stroke.points[-1]] * w2
+                set_vec2(point, new_co)
+
+        # Apply join
+        if self.join_strokes:
+            for i in range(num_chains):
+                bpy.ops.gpencil.select_all(action='DESELECT')
+                for stroke in stroke_chain_idx:
+                    if stroke_chain_idx[stroke]==i:
+                        stroke.select = True
+                bpy.ops.gpencil.stroke_join()
+
+
+        return {'FINISHED'}
+    

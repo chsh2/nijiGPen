@@ -181,10 +181,14 @@ class NIJIGP_PT_edit_panel_line(bpy.types.Panel):
 
     def draw(self, context):
         layout = self.layout
-        layout.label(text="Line Cleanup (Beta):")
-        row = layout.row()
-        row.operator("gpencil.nijigp_select_similar", text="Select Similar", icon="SELECT_SET")
+        layout.label(text="Line Cleanup:")
         row = layout.row()
         row.operator("gpencil.nijigp_fit_selected", text="Single-Line Fit", icon="MOD_SMOOTH")
         row = layout.row()
         row.operator("gpencil.nijigp_cluster_and_fit", text="Multi-Line Fit", icon="CURVES")
+        layout.label(text="Line Utilities:")
+        row = layout.row()
+        row.operator("gpencil.nijigp_select_similar", text="Select Similar", icon="SELECT_SET")
+        row = layout.row()
+        row.operator("gpencil.nijigp_pinch", text="Pinch Together", icon="HANDLE_VECTOR")
+     
