@@ -19,7 +19,11 @@ def fit_2d_strokes(strokes, search_radius, smoothness_factor = 1, pressure_delta
         3. Longest path in the tree
         4. Offset based on points in the neighborhood
         5. Post-processing: vertex smooth or B-spline fitting
+
+    The function will return positions and attributes of points in the following sequence:
+        2D coordinates, accumulated pressure, base pressure, strength, vertex color
     '''
+    empty_result = None, None, None, None, None
     try:
         import triangle as tr
         from scipy.sparse.csgraph import minimum_spanning_tree
@@ -27,7 +31,7 @@ def fit_2d_strokes(strokes, search_radius, smoothness_factor = 1, pressure_delta
     except:
         if operator:
             operator.report({"ERROR"}, "Please install dependencies in the Preferences panel.")
-        return None, None
+        return empty_result
     import numpy as np
 
     # Create a KDTree for point attribute lookup
@@ -39,10 +43,11 @@ def fit_2d_strokes(strokes, search_radius, smoothness_factor = 1, pressure_delta
         total_point_count += len(stroke.points)
 
     if total_point_count<3:
-        return None, None
+        return empty_result
     kdt = kdtree.KDTree(total_point_count)
     kdt_tangent_list = []
     kdt_stroke_list = []
+    kdt_point_list = []
     kdt_idx = 0
     co_set = set()
 
@@ -64,6 +69,7 @@ def fit_2d_strokes(strokes, search_radius, smoothness_factor = 1, pressure_delta
                     kdt_tangent_list.append((poly_list[i][j+1][0]-poly_list[i][j][0],
                                             poly_list[i][j+1][1]-poly_list[i][j][1]))    
                 kdt_stroke_list.append(i)
+                kdt_point_list.append(point)
                 tr_input['vertices'].append(poly_list[i][j])                    
     kdt.balance()
 
@@ -101,17 +107,23 @@ def fit_2d_strokes(strokes, search_radius, smoothness_factor = 1, pressure_delta
     
     # The fitting method needs at least 4 points
     if len(path_whole)<4:
-        return None, None
+        return empty_result
     
     # Get the points in the tree as the input of postprocessing
     co_raw = np.zeros((len(path_whole), 2))
-    pressure_raw = np.ones(len(path_whole))
     for i,key in enumerate(path_whole):
         co = tr_output['vertices'][key]
         co_raw[i][0] = co[0]
         co_raw[i][1] = co[1]
 
+    # Initialize lists of each point attributes
+    accumulated_pressure_raw = np.zeros(len(path_whole))
+    inherited_pressure_raw = np.zeros(len(path_whole))
+    inherited_strength_raw = np.zeros(len(path_whole))
+    inherited_color = np.zeros((len(path_whole), 3))
+
     # Apply offsets in the normal direction if there are points in the neighborhood
+    # At the same time, inherit the point attributes
     for i,co in enumerate(co_raw):
         self_vec ,self_idx,_ = kdt.find(vec2_to_vec3(co,0,1))
         self_vec = vec3_to_vec2(self_vec)
@@ -124,25 +136,39 @@ def fit_2d_strokes(strokes, search_radius, smoothness_factor = 1, pressure_delta
                 normal_dist = vec3_to_vec2(neighbor[0]) - self_vec
                 normal_dist = normal_dist.dot(unit_normal_vector)
                 sum_normal_offset += normal_dist
-                pressure_raw[i] += pressure_delta
+                accumulated_pressure_raw[i] += pressure_delta
+            # Inherit each attribute
+            inherited_pressure_raw[i] += kdt_point_list[neighbor[1]].pressure
+            inherited_strength_raw[i] += kdt_point_list[neighbor[1]].strength
+            inherited_color[i] += np.array(kdt_point_list[neighbor[1]].vertex_color)[:3] * kdt_point_list[neighbor[1]].vertex_color[3]
+
         sum_normal_offset /= len(neighbors)
+        inherited_pressure_raw[i] /= len(neighbors)
+        inherited_strength_raw[i] /= len(neighbors)
+        inherited_color[i] /= len(neighbors)
         co_raw[i] += unit_normal_vector * sum_normal_offset
 
     # Postprocessing: B-spline fitting
     if smoothness_factor is None:
-        return co_raw, pressure_raw
+        return co_raw, accumulated_pressure_raw, inherited_pressure_raw, inherited_strength_raw, inherited_color
 
-    pressure_index = np.linspace(0,1,len(path_whole))
+    attributes_index = np.linspace(0,1,len(path_whole))
     if closed:
         co_raw = np.append(co_raw, [co_raw[0]], axis=0)
-        pressure_index = np.append(pressure_index, 0)
-        pressure_raw = np.append(pressure_raw, pressure_raw[0])
+        attributes_index = np.append(attributes_index, 0)
+        accumulated_pressure_raw = np.append(accumulated_pressure_raw, accumulated_pressure_raw[0])
+        inherited_pressure_raw = np.append(inherited_pressure_raw, inherited_pressure_raw[0])
+        inherited_strength_raw = np.append(inherited_strength_raw, inherited_strength_raw[0])
     tck, u = splprep([co_raw[:,0], co_raw[:,1]], s=total_length**2 * smoothness_factor * 0.001, per=closed)
     co_fit = np.array(splev(u, tck)).transpose()    
-    tck2, u2 = splprep([pressure_index, pressure_raw], per=closed)
-    pressure_fit = np.array(splev(u2, tck2))[1]
+    tck2, u2 = splprep([attributes_index, accumulated_pressure_raw], per=closed)
+    accumulated_pressure_fit = np.array(splev(u2, tck2))[1]
+    tck3, u3 = splprep([attributes_index, inherited_pressure_raw], per=closed)
+    inherited_pressure_fit = np.array(splev(u3, tck3))[1]
+    tck4, u4 = splprep([attributes_index, inherited_strength_raw], per=closed)
+    inherited_strength_fit = np.array(splev(u4, tck4))[1]
 
-    return co_fit, pressure_fit
+    return co_fit, accumulated_pressure_fit, inherited_pressure_fit, inherited_strength_fit, inherited_color
 
 def distance_to_another_stroke(co_list1, co_list2, kdt2 = None, angular_tolerance = math.pi/4, correct_orientation = True):
     '''
@@ -210,14 +236,14 @@ class CommonFittingConfig:
             description='Treat selected strokes as a closed shape'
     )
     pressure_variance: bpy.props.FloatProperty(
-            name='Pressure Variance',
+            name='Pressure Accumulation',
             description='Increase the point radius at positions where lines are repeatedly drawn',
             default=5, soft_max=20, min=0, subtype='PERCENTAGE'
     )
-    max_pressure: bpy.props.FloatProperty(
-            name='Maximum Pressure',
-            description='Upper bound of the point radius',
-            default=150, soft_max=200, min=100, subtype='PERCENTAGE'
+    max_delta_pressure: bpy.props.FloatProperty(
+            name='Max Accumulated Pressure',
+            description='Upper bound of the additional point radius',
+            default=50, soft_max=100, min=0, subtype='PERCENTAGE'
     )
     line_width: bpy.props.IntProperty(
             name='Base Line Width',
@@ -248,6 +274,17 @@ class CommonFittingConfig:
             name='Smooth Repeat',
             description='',
             default=2, min=1, max=1000
+    )
+    inherited_attributes: bpy.props.EnumProperty(
+        name='Inherited Attributes',
+        description='Inherit point attributes from the original strokes',
+        options={'ENUM_FLAG'},
+        items = [
+            ('STRENGTH', 'Strength', ''),
+            ('PRESSURE', 'Pressure', ''),
+            ('COLOR', 'Color', '')
+            ],
+        default=set()
     )
     output_layer: bpy.props.StringProperty(
         name='Output Layer',
@@ -295,7 +332,10 @@ class FitSelectedOperator(CommonFittingConfig, bpy.types.Operator):
         box3 = layout.box()   
         box3.prop(self, "line_width")
         box3.prop(self, "pressure_variance")
-        box3.prop(self, "max_pressure")
+        box3.prop(self, "max_delta_pressure")
+        box3.label(text='Inherit Point Attribtues:')
+        row = box3.row()
+        row.prop(self, "inherited_attributes")
         box3.prop(self, "output_layer", text='Layer', icon='OUTLINER_DATA_GP_LAYER')
         box3.prop(self, "output_material", text='Material', icon='MATERIAL')
         box3.prop(self, "keep_original")
@@ -314,13 +354,14 @@ class FitSelectedOperator(CommonFittingConfig, bpy.types.Operator):
         
         # Execute the fitting function
         b_smoothness = self.b_smoothness if 'SPLPREP' in self.postprocessing_method else None
-        co_list, pressure_list = fit_2d_strokes(stroke_list, 
-                                                search_radius=self.line_sampling_size/LINE_WIDTH_FACTOR, 
-                                                smoothness_factor=b_smoothness, 
-                                                pressure_delta=self.pressure_variance * 0.01,
-                                                closed = self.closed,
-                                                operator=self)
+        co_list, pressure_accumulation, pressure_list, strength_list, color_list = fit_2d_strokes(stroke_list, 
+                                                                        search_radius=self.line_sampling_size/LINE_WIDTH_FACTOR, 
+                                                                        smoothness_factor=b_smoothness,
+                                                                        pressure_delta=self.pressure_variance*0.01, 
+                                                                        closed = self.closed,
+                                                                        operator=self)
         if co_list is None:
+            bpy.ops.gpencil.select_all(action='DESELECT')
             return {'FINISHED'}
 
         if not self.keep_original:
@@ -349,7 +390,13 @@ class FitSelectedOperator(CommonFittingConfig, bpy.types.Operator):
         new_stroke.points.add(co_list.shape[0])
         for i,point in enumerate(new_stroke.points):
             point.co = vec2_to_vec3(co_list[i], depth=0, scale_factor=1)
-            point.pressure = min(pressure_list[i], self.max_pressure*0.01)
+            point.pressure = pressure_list[i] if 'PRESSURE' in self.inherited_attributes else 1
+            point.strength = strength_list[i] if 'STRENGTH' in self.inherited_attributes else 1
+            point.vertex_color[3] = 1 if 'COLOR' in self.inherited_attributes else 0
+            point.vertex_color[0] = color_list[i][0] if 'COLOR' in self.inherited_attributes else 0
+            point.vertex_color[1] = color_list[i][1] if 'COLOR' in self.inherited_attributes else 0
+            point.vertex_color[2] = color_list[i][2] if 'COLOR' in self.inherited_attributes else 0
+            point.pressure *= (1 + min(pressure_accumulation[i], self.max_delta_pressure*0.01) )
         bpy.ops.gpencil.select_all(action='DESELECT')
         new_stroke.use_cyclic = self.closed
         new_stroke.select = True
@@ -358,7 +405,7 @@ class FitSelectedOperator(CommonFittingConfig, bpy.types.Operator):
         # Post-processing
         if 'RESAMPLE' in self.postprocessing_method:
             bpy.ops.gpencil.stroke_sample(length=self.resample_length)
-            bpy.ops.gpencil.stroke_smooth(repeat=self.smooth_repeat)
+            bpy.ops.gpencil.stroke_smooth(repeat=self.smooth_repeat, smooth_strength=True)
 
         return {'FINISHED'}
     
@@ -511,7 +558,10 @@ class ClusterAndFitOperator(CommonFittingConfig, bpy.types.Operator):
         box3 = layout.box()   
         box3.prop(self, "line_width")
         box3.prop(self, "pressure_variance")
-        box3.prop(self, "max_pressure")
+        box3.prop(self, "max_delta_pressure")
+        box3.label(text='Inherit Point Attribtues:')
+        row = box3.row()
+        row.prop(self, "inherited_attributes")
         box3.prop(self, "output_layer", text='Layer', icon='OUTLINER_DATA_GP_LAYER')
         box3.prop(self, "output_material", text='Material', icon='MATERIAL')
         box3.prop(self, "keep_original")
@@ -589,12 +639,13 @@ class ClusterAndFitOperator(CommonFittingConfig, bpy.types.Operator):
             bpy.ops.gpencil.nijigp_fit_selected(line_sampling_size = self.line_sampling_size,
                                             closed = self.closed,
                                             pressure_variance = self.pressure_variance,
-                                            max_pressure = self.max_pressure,
+                                            max_delta_pressure = self.max_delta_pressure,
                                             line_width = self.line_width,
                                             postprocessing_method = self.postprocessing_method,
                                             b_smoothness = self.b_smoothness,
                                             resample_length = self.resample_length,
                                             smooth_repeat = self.smooth_repeat,
+                                            inherited_attributes = self.inherited_attributes,
                                             output_layer = self.output_layer,
                                             output_material = self.output_material,
                                             keep_original = self.keep_original)
