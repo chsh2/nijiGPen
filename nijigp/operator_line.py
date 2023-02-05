@@ -159,6 +159,7 @@ def fit_2d_strokes(strokes, search_radius, smoothness_factor = 1, pressure_delta
         accumulated_pressure_raw = np.append(accumulated_pressure_raw, accumulated_pressure_raw[0])
         inherited_pressure_raw = np.append(inherited_pressure_raw, inherited_pressure_raw[0])
         inherited_strength_raw = np.append(inherited_strength_raw, inherited_strength_raw[0])
+        inherited_color = np.append(inherited_color, [inherited_color[0]], axis=0)
     tck, u = splprep([co_raw[:,0], co_raw[:,1]], s=total_length**2 * smoothness_factor * 0.001, per=closed)
     co_fit = np.array(splev(u, tck)).transpose()    
     tck2, u2 = splprep([attributes_index, accumulated_pressure_raw], per=closed)
@@ -757,3 +758,109 @@ class PinchSelectedOperator(bpy.types.Operator):
 
         return {'FINISHED'}
     
+class FitLastOperator(CommonFittingConfig, bpy.types.Operator):
+    """Fit the latest drawn stroke according to nearby strokes in the reference layer"""
+    bl_idname = "gpencil.nijigp_fit_last"
+    bl_label = "Fit Last Stroke"
+    bl_category = 'View'
+    bl_options = {'REGISTER', 'UNDO'}  
+
+    cluster_dist: bpy.props.FloatProperty(
+            name='Detection Radius',
+            default=0.05, min=0,
+            unit='LENGTH',
+            description='Search strokes in the reference layer if it is close enough to the last drawn stroke'
+    ) 
+
+    def draw(self, context):
+        layout = self.layout
+        layout.label(text = "Input Options:")
+        box1 = layout.box()
+        box1.prop(self, "cluster_dist")
+        box1.prop(self, "line_sampling_size")
+        
+        layout.label(text = "Post-Processing Options:")
+        box2 = layout.box()
+        box2.prop(self, "b_smoothness")
+
+        layout.label(text = "Output Options:")
+        box3 = layout.box()   
+        box3.prop(self, "pressure_variance")
+        box3.prop(self, "max_delta_pressure")
+
+    def execute(self, context):
+        import numpy as np
+
+        # Get input and context
+        gp_obj = context.object
+        reference_layer = None
+        drawing_layer = gp_obj.data.layers.active
+        for layer in gp_obj.data.layers:
+            if layer.info == context.scene.nijigp_draw_fit_reference_layer:
+                reference_layer = layer
+        if not reference_layer:
+            self.report({"INFO"}, "Please select a reference layer.")
+            return {'FINISHED'}
+        if not reference_layer.active_frame:
+            self.report({"INFO"}, "The reference layer has no stroke data.")
+            return {'FINISHED'} 
+        if reference_layer == drawing_layer:
+            self.report({"INFO"}, "Please draw in a layer other than the reference layer.")
+            return {'FINISHED'}  
+                 
+        # Get stroke information from the input
+        if not drawing_layer.active_frame or len(drawing_layer.active_frame.strokes)<1:
+            return {'FINISHED'} 
+        src_stroke: bpy.types.GPencilStroke = drawing_layer.active_frame.strokes[-1]
+        tmp, _ = stroke_to_poly([src_stroke], scale = False, correct_orientation = False)
+        src_co_list = tmp[0]
+        src_kdt = stroke_to_kdtree(src_co_list)
+        line_width, material_index, use_cyclic = src_stroke.line_width, src_stroke.material_index, src_stroke.use_cyclic
+        
+        # Check each stroke in the reference layer for similarity
+        stroke_list = []
+        for stroke in reference_layer.active_frame.strokes:
+            if not overlapping_bounding_box(stroke, src_stroke):
+                continue
+            tmp, _ = stroke_to_poly([stroke], scale = False, correct_orientation = False)
+            co_list = tmp[0]
+            kdt = stroke_to_kdtree(co_list)
+            line_dist1 = distance_to_another_stroke(co_list, src_co_list, src_kdt)
+            line_dist2 = distance_to_another_stroke(src_co_list, co_list, kdt)
+            if min(line_dist1, line_dist2) < self.cluster_dist:
+                stroke_list.append(stroke)
+        if len(stroke_list)<1:
+            return {'FINISHED'}  
+        
+        # Execute the fitting function
+        b_smoothness = self.b_smoothness
+        new_co_list, pressure_accumulation, _, _, _ = fit_2d_strokes(stroke_list, 
+                                                                        search_radius=self.line_sampling_size/LINE_WIDTH_FACTOR, 
+                                                                        smoothness_factor=b_smoothness,
+                                                                        pressure_delta=self.pressure_variance*0.01, 
+                                                                        closed=use_cyclic,
+                                                                        operator=self)
+        # Correct the orientation of the generated stroke
+        src_direction = Vector(src_co_list[-1]) - Vector(src_co_list[0])
+        new_direction = Vector(new_co_list[-1]) - Vector(new_co_list[0])
+        angle_diff = src_direction.angle(new_direction)
+        if angle_diff > math.pi/2:
+            new_co_list = np.flipud(new_co_list)
+
+        # Remove the last drawn stroke and generate a new one
+        new_stroke: bpy.types.GPencilStroke = drawing_layer.active_frame.strokes.new()
+        new_stroke.material_index, new_stroke.line_width, new_stroke.use_cyclic = material_index, line_width, use_cyclic
+        new_stroke.points.add(new_co_list.shape[0])
+        for i,point in enumerate(new_stroke.points):
+            point.co = vec2_to_vec3(new_co_list[i], depth=0, scale_factor=1)
+            attr_idx = int( float(i) / (len(new_stroke.points)-1) * (len(src_stroke.points)-1) )
+            point.pressure = src_stroke.points[attr_idx].pressure
+            point.strength = src_stroke.points[attr_idx].strength
+            point.vertex_color[0] = src_stroke.points[attr_idx].vertex_color[0]
+            point.vertex_color[1] = src_stroke.points[attr_idx].vertex_color[1]
+            point.vertex_color[2] = src_stroke.points[attr_idx].vertex_color[2]
+            point.vertex_color[3] = src_stroke.points[attr_idx].vertex_color[3]
+            point.pressure *= (1 + min(pressure_accumulation[i], self.max_delta_pressure*0.01) )
+
+        drawing_layer.active_frame.strokes.remove(src_stroke)
+        return {'FINISHED'}  

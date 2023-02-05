@@ -192,3 +192,20 @@ class NIJIGP_PT_edit_panel_line(bpy.types.Panel):
         row = layout.row()
         row.operator("gpencil.nijigp_pinch", text="Pinch Together", icon="HANDLE_VECTOR")
      
+class NIJIGP_PT_draw_panel_line(bpy.types.Panel):
+    bl_idname = 'NIJIGP_PT_draw_panel_line'
+    bl_label = "Line Operators"
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "NijiGP"
+    bl_context = "greasepencil_paint"
+
+    def draw(self, context):
+        layout = self.layout
+        scene = context.scene
+
+        row = layout.row()
+        row.operator("gpencil.nijigp_fit_last",icon='MOD_SMOOTH')    
+        layout.label(text="Reference Layer:")
+        row = layout.row()
+        row.prop(scene, "nijigp_draw_fit_reference_layer", text='', icon='OUTLINER_DATA_GP_LAYER')        
