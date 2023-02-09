@@ -191,6 +191,8 @@ class NIJIGP_PT_edit_panel_line(bpy.types.Panel):
         row.operator("gpencil.nijigp_select_similar", text="Select Similar", icon="SELECT_SET")
         row = layout.row()
         row.operator("gpencil.nijigp_pinch", text="Pinch Together", icon="HANDLE_VECTOR")
+        row = layout.row()
+        row.operator("gpencil.nijigp_taper_selected", text="Taper Selected", icon="GP_ONLY_SELECTED")
      
 class NIJIGP_PT_draw_panel_line(bpy.types.Panel):
     bl_idname = 'NIJIGP_PT_draw_panel_line'
