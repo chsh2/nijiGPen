@@ -33,7 +33,9 @@ def draw_shortcuts(self, context):
     if context.mode == 'PAINT_GPENCIL' or context.mode == 'SCULPT_GPENCIL':
         self.layout.operator("ed.undo", text='', icon='TRIA_LEFT')
         self.layout.operator("ed.redo", text='', icon='TRIA_RIGHT')
-
+    if context.mode == 'EDIT_GPENCIL':
+        self.layout.operator("gpencil.stroke_arrange", text='', icon='TRIA_UP_BAR').direction='TOP'
+        self.layout.operator("gpencil.stroke_arrange", text='', icon='TRIA_DOWN_BAR').direction='DOWN'
 
 def register():
     auto_load.register()

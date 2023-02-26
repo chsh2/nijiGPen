@@ -134,8 +134,8 @@ class NijiGPAddonPreferences(bpy.types.AddonPreferences):
     )
 
     extra_buttons: bpy.props.BoolProperty(
-        name='Show Extra Undo/Redo Buttons',
-        description='Show extra undo and redo buttons in the sidebar of Properties panel',
+        name='Show Extra Shortcut Buttons',
+        description='Show extra buttons in the sidebar of Properties panel for better touchscreen control',
         default=True
     )
 
