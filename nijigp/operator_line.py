@@ -879,15 +879,28 @@ class TaperSelectedOperator(bpy.types.Operator):
             default=1, min=0, max=1,
             description='Factor of stroke points that will be impacted'
     )
-    radius: bpy.props.FloatProperty(
-            name='Radius',
-            default=0, min=0, soft_max=5,
-            description='The radius of both end points after this operation'
+    curvature_factor: bpy.props.FloatProperty(
+            name='Curvature Factor',
+            default=0.05, min=0, soft_max=0.1,
+            description='Shape the stroke based on its curvature/concavity'
     )
-    line_width: bpy.props.IntProperty(
-            name='Uniform Thickness',
-            description='Set the same width value to all selected strokes. 0 means not to change the width',
-            default=0, min=0, soft_max=100, subtype='PIXEL'
+    curvature_limit: bpy.props.FloatProperty(
+            name='Max Change',
+            default=0.6, min=0, soft_max=1,
+            description='The change of attributes due to curvature cannot exceed this value'
+    )
+    smooth_level: bpy.props.IntProperty(
+            name='Smooth Level',
+            default=5, min=0, soft_max=10,
+            description='Smooth the curvature values along the stroke'
+    )
+    invert_leftturn: bpy.props.BoolProperty(
+            name='Invert Left Turn', default = False,
+            description='Decrease the attribute value at left turns rather than increase it'
+    )
+    invert_rightturn: bpy.props.BoolProperty(
+            name='Invert Right Turn', default = False,
+            description='Decrease the attribute value at right turns rather than increase it'
     )
     target_attributes: bpy.props.EnumProperty(
         name='Affected Attributes',
@@ -906,19 +919,44 @@ class TaperSelectedOperator(bpy.types.Operator):
             ('MULTIPLY', 'Multiply', ''),
             ('REPLACE', 'Replace', '')
             ],
-        default='REPLACE'
-    )    
+        default='MULTIPLY'
+    )
+    line_width: bpy.props.IntProperty(
+            name='Uniform Line Width',
+            description='Set the same base line width value to all selected strokes. 0 means not to change the line width',
+            default=0, min=0, soft_max=100, subtype='PIXEL'
+    )
+    min_radius: bpy.props.FloatProperty(name='Min Radius', default=0, min=0, soft_max=1) 
+    max_radius: bpy.props.FloatProperty(name='Max Radius', default=1, min=0, soft_max=1) 
 
     def draw(self, context):
         layout = self.layout
-        layout.prop(self, "start_length")
-        layout.prop(self, "end_length")
-        layout.prop(self, "radius")
-        layout.prop(self, "line_width")
-        layout.label(text='Affect:')
-        row = layout.row()
+        layout.label(text = "End Points:")
+        box1 = layout.box()
+        box1.prop(self, "start_length")
+        box1.prop(self, "end_length")
+        row = box1.row(align=True)
+        row.label(text="Radius Range")
+        row.prop(self, "min_radius", text="")
+        row.prop(self, "max_radius", text="")
+        
+        layout.label(text = "Turning Points:")
+        box2 = layout.box()
+        box2.prop(self, "curvature_factor")
+        box2.prop(self, "curvature_limit")
+        box2.prop(self, "smooth_level")
+        row = box2.row(align=True)
+        row.label(text="Invert at:")
+        row.prop(self, "invert_leftturn", text="Left Turns")
+        row.prop(self, "invert_rightturn", text="Right Turns")
+
+        layout.label(text = "Output Options:")
+        box3 = layout.box()
+        row = box3.row()
         row.prop(self, "target_attributes")
-        layout.prop(self, "operation")
+        if "PRESSURE" in self.target_attributes:
+            box3.prop(self, "line_width")
+        box3.prop(self, "operation")
 
     def execute(self, context):
         import numpy as np
@@ -930,8 +968,42 @@ class TaperSelectedOperator(bpy.types.Operator):
             L1 = int(L*self.start_length)
             L2 = int(L*self.end_length)
             factor_arr = np.ones(L)
-            factor_arr[:L1] *= np.linspace(self.radius, 1, L1)
-            factor_arr[L-L2:L] *= np.linspace(1, self.radius, L2)
+
+            # Calculate impacts of tapers
+            factor_arr[:L1] *= np.linspace(0, 1, L1)
+            factor_arr[L-L2:L] *= np.linspace(1, 0, L2)
+
+            # Scale the array according to the range
+            factor_range = (np.min(factor_arr), np.max(factor_arr))
+            if math.isclose(factor_range[1], factor_range[0]):
+                factor_arr[:] = self.max_radius
+            else:
+                factor_arr = ( (factor_arr - factor_range[0])
+                                    / (factor_range[1] - factor_range[0])
+                                    * (self.max_radius - self.min_radius) 
+                                    + self.min_radius)
+
+            # Calculate impacts of curvature/concavity
+            additional_factor_arr = np.ones(L)
+            if L>2:
+                for i in range(1, L-1):
+                    co0 = vec3_to_vec2(stroke.points[i-1].co)
+                    co1 = vec3_to_vec2(stroke.points[i].co)
+                    co2 = vec3_to_vec2(stroke.points[i+1].co)
+                    curvature, center = get_concyclic_info(co0.x,co0.y,co1.x,co1.y,co2.x,co2.y)
+                    direction = 0 if not center else (co2-co1).angle_signed(center-co1)
+                    delta = min(curvature * self.curvature_factor, self.curvature_limit)
+                    if (direction<0 and self.invert_rightturn) or (direction>0 and self.invert_leftturn):
+                        delta *= -1
+                    additional_factor_arr[i] += delta
+
+                # Smooth the curvature by convolution
+                kernel = np.array([1.0/3, 1.0/3, 1.0/3])
+                for i in range(self.smooth_level):
+                    additional_factor_arr = np.convolve(additional_factor_arr, kernel, mode='same')
+                factor_arr *= additional_factor_arr
+
+            # Apply final modification results
             for i,point in enumerate(stroke.points):
                 if 'PRESSURE' in self.target_attributes:
                     point.pressure = point.pressure * factor_arr[i] if self.operation=='MULTIPLY' else factor_arr[i]

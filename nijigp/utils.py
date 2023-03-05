@@ -43,30 +43,30 @@ def smoothstep(x):
         return 1
     return 3*(x**2) - 2*(x**3)
 
-def save_stroke_selection(gp_obj):
-    """
-    Record the selection state of a Grease Pencil object to a map
-    """
-    select_map = {}
-    for layer in gp_obj.data.layers:
-        select_map[layer] = {}
-        for frame in layer.frames:
-            select_map[layer][frame] = {}
-            for stroke in frame.strokes:
-                select_map[layer][frame][stroke] = stroke.select_index
-    return select_map
-
-def load_stroke_selection(gp_obj, select_map):
-    """
-    Apply selection to strokes according to a map saved by save_stroke_selection()
-    """
-    for layer in gp_obj.data.layers:
-        for frame in layer.frames:
-            for stroke in frame.strokes:
-                if stroke in select_map[layer][frame]:
-                    stroke.select = (select_map[layer][frame][stroke] > 0)
-                else:
-                    stroke.select = False
+def get_concyclic_info(x0,y0,x1,y1,x2,y2):
+     """
+     Given three 2D points, calcualte their concyclic center and reciprocal radius
+     """
+     # Coefficients of the formula
+     a = 2*(x1-x0)
+     b = 2*(y1-y0)
+     c = x1**2 - x0**2 + y1**2 - y0**2
+     d = 2*(x2-x0)
+     e = 2*(y2-y0)
+     f = x2**2 - x0**2 + y2**2 - y0**2
+     det = a*e - b*d
+     
+     # Case of colinear points
+     if math.isclose( det, 0 ):
+         return 0, None
+     
+     # Solution of the formula
+     xc = (c*e-f*b)/det
+     yc = (a*f-c*d)/det
+     center = Vector(( xc, yc ))
+     radius = math.sqrt((x0-xc)**2 + (y0-yc)**2)
+     
+     return 1.0/radius, center
 
 def vec3_to_vec2(co) -> Vector:
     """Convert 3D coordinates into 2D"""
@@ -197,6 +197,33 @@ def is_stroke_locked(stroke, gp_obj):
     mat_idx = stroke.material_index
     material = gp_obj.material_slots[mat_idx].material
     return material.grease_pencil.lock or material.grease_pencil.hide
+
+
+def save_stroke_selection(gp_obj):
+    """
+    Record the selection state of a Grease Pencil object to a map
+    """
+    select_map = {}
+    for layer in gp_obj.data.layers:
+        select_map[layer] = {}
+        for frame in layer.frames:
+            select_map[layer][frame] = {}
+            for stroke in frame.strokes:
+                select_map[layer][frame][stroke] = stroke.select_index
+    return select_map
+
+def load_stroke_selection(gp_obj, select_map):
+    """
+    Apply selection to strokes according to a map saved by save_stroke_selection()
+    """
+    for layer in gp_obj.data.layers:
+        for frame in layer.frames:
+            for stroke in frame.strokes:
+                if stroke in select_map[layer][frame]:
+                    stroke.select = (select_map[layer][frame][stroke] > 0)
+                else:
+                    stroke.select = False
+
 
 def stroke_to_poly(stroke_list, scale = False, correct_orientation = False):
     """
