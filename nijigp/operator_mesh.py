@@ -242,7 +242,7 @@ class MeshGenerationByNormal(bpy.types.Operator):
                 grid_obj = bpy.context.object
                 grid_obj.parent = current_gp_obj
                 bpy.ops.object.mode_set(mode='EDIT')
-                cut_obj.select = True
+                cut_obj.select_set(True)
                 bpy.ops.mesh.knife_project()
                 bpy.ops.mesh.select_mode(type='FACE')
                 bpy.ops.mesh.select_all(action='INVERT')

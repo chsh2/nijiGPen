@@ -774,15 +774,25 @@ class PinchSelectedOperator(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO'}    
 
     threshold: bpy.props.FloatProperty(
-            name='Threshold',
+            name='Distance Threshold',
             default=0.05, min=0,
             unit='LENGTH',
             description='If either end of a stroke is close to another stroke end, the two strokes will be pinched together'
     ) 
     transition_length: bpy.props.FloatProperty(
-            name='Transition Factor',
-            default=0.25, min=0.1, max=1,
+            name='Transition',
+            default=0.5, min=0.1, max=1,
             description='The portion of the stroke where points will be moved'
+    )
+    mix_factor: bpy.props.FloatProperty(
+            name='Factor',
+            default=1, min=0, max=1,
+            description='1 means filling the gap completely, and 0 means no movement'
+    )
+    end_to_end: bpy.props.BoolProperty(
+            name='Consider End Points',
+            default=True,
+            description='Move the stroke when its end point is close to an end point on another stroke'
     )
     end_to_intermediate: bpy.props.BoolProperty(
             name='Consider Intermediate Points',
@@ -810,11 +820,14 @@ class PinchSelectedOperator(bpy.types.Operator):
 
         layout.prop(self, "threshold")
         layout.prop(self, "transition_length")
+        layout.prop(self, "mix_factor")
+        layout.prop(self, "end_to_end")
         layout.prop(self, "end_to_intermediate")
         if self.end_to_intermediate:
             layout.prop(self, "contact_pressure")
             layout.prop(self, "contact_length")
-        layout.prop(self, "join_strokes")
+        if self.end_to_end:    
+            layout.prop(self, "join_strokes")
 
     def execute(self, context):
 
@@ -827,59 +840,61 @@ class PinchSelectedOperator(bpy.types.Operator):
                     if stroke.select and len(stroke.points)>1 and not stroke.use_cyclic:
                         stroke_list.append(stroke)
         if len(stroke_list)<2:
-            self.report({"INFO"}, "Please select at least two strokes.")
+            self.report({"INFO"}, "Please select at least two open strokes.")
             return {'FINISHED'}
+        point_processed = set()
 
         # Detect and eliminate the gap between two end points
-        num_chains = 0
-        stroke_chain_idx = {}
-        point_offset = {}
-        for i,stroke in enumerate(stroke_list):
-            for point in [stroke.points[0], stroke.points[-1]]:
-                if point in point_offset:
-                    continue
-                for j,stroke0 in enumerate(stroke_list):
+        if self.end_to_end:
+            num_chains = 0
+            stroke_chain_idx = {}
+            point_offset = {}
+            for i,stroke in enumerate(stroke_list):
+                for point in [stroke.points[0], stroke.points[-1]]:
                     if point in point_offset:
-                        break
-                    for point0 in [stroke0.points[0], stroke0.points[-1]]:
-                        # The case where two points are close and not paired
-                        if i<j and point0 not in point_offset and (vec3_to_vec2(point0.co)-vec3_to_vec2(point.co)).length < self.threshold:
-                            # Assign the stroke to a chain
-                            if stroke0 in stroke_chain_idx and stroke in stroke_chain_idx:
-                                pass
-                            elif stroke0 in stroke_chain_idx:
-                                stroke_chain_idx[stroke] = stroke_chain_idx[stroke0]
-                            elif stroke in stroke_chain_idx:
-                                stroke_chain_idx[stroke0] = stroke_chain_idx[stroke]
-                            else:
-                                stroke_chain_idx[stroke] = num_chains
-                                stroke_chain_idx[stroke0] = num_chains
-                                num_chains += 1
-
-                            # Calculate the offset value
-                            center = 0.5 * (vec3_to_vec2(point0.co)+vec3_to_vec2(point.co))
-                            point_offset[point] = center - vec3_to_vec2(point.co)
-                            point_offset[point0] = center - vec3_to_vec2(point0.co)
+                        continue
+                    for j,stroke0 in enumerate(stroke_list):
+                        if point in point_offset:
                             break
-        # Padding zeros for ends without offsets
-        point_processed = set()
-        for i,stroke in enumerate(stroke_list):
-            for point in [stroke.points[0], stroke.points[-1]]:
-                if point not in point_offset:
-                    point_offset[point] = Vector((0,0))
-                else:
-                    point_processed.add(point)
+                        for point0 in [stroke0.points[0], stroke0.points[-1]]:
+                            # The case where two points are close and not paired
+                            if i<j and point0 not in point_offset and (vec3_to_vec2(point0.co)-vec3_to_vec2(point.co)).length < self.threshold:
+                                # Assign the stroke to a chain
+                                if stroke0 in stroke_chain_idx and stroke in stroke_chain_idx:
+                                    pass
+                                elif stroke0 in stroke_chain_idx:
+                                    stroke_chain_idx[stroke] = stroke_chain_idx[stroke0]
+                                elif stroke in stroke_chain_idx:
+                                    stroke_chain_idx[stroke0] = stroke_chain_idx[stroke]
+                                else:
+                                    stroke_chain_idx[stroke] = num_chains
+                                    stroke_chain_idx[stroke0] = num_chains
+                                    num_chains += 1
 
-        # Apply offsets
-        for i,stroke in enumerate(stroke_list):
-            for j,point in enumerate(stroke.points):
-                w1, w2 = 1-j/(len(stroke.points)-1), j/(len(stroke.points)-1)
-                J = len(stroke.points)-1
-                w1 = 1 - j/J/self.transition_length
-                w2 = 1 - (J-j)/J/self.transition_length
-                new_co = vec3_to_vec2(point.co)
-                new_co += point_offset[stroke.points[0]] * smoothstep(w1) + point_offset[stroke.points[-1]] * smoothstep(w2)
-                set_vec2(point, new_co)
+                                # Calculate the offset value
+                                center = 0.5 * (vec3_to_vec2(point0.co)+vec3_to_vec2(point.co))
+                                point_offset[point] = center - vec3_to_vec2(point.co)
+                                point_offset[point0] = center - vec3_to_vec2(point0.co)
+                                break
+            # Padding zeros for ends without offsets
+            for i,stroke in enumerate(stroke_list):
+                for point in [stroke.points[0], stroke.points[-1]]:
+                    if point not in point_offset:
+                        point_offset[point] = Vector((0,0))
+                    else:
+                        point_processed.add(point)
+
+            # Apply offsets
+            for i,stroke in enumerate(stroke_list):
+                for j,point in enumerate(stroke.points):
+                    w1, w2 = 1-j/(len(stroke.points)-1), j/(len(stroke.points)-1)
+                    J = len(stroke.points)-1
+                    w1 = 1 - j/J/self.transition_length
+                    w2 = 1 - (J-j)/J/self.transition_length
+                    new_co = vec3_to_vec2(point.co)
+                    new_co += self.mix_factor * (point_offset[stroke.points[0]] * smoothstep(w1) 
+                                                 + point_offset[stroke.points[-1]] * smoothstep(w2))
+                    set_vec2(point, new_co)
 
         # Detect and eliminate the gap between an endpoint and a non-endpoint
         def prolong_to_stroke(stroke, end_type, ray_length, stroke0):
@@ -923,21 +938,22 @@ class PinchSelectedOperator(bpy.types.Operator):
                             L = math.ceil((len(stroke.points)-1)*self.transition_length)
                             for l in range(L+1):
                                 target_point = stroke.points[l] if end_type=='start' else stroke.points[-l-1]
-                                new_co = vec3_to_vec2(target_point.co) + offset * (1-l/L)
+                                new_co = vec3_to_vec2(target_point.co) + offset * (1-l/L) * self.mix_factor
                                 set_vec2(target_point, new_co)
 
                             # Thicken the contact points
-                            stroke0.points[contact_idx].pressure += self.contact_pressure
-                            (stroke.points[0] if end_type=='start' else stroke.points[-1]).pressure += self.contact_pressure
+                            contact_pressure = self.contact_pressure * self.mix_factor
+                            stroke0.points[contact_idx].pressure += contact_pressure
+                            (stroke.points[0] if end_type=='start' else stroke.points[-1]).pressure += contact_pressure
                             for delta_idx in range(1, self.contact_length):
                                 for idx in (contact_idx+delta_idx, contact_idx-delta_idx):
                                     if idx>=0 and idx<len(stroke0.points):
-                                        stroke0.points[idx].pressure += self.contact_pressure*(1-delta_idx/self.contact_length)
+                                        stroke0.points[idx].pressure += contact_pressure*(1-delta_idx/self.contact_length)
                                 idx = delta_idx if end_type=='start' else len(stroke.points)-1-delta_idx
                                 if idx>=0 and idx<len(stroke.points):
-                                    stroke.points[idx].pressure += self.contact_pressure*(1-delta_idx/self.contact_length)
+                                    stroke.points[idx].pressure += contact_pressure*(1-delta_idx/self.contact_length)
         # Apply join
-        if self.join_strokes:
+        if self.end_to_end and self.join_strokes:
             for i in range(num_chains):
                 bpy.ops.gpencil.select_all(action='DESELECT')
                 for stroke in stroke_chain_idx:
