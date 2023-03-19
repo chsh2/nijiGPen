@@ -1,8 +1,8 @@
 import bpy
 import math
 import bmesh
-from .utils import *
-from .resources import *
+from ..utils import *
+from ..resources import *
 from mathutils import *
 
 MAX_DEPTH = 4096

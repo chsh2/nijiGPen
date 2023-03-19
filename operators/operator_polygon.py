@@ -1,6 +1,6 @@
 import bpy
 import math
-from .utils import *
+from ..utils import *
 
 class HoleProcessingOperator(bpy.types.Operator):
     """Reorder strokes and assign holdout materials to holes inside another stroke"""

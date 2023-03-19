@@ -2,7 +2,7 @@ import os
 import bpy
 from bpy_extras.io_utils import ImportHelper
 from bpy_extras import image_utils
-from .utils import *
+from ..utils import *
 
 class ExtractLineartOperator(bpy.types.Operator, ImportHelper):
     """Generate strokes from a raster image of line art using medial axis algorithm"""

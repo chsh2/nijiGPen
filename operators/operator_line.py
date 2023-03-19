@@ -1,7 +1,7 @@
 import bpy
 import math
 from mathutils import *
-from .utils import *
+from ..utils import *
 
 def stroke_to_kdtree(co_list):
     n = len(co_list)
