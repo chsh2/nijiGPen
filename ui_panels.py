@@ -7,13 +7,13 @@ class NIJIGP_PT_draw_panel_setting(bpy.types.Panel):
     bl_region_type = "UI"
     bl_category = "NijiGP"
     bl_context = "greasepencil_paint"
+    bl_order = 0
 
     def draw(self, context):
         layout = self.layout
         scene = context.scene
-        obj = context.object
-        layout.label(text="Working Plane:")
         row = layout.row()
+        row.label(text="Working Plane:")
         row.prop(scene, "nijigp_working_plane", text='')
 
 class NIJIGP_PT_edit_panel_setting(bpy.types.Panel):
@@ -23,13 +23,13 @@ class NIJIGP_PT_edit_panel_setting(bpy.types.Panel):
     bl_region_type = "UI"
     bl_category = "NijiGP"
     bl_context = "greasepencil_edit"
+    bl_order = 0
 
     def draw(self, context):
         layout = self.layout
         scene = context.scene
-        obj = context.object
-        layout.label(text="Working Plane:")
         row = layout.row()
+        row.label(text="Working Plane:")
         row.prop(scene, "nijigp_working_plane", text='')
 
 class NIJIGP_PT_draw_panel_io(bpy.types.Panel):
@@ -39,17 +39,17 @@ class NIJIGP_PT_draw_panel_io(bpy.types.Panel):
     bl_region_type = "UI"
     bl_category = "NijiGP"
     bl_context = "greasepencil_paint"
+    bl_order = 4
 
     def draw(self, context):
         layout = self.layout
         scene = context.scene
         obj = context.object
 
-        layout.label(text="Clipboard Utilities:")
+        layout.label(text="Paste from Clipboard:")
         row = layout.row()
-        row.operator("gpencil.nijigp_paste_svg", text="Paste SVG Codes", icon="PASTEDOWN")
-        row = layout.row()
-        row.operator("gpencil.nijigp_paste_xml_palette", text="Paste XML Palette", icon="PASTEDOWN")
+        row.operator("gpencil.nijigp_paste_svg", text="SVG", icon="PASTEDOWN")
+        row.operator("gpencil.nijigp_paste_xml_palette", text="XML/Hex", icon="COLOR")
 
         layout.label(text="File Import:")
         row = layout.row()
@@ -62,17 +62,17 @@ class NIJIGP_PT_edit_panel_io(bpy.types.Panel):
     bl_region_type = "UI"
     bl_category = "NijiGP"
     bl_context = "greasepencil_edit"
+    bl_order = 4
 
     def draw(self, context):
         layout = self.layout
         scene = context.scene
         obj = context.object
 
-        layout.label(text="Clipboard Utilities:")
+        layout.label(text="Paste from Clipboard:")
         row = layout.row()
-        row.operator("gpencil.nijigp_paste_svg", text="Paste SVG Codes", icon="PASTEDOWN")
-        row = layout.row()
-        row.operator("gpencil.nijigp_paste_xml_palette", text="Paste XML Palette", icon="PASTEDOWN")
+        row.operator("gpencil.nijigp_paste_svg", text="SVG", icon="PASTEDOWN")
+        row.operator("gpencil.nijigp_paste_xml_palette", text="XML/Hex", icon="COLOR")
 
         layout.label(text="File Import:")
         row = layout.row()
@@ -85,6 +85,7 @@ class NIJIGP_PT_draw_panel_polygon(bpy.types.Panel):
     bl_region_type = "UI"
     bl_category = "NijiGP"
     bl_context = "greasepencil_paint"
+    bl_order = 2
 
     def draw(self, context):
         layout = self.layout
@@ -109,6 +110,7 @@ class NIJIGP_PT_edit_panel_polygon(bpy.types.Panel):
     bl_region_type = "UI"
     bl_category = "NijiGP"
     bl_context = "greasepencil_edit"
+    bl_order = 2
 
     def draw(self, context):
         layout = self.layout
@@ -133,6 +135,7 @@ class NIJIGP_PT_edit_panel_mesh(bpy.types.Panel):
     bl_region_type = "UI"
     bl_category = "NijiGP"
     bl_context = "greasepencil_edit"
+    bl_order = 3
 
     def draw(self, context):
         layout = self.layout
@@ -144,9 +147,8 @@ class NIJIGP_PT_edit_panel_mesh(bpy.types.Panel):
 
         layout.label(text="Generation Methods:")
         row = layout.row()
-        row.operator("gpencil.nijigp_mesh_generation_offset", text="Frustum by Offset", icon="CONE")
-        row = layout.row()
-        row.operator("gpencil.nijigp_mesh_generation_normal", text="Planar with Normals", icon="NORMALS_FACE")
+        row.operator("gpencil.nijigp_mesh_generation_offset", text="Frustum", icon="CONE")
+        row.operator("gpencil.nijigp_mesh_generation_normal", text="Interpolation", icon="NORMALS_FACE")
 
         layout.label(text="Mesh Management:")
         row = layout.row()
@@ -161,6 +163,7 @@ class NIJIGP_PT_draw_panel_mesh(bpy.types.Panel):
     bl_region_type = "UI"
     bl_category = "NijiGP"
     bl_context = "greasepencil_paint"
+    bl_order = 3
 
     def draw(self, context):
         layout = self.layout
@@ -178,21 +181,20 @@ class NIJIGP_PT_edit_panel_line(bpy.types.Panel):
     bl_region_type = "UI"
     bl_category = "NijiGP"
     bl_context = "greasepencil_edit"
+    bl_order = 1
 
     def draw(self, context):
         layout = self.layout
-        layout.label(text="Line Cleanup:")
+        layout.label(text="Line Cleanup by Fitting:")
         row = layout.row()
-        row.operator("gpencil.nijigp_fit_selected", text="Single-Line Fit", icon="MOD_SMOOTH")
-        row = layout.row()
-        row.operator("gpencil.nijigp_cluster_and_fit", text="Multi-Line Fit", icon="CURVES")
+        row.operator("gpencil.nijigp_fit_selected", text="Single-Line", icon="MOD_SMOOTH")
+        row.operator("gpencil.nijigp_cluster_and_fit", text="Multi-Line", icon="CURVES")
         layout.label(text="Line Utilities:")
         row = layout.row()
         row.operator("gpencil.nijigp_select_similar", text="Select Similar", icon="SELECT_SET")
         row = layout.row()
-        row.operator("gpencil.nijigp_pinch", text="Pinch Together", icon="HANDLE_VECTOR")
-        row = layout.row()
-        row.operator("gpencil.nijigp_taper_selected", text="Taper Selected", icon="GP_ONLY_SELECTED")
+        row.operator("gpencil.nijigp_pinch", text="Pinch", icon="HANDLE_VECTOR")
+        row.operator("gpencil.nijigp_taper_selected", text="Taper", icon="GP_ONLY_SELECTED")
      
 class NIJIGP_PT_draw_panel_line(bpy.types.Panel):
     bl_idname = 'NIJIGP_PT_draw_panel_line'
@@ -201,6 +203,7 @@ class NIJIGP_PT_draw_panel_line(bpy.types.Panel):
     bl_region_type = "UI"
     bl_category = "NijiGP"
     bl_context = "greasepencil_paint"
+    bl_order = 1
 
     def draw(self, context):
         layout = self.layout

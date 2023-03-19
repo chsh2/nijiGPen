@@ -132,7 +132,6 @@ class PasteXMLOperator(bpy.types.Operator):
 
         palette_name = 'Pasted_Palette'
         colors_to_add = []
-
         try:
             root = ET.fromstring(clipboard_str)
             entries = root.findall('color')

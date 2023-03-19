@@ -301,7 +301,7 @@ class OffsetSelectedOperator(bpy.types.Operator):
             for i,frame in layer_frame_map.items():
                 layer = current_gp_obj.data.layers[i]
                 # Consider the case where active_frame is None
-                if not layer.lock and hasattr(frame, "strokes"):
+                if not layer.lock and not layer.hide and hasattr(frame, "strokes"):
                     for j,stroke in enumerate(frame.strokes):
                         if stroke.select:
                             stroke_info.append([stroke, i, j, frame])
@@ -483,7 +483,7 @@ class BoolSelectedOperator(bpy.types.Operator):
             # Convert selected strokes to 2D polygon point lists
             for i,frame in layer_frame_map.items():
                 layer = current_gp_obj.data.layers[i]
-                if not layer.lock and hasattr(frame, "strokes"):
+                if not layer.lock and not layer.hide and hasattr(frame, "strokes"):
                     for j,stroke in enumerate(frame.strokes):
                         if stroke.select:
                             stroke_info.append([stroke, i, j, frame])
@@ -636,12 +636,13 @@ class BoolLastOperator(bpy.types.Operator):
             return {'FINISHED'}            
 
         # Check every stroke if it can be operated
-        clip_stroke = layer.active_frame.strokes[-1]
-        stroke_info = [[clip_stroke, layer_index, len(layer.active_frame.strokes) - 1]]
+        stroke_index = 0 if context.scene.tool_settings.use_gpencil_draw_onback else (len(layer.active_frame.strokes) - 1)
+        clip_stroke = layer.active_frame.strokes[stroke_index]
+        stroke_info = [[clip_stroke, layer_index, stroke_index]]
         stroke_list = [clip_stroke]
         for j,stroke in enumerate(layer.active_frame.strokes):
-            if j == len(layer.active_frame.strokes) - 1:
-                break
+            if j == stroke_index:
+                continue
             if is_stroke_locked(stroke, current_gp_obj):
                 continue
             if context.scene.nijigp_draw_bool_material_constraint and stroke.material_index != clip_stroke.material_index:

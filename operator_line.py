@@ -348,7 +348,7 @@ class FitSelectedOperator(CommonFittingConfig, bpy.types.Operator):
         gp_obj = context.object
         stroke_list = []
         for i,layer in enumerate(gp_obj.data.layers):
-            if layer.active_frame and not layer.lock:
+            if layer.active_frame and not layer.lock and not layer.hide:
                 for stroke in layer.active_frame.strokes:
                     if stroke.select:
                         stroke_list.append(stroke)
@@ -579,7 +579,7 @@ class ClusterAndFitOperator(CommonFittingConfig, bpy.types.Operator):
         gp_obj = context.object
         stroke_list = []
         for i,layer in enumerate(gp_obj.data.layers):
-            if layer.active_frame and not layer.lock:
+            if layer.active_frame and not layer.lock and not layer.hide:
                 for stroke in layer.active_frame.strokes:
                     if stroke.select:
                         stroke_list.append(stroke)
@@ -652,7 +652,7 @@ class ClusterAndFitOperator(CommonFittingConfig, bpy.types.Operator):
                                             keep_original = self.keep_original)
             # Record the stroke selection status
             for i,layer in enumerate(gp_obj.data.layers):
-                if layer.active_frame and not layer.lock:
+                if layer.active_frame and not layer.lock and not layer.hide:
                     for stroke in layer.active_frame.strokes:
                         if stroke.select:
                             generated_strokes.append(stroke)
@@ -715,7 +715,8 @@ class FitLastOperator(CommonFittingConfig, bpy.types.Operator):
         # Get stroke information from the input
         if not drawing_layer.active_frame or len(drawing_layer.active_frame.strokes)<1:
             return {'FINISHED'} 
-        src_stroke: bpy.types.GPencilStroke = drawing_layer.active_frame.strokes[-1]
+        stroke_index = 0 if context.scene.tool_settings.use_gpencil_draw_onback else -1
+        src_stroke: bpy.types.GPencilStroke = drawing_layer.active_frame.strokes[stroke_index]
         tmp, _ = stroke_to_poly([src_stroke], scale = False, correct_orientation = False)
         src_co_list = tmp[0]
         src_kdt = stroke_to_kdtree(src_co_list)
@@ -835,7 +836,7 @@ class PinchSelectedOperator(bpy.types.Operator):
         gp_obj = context.object
         stroke_list = []
         for i,layer in enumerate(gp_obj.data.layers):
-            if layer.active_frame and not layer.lock:
+            if layer.active_frame and not layer.lock and not layer.hide:
                 for stroke in layer.active_frame.strokes:
                     if stroke.select and len(stroke.points)>1 and not stroke.use_cyclic:
                         stroke_list.append(stroke)
@@ -1113,7 +1114,7 @@ class TaperSelectedOperator(bpy.types.Operator):
                     point.strength = point.strength * factor_arr[i] if self.operation=='MULTIPLY' else factor_arr[i]
 
         for layer in context.object.data.layers:
-            if not layer.lock:
+            if not layer.lock and not layer.hide:
                 for frame in layer.frames:
                     for stroke in frame.strokes:
                         if stroke.select and not is_stroke_locked(stroke, context.object):

@@ -24,18 +24,10 @@ bl_info = {
 }
 
 from . import auto_load
+from .ui_viewport_tools import *
 
 auto_load.init()
 
-def draw_shortcuts(self, context):
-    if not context.preferences.addons[__package__].preferences.extra_buttons:
-        return
-    if context.mode == 'PAINT_GPENCIL' or context.mode == 'SCULPT_GPENCIL':
-        self.layout.operator("ed.undo", text='', icon='TRIA_LEFT')
-        self.layout.operator("ed.redo", text='', icon='TRIA_RIGHT')
-    if context.mode == 'EDIT_GPENCIL':
-        self.layout.operator("gpencil.stroke_arrange", text='', icon='TRIA_UP_BAR').direction='TOP'
-        self.layout.operator("gpencil.stroke_arrange", text='', icon='TRIA_DOWN_BAR').direction='DOWN'
 
 def register():
     auto_load.register()
@@ -61,8 +53,8 @@ def register():
         default='',
         search=lambda self, context, edit_text: [layer.info for layer in context.object.data.layers]
     )
-    bpy.types.PROPERTIES_PT_navigation_bar.prepend(draw_shortcuts)
+    register_viewport_tools()
 
 def unregister():
     auto_load.unregister()
-    bpy.types.PROPERTIES_PT_navigation_bar.remove(draw_shortcuts)
+    unregister_viewport_tools()

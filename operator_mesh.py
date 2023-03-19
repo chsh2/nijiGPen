@@ -2,6 +2,7 @@ import bpy
 import math
 import bmesh
 from .utils import *
+from .resources import *
 from mathutils import *
 
 MAX_DEPTH = 4096
@@ -103,6 +104,17 @@ class MeshGenerationByNormal(bpy.types.Operator):
             default=1, soft_max=5, soft_min=-5,
             description='Scale the vertical component of generated normal vectors. Negative values result in concave shapes'
     )
+    mesh_material: bpy.props.StringProperty(
+        name='Material',
+        description='The material applied to generated mesh. Principled BSDF by default',
+        default='Principled BSDF',
+        search=lambda self, context, edit_text: get_material_list('NORMAL', bpy.context.engine)
+    )
+    reuse_material: bpy.props.BoolProperty(
+            name='Reuse Materials',
+            default=True,
+            description='Do not create a new material if it exists'
+    )
     keep_original: bpy.props.BoolProperty(
             name='Keep Original',
             default=True,
@@ -129,7 +141,9 @@ class MeshGenerationByNormal(bpy.types.Operator):
         box2.prop(self, "resolution", text = "Resolution")
         box2.prop(self, "max_vertical_angle")
         box2.prop(self, "vertical_scale")
-        box2.prop(self, "keep_original", text = "Keep Original")
+        layout.prop(self, "mesh_material", text='Material', icon='MATERIAL')
+        layout.prop(self, "reuse_material")
+        layout.prop(self, "keep_original", text = "Keep Original")
 
     def execute(self, context):
         import numpy as np
@@ -146,12 +160,14 @@ class MeshGenerationByNormal(bpy.types.Operator):
             if 'nijigp_mesh' in obj:
                 generated_objects.append(obj)
 
+        mesh_material = append_material(context, 'NORMAL', self.mesh_material, self.reuse_material, self)
+
         # Convert selected strokes to 2D polygon point lists
         stroke_info = []
         stroke_list = []
         mesh_names = []
         for i,layer in enumerate(current_gp_obj.data.layers):
-            if not layer.lock and hasattr(layer.active_frame, "strokes"):
+            if not layer.lock and not layer.hide and hasattr(layer.active_frame, "strokes"):
                 for j,stroke in enumerate(layer.active_frame.strokes):
                     if stroke.select:
                         if self.ignore_mode == 'LINE' and is_stroke_line(stroke, current_gp_obj):
@@ -325,7 +341,7 @@ class MeshGenerationByNormal(bpy.types.Operator):
                 fill_base_color[1] = fill_base_color[1] * (1-alpha) + alpha * stroke_list[i].vertex_color_fill[1]
                 fill_base_color[2] = fill_base_color[2] * (1-alpha) + alpha * stroke_list[i].vertex_color_fill[2]
             for v in bm.verts:
-                # Not supported until Blender 3.2; Currently, using a homemade function instead
+                # Not supported until Blender 3.2; Currently, using a homemade function for best compatibility
                 #vertex_color = Color([fill_base_color[0], fill_base_color[1], fill_base_color[2]])
                 #vertex_color = vertex_color.from_scene_linear_to_srgb()
                 #v[vertex_color_layer] = [vertex_color.r, vertex_color.g, vertex_color.b, fill_base_color[3]]
@@ -382,24 +398,8 @@ class MeshGenerationByNormal(bpy.types.Operator):
             generated_objects.append(new_object)
 
             # Assign material
-            if "nijigp_mat_with_normal" not in bpy.data.materials:
-                new_mat = bpy.data.materials.new("nijigp_mat_with_normal")
-                new_mat.use_nodes = True
-                new_mat.blend_method = 'BLEND'
-                new_mat.show_transparent_back = False
-                new_mat.use_backface_culling = False
-                attr_node = new_mat.node_tree.nodes.new("ShaderNodeAttribute")
-                attr_node.attribute_name = 'Color'
-                normal_attr_node = new_mat.node_tree.nodes.new("ShaderNodeAttribute")
-                normal_attr_node.attribute_name = 'NormalMap'
-                normal_map_node = new_mat.node_tree.nodes.new("ShaderNodeNormalMap")
-                new_mat.node_tree.links.new(normal_attr_node.outputs['Vector'], normal_map_node.inputs['Color'])
-                for node in new_mat.node_tree.nodes:
-                    if node.type == "BSDF_PRINCIPLED":
-                        new_mat.node_tree.links.new(node.inputs['Base Color'], attr_node.outputs['Color'])
-                        new_mat.node_tree.links.new(node.inputs['Alpha'], attr_node.outputs['Alpha'])
-                        new_mat.node_tree.links.new(node.inputs['Normal'], normal_map_node.outputs['Normal'])
-            new_object.data.materials.append(bpy.data.materials["nijigp_mat_with_normal"])
+            if mesh_material:
+                new_object.data.materials.append(mesh_material)
 
         for i,co_list in enumerate(poly_list):
             process_single_stroke(i, co_list)
@@ -506,7 +506,17 @@ class MeshGenerationByOffsetting(bpy.types.Operator):
             unit='LENGTH',
             description='Voxel size used during remeshing'   
     )
-
+    mesh_material: bpy.props.StringProperty(
+        name='Material',
+        description='The material applied to generated mesh. Principled BSDF by default',
+        default='Principled BSDF',
+        search=lambda self, context, edit_text: get_material_list('MESH', bpy.context.engine)
+    )
+    reuse_material: bpy.props.BoolProperty(
+            name='Reuse Materials',
+            default=True,
+            description='Do not create a new material if it exists'
+    )
 
     def draw(self, context):
         layout = self.layout
@@ -518,13 +528,15 @@ class MeshGenerationByOffsetting(bpy.types.Operator):
         box2 = layout.box()
         box2.prop(self, "offset_amount", text = "Offset Amount")
         box2.prop(self, "resolution", text = "Resolution")
-        box2.label(text = "Corner Shape")
-        box2.prop(self, "corner_shape", text = "")
-        box2.label(text = "Slope Style")
-        box2.prop(self, "slope_style", text = "")
-        box2.label(text = "Extrude Method")
-        box2.prop(self, "extrude_method", text = "")
-        box2.prop(self, "keep_original", text = "Keep Original")
+        row = box2.row()
+        row.label(text = "Corner Shape")
+        row.prop(self, "corner_shape", text = "")
+        row = box2.row()
+        row.label(text = "Slope Style")
+        row.prop(self, "slope_style", text = "")
+        row = box2.row()
+        row.label(text = "Extrude Method")
+        row.prop(self, "extrude_method", text = "")
 
         layout.label(text = "Post-Processing Options:")
         box3 = layout.box()
@@ -536,6 +548,11 @@ class MeshGenerationByOffsetting(bpy.types.Operator):
         row = box3.row()
         row.prop(self, "postprocess_remesh", text='Remesh')
         row.prop(self, "remesh_voxel_size", text='Voxel Size')
+
+        layout.prop(self, "mesh_material", text='Material', icon='MATERIAL')
+        layout.prop(self, "reuse_material")
+        layout.prop(self, "keep_original", text = "Keep Original")
+
 
     def execute(self, context):
 
@@ -554,13 +571,15 @@ class MeshGenerationByOffsetting(bpy.types.Operator):
             jt = pyclipper.JT_MITER
         et = pyclipper.ET_CLOSEDPOLYGON
 
+
         # Convert selected strokes to 2D polygon point lists
         current_gp_obj = context.object
+        mesh_material = append_material(context, 'MESH', self.mesh_material, self.reuse_material, self)
         stroke_info = []
         stroke_list = []
         mesh_names = []
         for i,layer in enumerate(current_gp_obj.data.layers):
-            if not layer.lock and hasattr(layer.active_frame, "strokes"):
+            if not layer.lock and not layer.hide and hasattr(layer.active_frame, "strokes"):
                 for j,stroke in enumerate(layer.active_frame.strokes):
                     if stroke.select:
                         if self.ignore_mode == 'LINE' and is_stroke_line(stroke, current_gp_obj):
@@ -576,6 +595,7 @@ class MeshGenerationByOffsetting(bpy.types.Operator):
         for obj in current_gp_obj.children:
             if 'nijigp_mesh' in obj:
                 generated_objects.append(obj)
+        
         def process_single_stroke(i, co_list):
             '''
             Function that processes each stroke separately
@@ -756,16 +776,8 @@ class MeshGenerationByOffsetting(bpy.types.Operator):
             generated_objects.append(new_object)
 
             # Assign material
-            if "nijigp_mat" not in bpy.data.materials:
-                new_mat = bpy.data.materials.new("nijigp_mat")
-                new_mat.use_nodes = True
-                attr_node = new_mat.node_tree.nodes.new("ShaderNodeAttribute")
-                attr_node.attribute_name = 'Color'
-                for node in new_mat.node_tree.nodes:
-                    if node.type == "BSDF_PRINCIPLED":
-                        new_mat.node_tree.links.new(node.inputs['Base Color'], attr_node.outputs['Color'])
-                        new_mat.node_tree.links.new(node.inputs['Alpha'], attr_node.outputs['Alpha'])
-            new_object.data.materials.append(bpy.data.materials["nijigp_mat"])
+            if mesh_material:
+                new_object.data.materials.append(mesh_material)
 
             # Create faces for manually generated edges
             context.view_layer.objects.active = new_object

@@ -133,10 +133,19 @@ class NijiGPAddonPreferences(bpy.types.AddonPreferences):
         default=''
     )
 
-    extra_buttons: bpy.props.BoolProperty(
-        name='Show Extra Shortcut Buttons',
-        description='Show extra buttons in the sidebar of Properties panel for better touchscreen control',
+    shortcut_button_enabled: bpy.props.BoolProperty(
+        name='Enable Shortcut Buttons',
+        description='Add a group of buttons at the bottom of the 3D view that brings better touchscreen control',
         default=True
+    )
+    shortcut_button_size: bpy.props.FloatProperty(
+        name='Button Size',
+        default=18, min=10, max=40
+    )
+    shortcut_button_location: bpy.props.FloatProperty(
+        name='Button Location',
+        description='The position of the shortcut buttons. Zero means buttons in the center. Positive/negative values means buttons in the right/left',
+        default=0, soft_min=-2000, soft_max=2000
     )
 
     package_pyclipper: bpy.props.BoolProperty(
@@ -160,7 +169,7 @@ class NijiGPAddonPreferences(bpy.types.AddonPreferences):
         row = box1.row()
         row.label(text = "Dependency Management")
         row.separator()
-        row.operator("nijigp.check_dependencies", text="Refresh", icon="FILE_REFRESH")
+        row.operator("nijigp.check_dependencies", text="Check", icon="FILE_REFRESH")
 
         table_key = ['Package', 'Type', 'Status', 'Actions','']
         packages = [{'name': 'PyClipper', 'type': 'Essential', 
@@ -191,7 +200,12 @@ class NijiGPAddonPreferences(bpy.types.AddonPreferences):
             row.operator(p['operator2'])
 
         # Other options
-        layout.label(text = "General Setting:")
-        box2 = layout.box()
-        box2.prop(self, 'extra_buttons')
-        box2.prop(self, 'cache_folder')
+        layout.prop(self, 'cache_folder')
+        layout.label(text='UI Setting:')
+        row = layout.row()
+        row.prop(self, 'shortcut_button_enabled')
+        row.operator("gpencil.refresh_gizmo", text='Apply')
+        if self.shortcut_button_enabled:
+            row = layout.row()
+            row.prop(self, 'shortcut_button_size')
+            row.prop(self, 'shortcut_button_location')
