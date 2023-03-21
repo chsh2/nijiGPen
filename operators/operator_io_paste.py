@@ -44,8 +44,7 @@ class PasteSVGOperator(bpy.types.Operator):
         row.prop(self, "auto_holdout", text = "Auto Holdout")
 
     def execute(self, context):
-
-        preferences = context.preferences.addons[__package__].preferences
+        preferences = context.preferences.addons[__package__.rsplit('.',1)[0]].preferences
         current_gp_obj = context.object
         current_material_idx = context.object.active_material_index
         num_layers = len(context.object.data.layers)
