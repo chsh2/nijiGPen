@@ -46,6 +46,18 @@ class MeshGenerationByNormal(bpy.types.Operator):
     bl_category = 'View'
     bl_options = {'REGISTER', 'UNDO'}
 
+    mesh_type: bpy.props.EnumProperty(
+            name='Mesh Type',
+            items=[('NORMAL', 'Planar with Normals', ''),
+                    ('MESH', '3D Mesh', '')],
+            default='NORMAL',
+            description='Generate either a normal map or real 3D structure'
+    )
+    postprocess_double_sided: bpy.props.BoolProperty(
+            name='Double-Sided',
+            default=True,
+            description='Make the mesh symmetric to the working plane'
+    )
     vertical_gap: bpy.props.FloatProperty(
             name='Vertical Gap',
             default=0.01, min=0,
@@ -108,7 +120,7 @@ class MeshGenerationByNormal(bpy.types.Operator):
         name='Material',
         description='The material applied to generated mesh. Principled BSDF by default',
         default='Principled BSDF',
-        search=lambda self, context, edit_text: get_material_list('NORMAL', bpy.context.engine)
+        search=lambda self, context, edit_text: get_material_list(self.mesh_type, bpy.context.engine)
     )
     reuse_material: bpy.props.BoolProperty(
             name='Reuse Materials',
@@ -125,11 +137,16 @@ class MeshGenerationByNormal(bpy.types.Operator):
         layout = self.layout
         layout.label(text = "Multi-Object Alignment:")
         box1 = layout.box()
+        box1.prop(self, "mesh_type")
         box1.prop(self, "vertical_gap", text = "Vertical Gap")
-        row = box1.row()
-        row.prop(self, "transition")
-        row.prop(self, "transition_length", text = "Length")
+        if self.mesh_type == 'NORMAL':
+            row = box1.row()
+            row.prop(self, "transition")
+            row.prop(self, "transition_length", text = "Length")
+        else:
+            box1.prop(self, "postprocess_double_sided")
         box1.prop(self, "ignore_mode")
+
         layout.label(text = "Geometry Options:")
         box2 = layout.box()
         box2.label(text = "Mesh Style:")
@@ -141,6 +158,7 @@ class MeshGenerationByNormal(bpy.types.Operator):
         box2.prop(self, "resolution", text = "Resolution")
         box2.prop(self, "max_vertical_angle")
         box2.prop(self, "vertical_scale")
+
         layout.prop(self, "mesh_material", text='Material', icon='MATERIAL')
         layout.prop(self, "reuse_material")
         layout.prop(self, "keep_original", text = "Keep Original")
@@ -154,13 +172,13 @@ class MeshGenerationByNormal(bpy.types.Operator):
             self.report({"ERROR"}, "Please install dependencies in the Preferences panel.")
             return {'FINISHED'}
         
+        # Load related resources
         current_gp_obj = context.object
         generated_objects = []
         for obj in current_gp_obj.children:
             if 'nijigp_mesh' in obj:
                 generated_objects.append(obj)
-
-        mesh_material = append_material(context, 'NORMAL', self.mesh_material, self.reuse_material, self)
+        mesh_material = append_material(context, self.mesh_type, self.mesh_material, self.reuse_material, self)
 
         # Convert selected strokes to 2D polygon point lists
         stroke_info = []
@@ -191,6 +209,7 @@ class MeshGenerationByNormal(bpy.types.Operator):
             bm = bmesh.new()
             vertex_color_layer = bm.verts.layers.color.new('Color')
             normal_map_layer = bm.verts.layers.float_vector.new('NormalMap')
+            depth_layer = bm.verts.layers.float.new('Depth')
             uv_layer = bm.loops.layers.uv.new()
 
             # Calculate the normal vectors of the original stroke points
@@ -302,7 +321,11 @@ class MeshGenerationByNormal(bpy.types.Operator):
                     v_list = (bm.verts[f[2]], bm.verts[f[1]], bm.verts[f[0]])
                     bm.faces.new(v_list)    
 
-            # Normal map calculation
+            # Normal and height calculation
+            maxmin_dist = 0.
+            depth_offset = np.cos(self.max_vertical_angle) / np.sqrt(1 + 
+                                                              (self.vertical_scale**2 - 1) *
+                                                              (np.sin(self.max_vertical_angle)**2))
             for vert in bm.verts:
                 co_2d = vec3_to_vec2(vert.co) * scale_factor
                 co_key = (int(co_2d[0]), int(co_2d[1]))
@@ -312,14 +335,21 @@ class MeshGenerationByNormal(bpy.types.Operator):
                     norm = contour_normal_map[co_key]
                 # Inner vertex case
                 else:
-                    weights = 1/ ((contour_co_array[:,0]-co_2d[0])**2 + (contour_co_array[:,1]-co_2d[1])**2)
+                    dist_sq = (contour_co_array[:,0]-co_2d[0])**2 + (contour_co_array[:,1]-co_2d[1])**2
+                    weights = 1.0 / dist_sq
                     weights /= np.sum(weights)
+                    maxmin_dist = max( np.min(dist_sq), maxmin_dist)
                     norm_u = np.dot(contour_normal_array[:,0], weights)
                     norm_v = np.dot(contour_normal_array[:,2], weights)
                     norm = Vector([norm_u, np.sqrt(max(0,math.sin(self.max_vertical_angle)**2-norm_u**2-norm_v**2)) + math.cos(self.max_vertical_angle), norm_v])
                 # Scale vertical components
                 norm = Vector((norm.x * self.vertical_scale, norm.y, norm.z * self.vertical_scale)).normalized()
                 vert[normal_map_layer] = [ 0.5 * (norm.x + 1) , 0.5 * (norm.z + 1), 0.5 * (norm.y+1)]
+                if vert.is_boundary:
+                    vert[depth_layer] = 0
+                else:
+                    vert[depth_layer] = norm.y - depth_offset
+            maxmin_dist = np.sqrt(maxmin_dist) / scale_factor
 
             # UV projection, required for correct tangent direction
             for face in bm.faces:
@@ -364,7 +394,7 @@ class MeshGenerationByNormal(bpy.types.Operator):
             vertical_pos += self.vertical_gap
 
             # Adjust transparency and normal vector values if transition is enabled
-            if self.transition and not stroke_list[i].use_cyclic:
+            if self.mesh_type == 'NORMAL' and self.transition and not stroke_list[i].use_cyclic:
                 for v in bm.verts:
                     if v in ray_receiver:
                         # Get the normal vector of the mesh below the current one
@@ -384,15 +414,17 @@ class MeshGenerationByNormal(bpy.types.Operator):
                         v[vertex_color_layer][3] = weight
 
             # Update vertices locations and make a new BVHTree
+            depth_scale = maxmin_dist * self.vertical_scale * np.sign(self.max_vertical_angle)
             for v in bm.verts:
-                set_depth(v, vertical_pos)
-
+                if self.mesh_type == 'MESH':
+                    set_depth(v, v[depth_layer]*depth_scale)
             bm.to_mesh(new_mesh)
             bm.free()
 
             # Object generation
             new_object = bpy.data.objects.new(mesh_names[i], new_mesh)
-            new_object['nijigp_mesh'] = 'planar'
+            new_object['nijigp_mesh'] = 'planar' if self.mesh_type=='NORMAL' else '3d'
+            set_depth(new_object.location, vertical_pos)
             bpy.context.collection.objects.link(new_object)
             new_object.parent = current_gp_obj
             generated_objects.append(new_object)
@@ -400,6 +432,25 @@ class MeshGenerationByNormal(bpy.types.Operator):
             # Assign material
             if mesh_material:
                 new_object.data.materials.append(mesh_material)
+
+            # Post-processing
+            # TODO: Find a better way for post-processing, especially for mirror
+            bpy.ops.object.mode_set(mode='OBJECT')
+            bpy.ops.object.select_all(action='DESELECT')
+            new_object.select_set(True)
+            context.view_layer.objects.active = new_object
+            bpy.ops.object.shade_smooth(use_auto_smooth=True)
+            if self.mesh_type=='MESH' and self.postprocess_double_sided:
+                new_object.modifiers.new(name="nijigp_Mirror", type='MIRROR')
+                new_object.modifiers["nijigp_Mirror"].use_axis[0] = (bpy.context.scene.nijigp_working_plane == 'Y-Z')
+                new_object.modifiers["nijigp_Mirror"].use_axis[1] = (bpy.context.scene.nijigp_working_plane == 'X-Z')
+                new_object.modifiers["nijigp_Mirror"].use_axis[2] = (bpy.context.scene.nijigp_working_plane == 'X-Y')
+                bpy.ops.object.modifier_apply("EXEC_DEFAULT", modifier = "nijigp_Mirror") 
+            # Apply transform, necessary because of the movement in depth
+            mb = new_object.matrix_basis
+            if hasattr(new_object.data, "transform"):
+                new_object.data.transform(mb)
+            new_object.location = Vector((0, 0, 0))           
 
         for i,co_list in enumerate(poly_list):
             process_single_stroke(i, co_list)
@@ -410,7 +461,9 @@ class MeshGenerationByNormal(bpy.types.Operator):
                 layer_index = info[1]
                 current_gp_obj.data.layers[layer_index].active_frame.strokes.remove(info[0])
 
-        bpy.ops.object.mode_set(mode='OBJECT')
+        bpy.ops.object.select_all(action='DESELECT')
+        current_gp_obj.select_set(True)
+        context.view_layer.objects.active = current_gp_obj
         return {'FINISHED'}
 
 class MeshGenerationByOffsetting(bpy.types.Operator):
@@ -683,7 +736,6 @@ class MeshGenerationByOffsetting(bpy.types.Operator):
                         edge_extruded.append(
                                 bm.edges.new([verts_by_level[-1][v_idx], verts_by_level[-2][v_idx]])
                             )
-                
                 # Connect vertices from two levels
                 elif j>0 and self.extrude_method=='ACUTE':
                     connect_edge_manually = True
@@ -701,8 +753,6 @@ class MeshGenerationByOffsetting(bpy.types.Operator):
                         edge_extruded.append(
                             bm.edges.new([v, verts_by_level[-1][idx]])
                         )
-                    
-
                 bm.edges.ensure_lookup_table()
 
                 if j>0 and not connect_edge_manually:
@@ -769,7 +819,7 @@ class MeshGenerationByOffsetting(bpy.types.Operator):
 
             # Object generation
             new_object = bpy.data.objects.new(mesh_names[i], new_mesh)
-            new_object['nijigp_mesh'] = 'frustum'
+            new_object['nijigp_mesh'] = '3d'
             set_depth(new_object.location, vertical_pos)
             bpy.context.collection.objects.link(new_object)
             new_object.parent = current_gp_obj
