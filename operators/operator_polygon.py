@@ -48,19 +48,6 @@ class HoleProcessingOperator(bpy.types.Operator):
                 if layer.active_frame:
                     frames_to_process.append(layer.active_frame)
 
-        def is_poly_in_poly(poly1, poly2):
-            '''
-            False if either at least one point is outside, or all points are on the boundary
-            '''
-            inner_count = 0
-            for co in poly1:
-                res = pyclipper.PointInPolygon(co, poly2)
-                if res == 0:
-                    return False
-                if res == 1:
-                    inner_count += 1
-            return inner_count > 0
-
         material_idx_map = {}
         def change_material(stroke):
             '''

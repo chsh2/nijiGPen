@@ -181,8 +181,8 @@ class MeshGenerationByNormal(bpy.types.Operator):
         mesh_material = append_material(context, self.mesh_type, self.mesh_material, self.reuse_material, self)
 
         # Convert selected strokes to 2D polygon point lists
-        stroke_info = []
-        stroke_list = []
+        stroke_info, stroke_list = [], []
+        mask_info, mask_list = [], []
         mesh_names = []
         for i,layer in enumerate(current_gp_obj.data.layers):
             if not layer.lock and not layer.hide and hasattr(layer.active_frame, "strokes"):
@@ -192,12 +192,23 @@ class MeshGenerationByNormal(bpy.types.Operator):
                             continue
                         if self.ignore_mode == 'OPEN' and is_stroke_line(stroke, current_gp_obj) and not stroke.use_cyclic:
                             continue
-                        stroke_info.append([stroke, i, j])
-                        stroke_list.append(stroke)
-                        mesh_names.append('Planar_' + layer.info + '_' + str(j))
-        poly_list, scale_factor = stroke_to_poly(stroke_list, scale = True)
+                        if is_stroke_hole(stroke, current_gp_obj):
+                            mask_info.append([stroke, i, j])
+                            mask_list.append(stroke)
+                        else:
+                            stroke_info.append([stroke, i, j])
+                            stroke_list.append(stroke)
+                            mesh_names.append('Planar_' + layer.info + '_' + str(j))
+        poly_list, scale_factor = stroke_to_poly(stroke_list, scale=True, correct_orientation=True)
+        mask_poly_list, _ = stroke_to_poly(mask_list, scale=True, correct_orientation=True, scale_factor=scale_factor)
 
-        def process_single_stroke(i, co_list):
+        # Holes should have an opposite direction, and they need a coordinate for triangle input
+        mask_hole_points = []
+        for mask_co_list in mask_poly_list:
+            mask_co_list.reverse()
+            mask_hole_points.append(get_an_inside_co(mask_co_list))
+
+        def process_single_stroke(i, co_list, mask_indices = []):
             """
             1. Calculate the normal vectors of the stroke's points
             2. Generate vertices and faces inside the stroke
@@ -212,47 +223,48 @@ class MeshGenerationByNormal(bpy.types.Operator):
             depth_layer = bm.verts.layers.float.new('Depth')
             uv_layer = bm.loops.layers.uv.new()
 
+            # Initialize the mask information
+            local_mask_polys, local_mask_list, hole_points = [], [], []
+            for idx in mask_indices:
+                local_mask_polys.append(np.array(mask_poly_list[idx]))
+                local_mask_list.append(mask_list[idx])
+                if mask_hole_points[idx]:
+                    hole_points.append(mask_hole_points[idx])
+
             # Calculate the normal vectors of the original stroke points
             # Map for fast lookup; arrays for inner-production of weighted sum
             contour_normal_map = {}
             contour_normal_array = []
             contour_co_array = []
-            for j,point in enumerate(stroke_list[i].points):
-                contour_co_array.append(vec3_to_vec2(point.co) * scale_factor)
 
-            # Adjust the orientation to make the normal vectors consistent (outward-pointing)
-            if not pyclipper.Orientation(contour_co_array):
-                contour_co_array.reverse()
-            
-            for j,co in enumerate(contour_co_array):
-                _co = contour_co_array[j-1]
-                norm = Vector([co[1]-_co[1], 0, co[0]-_co[0]]).normalized()
-                norm = norm * math.sin(self.max_vertical_angle) + Vector((0, math.cos(self.max_vertical_angle), 0))
-                contour_normal_array.append(norm)
-                contour_normal_map[(int(co[0]),int(co[1]))] = norm
+            for poly in [co_list]+local_mask_polys:
+                for j,co in enumerate(poly):
+                    contour_co_array.append(co)
+                    _co = poly[j-1]
+                    norm = Vector([co[1]-_co[1], 0, co[0]-_co[0]]).normalized()
+                    norm = norm * math.sin(self.max_vertical_angle) + Vector((0, math.cos(self.max_vertical_angle), 0))
+                    contour_normal_array.append(norm)
+                    contour_normal_map[(int(co[0]),int(co[1]))] = norm
             contour_normal_array = np.array(contour_normal_array)
             contour_co_array = np.array(contour_co_array)
 
-            # Preprocessing the polygon using Offset operator
-            # The triangle library may crash in several cases, which should be avoided with every effort
-            # https://www.cs.cmu.edu/~quake/triangle.trouble.html
             co_list = np.array(co_list)
             u_min, u_max = np.min(co_list[:,0]), np.max(co_list[:,0])
             v_min, v_max = np.min(co_list[:,1]), np.max(co_list[:,1])
             
-            clipper = pyclipper.PyclipperOffset()
-            clipper.AddPath(co_list, join_type = pyclipper.JT_ROUND, end_type = pyclipper.ET_CLOSEDPOLYGON)
-
             # Generate vertices and faces in BMesh
             # Method 1: use Knife Project with a 2D grid
             if self.mesh_style=='QUAD':
                 # Convert the stroke curve to a temporary mesh
                 bm_cut = bmesh.new()
-                for point in stroke_list[i].points:
-                    bm_cut.verts.new(point.co)
-                bm_cut.verts.ensure_lookup_table()
-                for j,vert in enumerate(bm_cut.verts):
-                    bm_cut.edges.new([vert, bm_cut.verts[j-1]])
+                for stroke in [stroke_list[i]]+local_mask_list:
+                    for point in stroke.points:
+                        bm_cut.verts.new(point.co)
+                    bm_cut.verts.ensure_lookup_table()
+                    for j in range(len(stroke.points)):
+                        vert_src = bm_cut.verts[-1-j]
+                        vert_dst = bm_cut.verts[-1] if j==len(stroke.points)-1 else bm_cut.verts[-2-j]
+                        bm_cut.edges.new([vert_src, vert_dst])
                 cut_mesh = bpy.data.meshes.new('stroke_cut')
                 bm_cut.to_mesh(cut_mesh)
                 bm_cut.free()
@@ -300,17 +312,25 @@ class MeshGenerationByNormal(bpy.types.Operator):
                 segs = []
                 verts= []
                 num_verts = 0
-                offset_size = min((u_max-u_min),(v_max-v_min))/self.resolution
+                offset_size = -min((u_max-u_min),(v_max-v_min))/self.resolution
+
+                # Preprocessing the polygon using Clipper
+                # The triangle library may crash in several cases, which should be avoided with every effort
+                # https://www.cs.cmu.edu/~quake/triangle.trouble.html
+                clipper = pyclipper.PyclipperOffset()
+                clipper.AddPaths([co_list]+local_mask_polys, join_type = pyclipper.JT_ROUND, end_type = pyclipper.ET_CLOSEDPOLYGON)
                 for k in range(self.contour_subdivision+1):
-                    poly_results = clipper.Execute(-offset_size * k/max(1, self.contour_subdivision))
-                    if len(poly_results)>0:
-                        for j,co in enumerate(poly_results[0]):
+                    poly_results = clipper.Execute(offset_size * k/max(1, self.contour_subdivision))
+                    for poly_result in poly_results:
+                        for j,co in enumerate(poly_result):
                             verts.append(co)
-                            segs.append( [j + num_verts, (j+1)%len(poly_results[0]) + num_verts] )
-                    num_verts = len(verts)
+                            segs.append( [j + num_verts, (j+1)%len(poly_result) + num_verts] )
+                        num_verts = len(verts)
 
                 # Refer to: https://rufat.be/triangle/API.html
                 tr_input = dict(vertices = verts, segments = np.array(segs))
+                if len(hole_points)>0:
+                    tr_input['holes']=hole_points
                 area_limit = (u_max-u_min)*(v_max-v_min)/(self.resolution**2)
                 tr_output = tr.triangulate(tr_input, 'pa'+str(area_limit))
                 # Generate vertices and triangle faces
@@ -371,10 +391,6 @@ class MeshGenerationByNormal(bpy.types.Operator):
                 fill_base_color[1] = fill_base_color[1] * (1-alpha) + alpha * stroke_list[i].vertex_color_fill[1]
                 fill_base_color[2] = fill_base_color[2] * (1-alpha) + alpha * stroke_list[i].vertex_color_fill[2]
             for v in bm.verts:
-                # Not supported until Blender 3.2; Currently, using a homemade function for best compatibility
-                #vertex_color = Color([fill_base_color[0], fill_base_color[1], fill_base_color[2]])
-                #vertex_color = vertex_color.from_scene_linear_to_srgb()
-                #v[vertex_color_layer] = [vertex_color.r, vertex_color.g, vertex_color.b, fill_base_color[3]]
                 v[vertex_color_layer] = [linear_to_srgb(fill_base_color[0]), linear_to_srgb(fill_base_color[1]), linear_to_srgb(fill_base_color[2]), fill_base_color[3]]
 
             # Determine the depth coordinate by ray-casting to every mesh generated earlier
@@ -453,7 +469,14 @@ class MeshGenerationByNormal(bpy.types.Operator):
             new_object.location = Vector((0, 0, 0))           
 
         for i,co_list in enumerate(poly_list):
-            process_single_stroke(i, co_list)
+            # Identify the holes that should be considered: same layer, arranged beyond and inside
+            mask_indices = []
+            for mask_idx, info in enumerate(mask_info):
+                if (stroke_info[i][1] == mask_info[mask_idx][1] and
+                    stroke_info[i][2] < mask_info[mask_idx][2] and
+                    is_poly_in_poly(mask_poly_list[mask_idx], poly_list[i])):
+                    mask_indices.append(mask_idx)
+            process_single_stroke(i, co_list, mask_indices)
 
         # Delete old strokes
         if not self.keep_original:

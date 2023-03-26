@@ -140,6 +140,30 @@ def get_2d_squared_distance(co1, scale_factor1, co2, scale_factor2):
     delta = [co1[0]/scale_factor1 - co2[0]/scale_factor2, co1[1]/scale_factor1 - co2[1]/scale_factor2]
     return delta[0]*delta[0] + delta[1]*delta[1]
 
+def is_poly_in_poly(poly1, poly2):
+    """False if either at least one point is outside, or all points are on the boundary"""
+    import pyclipper
+    inner_count = 0
+    for co in poly1:
+        res = pyclipper.PointInPolygon(co, poly2)
+        if res == 0:
+            return False
+        if res == 1:
+            inner_count += 1
+    return inner_count > 0
+
+def get_an_inside_co(poly):
+    """Return a coordinate that is inside an integer polygon as part of the triangle input"""
+    import pyclipper
+    delta = 5
+    while delta > 0:
+        for co in poly:
+            for co_ in [(co[0], co[1]-delta), (co[0], co[1]+delta), (co[0]-delta, co[1]), (co[0]+delta, co[1])]:
+                if pyclipper.PointInPolygon(co_, poly):
+                    return co_
+        delta -= 1
+    return None
+
 def overlapping_bounding_box(s1, s2):
     scene = bpy.context.scene
     if scene.nijigp_working_plane == 'X-Z':
@@ -198,6 +222,13 @@ def is_stroke_locked(stroke, gp_obj):
     material = gp_obj.material_slots[mat_idx].material
     return material.grease_pencil.lock or material.grease_pencil.hide
 
+def is_stroke_hole(stroke, gp_obj):
+    """
+    Check if a stroke has a material with fill holdout
+    """
+    mat_idx = stroke.material_index
+    material = gp_obj.material_slots[mat_idx].material
+    return material.grease_pencil.use_fill_holdout
 
 def save_stroke_selection(gp_obj):
     """
@@ -225,14 +256,13 @@ def load_stroke_selection(gp_obj, select_map):
                     stroke.select = False
 
 
-def stroke_to_poly(stroke_list, scale = False, correct_orientation = False):
+def stroke_to_poly(stroke_list, scale = False, correct_orientation = False, scale_factor=None):
     """
     Convert Blender strokes to a list of 2D coordinates compatible with Clipper.
     Scaling can be applied instead of Clipper's built-in method
     """
 
     import pyclipper
-    scale_factor = 1
     poly_list = []
     w_bound = [math.inf, -math.inf]
     h_bound = [math.inf, -math.inf]
@@ -247,7 +277,7 @@ def stroke_to_poly(stroke_list, scale = False, correct_orientation = False):
             h_bound[1] = max(h_bound[1], co_list[-1][1])
         poly_list.append(co_list)
 
-    if scale:
+    if scale and not scale_factor:
         poly_W = w_bound[1] - w_bound[0]
         poly_H = h_bound[1] - h_bound[0]
         
@@ -260,6 +290,7 @@ def stroke_to_poly(stroke_list, scale = False, correct_orientation = False):
         else:
             scale_factor = SCALE_CONSTANT / min(poly_W, poly_H, SCALE_CONSTANT)
 
+    if scale_factor:
         for co_list in poly_list:
             for co in co_list:
                 co[0] *= scale_factor
