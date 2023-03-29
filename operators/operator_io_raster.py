@@ -4,10 +4,10 @@ from bpy_extras.io_utils import ImportHelper
 from bpy_extras import image_utils
 from ..utils import *
 
-class ExtractLineartOperator(bpy.types.Operator, ImportHelper):
+class ImportLineImageOperator(bpy.types.Operator, ImportHelper):
     """Generate strokes from a raster image of line art using medial axis algorithm"""
-    bl_idname = "gpencil.nijigp_extract_lineart"
-    bl_label = "Line Art from Image"
+    bl_idname = "gpencil.nijigp_import_lineart"
+    bl_label = "Import Line Art from Image"
     bl_category = 'View'
     bl_options = {'REGISTER', 'UNDO'}
 
@@ -80,7 +80,6 @@ class ExtractLineartOperator(bpy.types.Operator, ImportHelper):
         box1.prop(self, "image_sequence")
         if self.image_sequence:
             box1.prop(self, "frame_step")
-            box1.label(text = "This function is time-consuming.", icon="SORTTIME")
         layout.label(text = "Stroke Options:")
         box2 = layout.box()
         box2.prop(self, "size")
@@ -240,5 +239,208 @@ class ExtractLineartOperator(bpy.types.Operator, ImportHelper):
                     process_single_image(img_filepath, frame_dict[target_frame_number])
                 else:
                     process_single_image(img_filepath, gp_layer.frames.new(target_frame_number))
+
+        return {'FINISHED'}
+
+class ImportColorImageOperator(bpy.types.Operator, ImportHelper):
+    """Generate strokes from a raster image by quantizing its colors"""
+    bl_idname = "gpencil.nijigp_import_color_image"
+    bl_label = "Import Color Image"
+    bl_category = 'View'
+    bl_options = {'REGISTER', 'UNDO'}
+
+    directory: bpy.props.StringProperty(subtype='DIR_PATH')
+    files: bpy.props.CollectionProperty(type=bpy.types.OperatorFileListElement)
+    filepath = bpy.props.StringProperty(name="File Path", subtype='FILE_PATH')
+    filter_glob: bpy.props.StringProperty(
+        default='*.jpg;*.jpeg;*.png;*.tif;*.tiff;*.bmp',
+        options={'HIDDEN'}
+    )
+
+    image_sequence: bpy.props.BoolProperty(
+            name='Image Sequence',
+            default=False,
+            description='Process multiple images as a sequence'
+    ) 
+    frame_step: bpy.props.IntProperty(
+            name='Frame Step',
+            default=1, min=1,
+            description='The number of frames between two generated line art keyframes'
+    )  
+    num_colors: bpy.props.IntProperty(
+            name='Number of Colors',
+            default=8, min=2, max=32,
+            description='Color quantization in order to convert the image to Grease Pencil strokes'
+    )
+    median_radius: bpy.props.IntProperty(
+            name='Median Filter Radius',
+            default=3, min=0, soft_max=15,
+            description='Denoise the image with a median filter. Disabled when the value is 0'
+    )  
+    size: bpy.props.FloatProperty(
+            name='Size',
+            default=2, min=0.001, soft_max=10,
+            unit='LENGTH',
+            description='Dimension of the generated strokes'
+    )  
+    sample_length: bpy.props.IntProperty(
+            name='Sample Length',
+            default=8, min=1, soft_max=64,
+            description='Number of pixels of the original image between two generated stroke points'
+    )
+    min_length: bpy.props.IntProperty(
+            name='Min Stroke Length',
+            default=128, min=0, soft_max=512,
+            description='Number of pixels of a contour, below which a stroke will not be generated'
+    )
+    set_line_color: bpy.props.BoolProperty(
+            name='Generate Line Color',
+            default=True,
+            description='Set the line vertex color, otherwise set the fill color only'
+    )
+
+    def draw(self, context):
+        layout = self.layout
+        layout.label(text = "Image Options:")
+        box1 = layout.box()
+        box1.prop(self, "num_colors")
+        box1.prop(self, "median_radius")
+        box1.prop(self, "image_sequence")
+        if self.image_sequence:
+            box1.prop(self, "frame_step")
+        layout.label(text = "Stroke Options:")
+        box2 = layout.box()
+        box2.prop(self, "size")
+        box2.prop(self, "sample_length")
+        box2.prop(self, "min_length")
+        box2.prop(self, "set_line_color")
+
+    def execute(self, context):
+        gp_obj = context.object
+        gp_layer = gp_obj.data.layers.active
+        current_mode = context.mode
+        use_multiedit = gp_obj.data.use_multiedit
+
+        try:
+            from skimage import morphology, filters, measure
+            from scipy import cluster
+            import numpy as np
+            import pyclipper
+        except:
+            self.report({"ERROR"}, "Please install Scikit-Image in the Preferences panel.")
+            return {'FINISHED'}
+
+        gp_obj.data.use_multiedit = self.image_sequence
+        bpy.ops.object.mode_set(mode='EDIT_GPENCIL')
+        bpy.ops.gpencil.select_all(action='DESELECT')
+
+        # Get or generate the starting frame
+        if not gp_layer.active_frame:
+            starting_frame = gp_layer.frames.new(context.scene.frame_current)
+        else:
+            starting_frame = gp_layer.active_frame
+
+        # Process file paths in the case of multiple input images
+        img_filepaths = []
+        for f in self.files:
+            img_filepaths.append(os.path.join(self.directory, f.name))
+        img_filepaths.sort()
+
+        # For image sequences, find all frames where strokes will be generated
+        frame_dict = {}
+        if self.image_sequence:
+            for f in gp_layer.frames:
+                frame_dict[f.frame_number] = f
+
+        def process_single_image(img_filepath, frame):
+            """
+            Quantize colors of a specific image and generate strokes in a given frame
+            """
+            img_obj = image_utils.load_image(img_filepath, check_existing=True) # type: bpy.types.Image
+            img_W = img_obj.size[0]
+            img_H = img_obj.size[1]
+            img_mat = np.array(img_obj.pixels).reshape(img_H,img_W, img_obj.channels)
+            img_mat = np.flipud(img_mat)
+
+            # Preprocessing: alpha and denoise
+            if img_obj.channels > 3:
+                color_mat = img_mat[:,:,:3]
+                alpha_mask = img_mat[:,:,3]>0
+                num_color_channel = 3
+            else:
+                color_mat = img_mat
+                alpha_mask = np.ones((img_H,img_W))
+                num_color_channel = img_obj.channels
+
+            if self.median_radius > 0:
+                footprint = morphology.disk(self.median_radius)
+                footprint = np.repeat(footprint[:, :, np.newaxis], num_color_channel, axis=2)
+                color_mat = filters.median(color_mat, footprint)
+
+            # Quantization with K-mean
+            pixels_1d = color_mat.reshape(-1,num_color_channel)
+            palette, label = cluster.vq.kmeans2(pixels_1d, self.num_colors, minit='++', seed=0)
+            label = label.reshape((img_H, img_W))
+
+            # Get contours of each color
+            contours = []
+            contour_color = []
+            global_mask = np.zeros((img_H,img_W))
+            global_mask[1:-1,1:-1] = 1
+            global_mask *= alpha_mask
+            for i,color in enumerate(palette):
+                res = measure.find_contours( (label==i)*global_mask , 0.5)
+                for contour in res:
+                    if len(contour)>self.min_length and not pyclipper.Orientation(contour):
+                        contours.append(contour[::self.sample_length,:])
+                        contour_color.append(color)
+
+            # Generate strokes
+            line_width = context.tool_settings.gpencil_paint.brush.size
+            strength = context.tool_settings.gpencil_paint.brush.gpencil_settings.pen_strength
+            material_index = context.object.active_material_index
+            frame_strokes = frame.strokes
+            scale_factor = min(img_H, img_W) / self.size
+
+            for i,path in enumerate(contours):
+                color = contour_color[i]
+                frame_strokes.new()
+                stroke: bpy.types.GPencilStroke = frame_strokes[-1]
+                stroke.line_width = line_width
+                stroke.use_cyclic = True
+                stroke.material_index = material_index
+                stroke.vertex_color_fill = [srgb_to_linear(color[0]),
+                                            srgb_to_linear(color[1]),
+                                            srgb_to_linear(color[2]),1]
+                stroke.points.add(len(path))
+                for i,point in enumerate(frame_strokes[-1].points):
+                    point.co = vec2_to_vec3( (path[i][1] - img_W/2, path[i][0] - img_H/2), 0, scale_factor)
+                    point.strength = strength
+                    if self.set_line_color:
+                        point.vertex_color = [srgb_to_linear(color[0]),
+                                              srgb_to_linear(color[1]),
+                                              srgb_to_linear(color[2]),1]
+                stroke.select = True
+            
+            if self.image_sequence:
+                frame.select = True
+
+        if not self.image_sequence:
+            process_single_image(self.filepath, starting_frame)
+        else:
+            for frame_idx, img_filepath in enumerate(img_filepaths):
+                target_frame_number = starting_frame.frame_number + frame_idx * self.frame_step
+                if target_frame_number in frame_dict:
+                    process_single_image(img_filepath, frame_dict[target_frame_number])
+                else:
+                    process_single_image(img_filepath, gp_layer.frames.new(target_frame_number))
+
+        # Refresh the generated strokes, otherwise there might be display errors
+        bpy.ops.transform.translate()
+        bpy.ops.gpencil.nijigp_hole_processing(rearrange=True, apply_holdout=False)
+
+        # Recover context
+        gp_obj.data.use_multiedit = use_multiedit
+        bpy.ops.object.mode_set(mode=current_mode)
 
         return {'FINISHED'}

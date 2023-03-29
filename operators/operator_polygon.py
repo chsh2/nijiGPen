@@ -19,6 +19,8 @@ class HoleProcessingOperator(bpy.types.Operator):
             default=False,
             description='Detect holes separately for each vertex fill color'
     )
+    apply_holdout: bpy.props.BoolProperty(default=True)
+
     def draw(self, context):
         layout = self.layout
         row = layout.row()
@@ -120,7 +122,7 @@ class HoleProcessingOperator(bpy.types.Operator):
                     relation_mat[:,i] = 0
                     to_process[i].select = True
                     key = tuple(to_process[i].vertex_color_fill) if self.separate_colors else 0
-                    if is_hole_map[key] and not is_stroke_line(to_process[i], gp_obj):
+                    if self.apply_holdout and is_hole_map[key] and not is_stroke_line(to_process[i], gp_obj):
                         change_material(to_process[i])
                     color_modified.add(key)
                 if self.rearrange:

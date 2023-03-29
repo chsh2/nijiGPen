@@ -7,6 +7,15 @@ from mathutils import *
 
 MAX_DEPTH = 4096
 
+# TODO: A new implementation is needed to mirror an object in arbitrary direction
+def apply_mirror(obj):
+    """Apply a Mirror modifier in the Object mode"""
+    obj.modifiers.new(name="nijigp_Mirror", type='MIRROR')
+    obj.modifiers["nijigp_Mirror"].use_axis[0] = (bpy.context.scene.nijigp_working_plane == 'Y-Z')
+    obj.modifiers["nijigp_Mirror"].use_axis[1] = (bpy.context.scene.nijigp_working_plane == 'X-Z')
+    obj.modifiers["nijigp_Mirror"].use_axis[2] = (bpy.context.scene.nijigp_working_plane == 'X-Y')
+    bpy.ops.object.modifier_apply("EXEC_DEFAULT", modifier = "nijigp_Mirror")     
+
 class MeshManagement(bpy.types.Operator):
     """Manage mesh objects generated from the active GPencil object"""
     bl_idname = "gpencil.nijigp_mesh_management"
@@ -455,13 +464,9 @@ class MeshGenerationByNormal(bpy.types.Operator):
             bpy.ops.object.select_all(action='DESELECT')
             new_object.select_set(True)
             context.view_layer.objects.active = new_object
-            bpy.ops.object.shade_smooth(use_auto_smooth=True)
+            bpy.ops.object.shade_smooth(use_auto_smooth=False)
             if self.mesh_type=='MESH' and self.postprocess_double_sided:
-                new_object.modifiers.new(name="nijigp_Mirror", type='MIRROR')
-                new_object.modifiers["nijigp_Mirror"].use_axis[0] = (bpy.context.scene.nijigp_working_plane == 'Y-Z')
-                new_object.modifiers["nijigp_Mirror"].use_axis[1] = (bpy.context.scene.nijigp_working_plane == 'X-Z')
-                new_object.modifiers["nijigp_Mirror"].use_axis[2] = (bpy.context.scene.nijigp_working_plane == 'X-Y')
-                bpy.ops.object.modifier_apply("EXEC_DEFAULT", modifier = "nijigp_Mirror") 
+                apply_mirror(new_object)
             # Apply transform, necessary because of the movement in depth
             mb = new_object.matrix_basis
             if hasattr(new_object.data, "transform"):
@@ -864,11 +869,7 @@ class MeshGenerationByOffsetting(bpy.types.Operator):
             # Post-processing: mirror
             bpy.ops.object.mode_set(mode='OBJECT')
             if self.postprocess_double_sided:
-                new_object.modifiers.new(name="nijigp_Mirror", type='MIRROR')
-                new_object.modifiers["nijigp_Mirror"].use_axis[0] = (bpy.context.scene.nijigp_working_plane == 'Y-Z')
-                new_object.modifiers["nijigp_Mirror"].use_axis[1] = (bpy.context.scene.nijigp_working_plane == 'X-Z')
-                new_object.modifiers["nijigp_Mirror"].use_axis[2] = (bpy.context.scene.nijigp_working_plane == 'X-Y')
-                bpy.ops.object.modifier_apply("EXEC_DEFAULT", modifier = "nijigp_Mirror")
+                apply_mirror(new_object)
             
             # Post-processing: remesh
             if self.postprocess_remesh:
