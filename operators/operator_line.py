@@ -617,20 +617,6 @@ class ClusterAndFitOperator(CommonFittingConfig, bpy.types.Operator):
                 cluster_map[cluster_idx] = []
             cluster_map[cluster_idx].append(stroke)
 
-        # For debugging: mark clusters with colors
-        '''
-        print(cluster_res)
-        for cluster in cluster_map:
-            color_mark = [np.random.rand(),np.random.rand(),np.random.rand()]
-            for stroke in cluster_map[cluster]:
-                for point in stroke.points:
-                    point.vertex_color[0] = color_mark[0]
-                    point.vertex_color[1] = color_mark[1]
-                    point.vertex_color[2] = color_mark[2]
-                    point.vertex_color[3] = 1
-                    point.strength = 1
-        '''
-
         # Process each cluster one by one
         generated_strokes = []
         for cluster in cluster_map:

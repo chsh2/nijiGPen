@@ -70,6 +70,12 @@ class ImportLineImageOperator(bpy.types.Operator, ImportHelper):
             default=False,
             description='Convert the lightness of the image as strength of stroke points'
     )  
+    output_material: bpy.props.StringProperty(
+        name='Output Material',
+        description='Draw the new stroke using this material. If empty, use the active material',
+        default='',
+        search=lambda self, context, edit_text: [material.name for material in context.object.data.materials if material]
+    )
 
     def draw(self, context):
         layout = self.layout
@@ -86,6 +92,7 @@ class ImportLineImageOperator(bpy.types.Operator, ImportHelper):
         box2.prop(self, "sample_length")
         box2.prop(self, "min_length")
         box2.prop(self, "max_length")
+        box2.prop(self, "output_material", text='Material', icon='MATERIAL')
         box2.prop(self, "generate_color")
         box2.prop(self, "generate_strength")
 
@@ -100,6 +107,13 @@ class ImportLineImageOperator(bpy.types.Operator, ImportHelper):
         except:
             self.report({"ERROR"}, "Please install Scikit-Image in the Preferences panel.")
             return {'FINISHED'}
+
+        # Find the material slot
+        output_material_idx = gp_obj.active_material_index
+        if len(self.output_material) > 0:
+            for i,material_slot in enumerate(gp_obj.material_slots):
+                if material_slot.material and material_slot.material.name == self.output_material:
+                    output_material_idx = i
 
         # Get or generate the starting frame
         if not gp_layer.active_frame:
@@ -215,6 +229,7 @@ class ImportLineImageOperator(bpy.types.Operator, ImportHelper):
 
                 frame_strokes.new()
                 frame_strokes[-1].line_width = int(line_thickness / scale_factor * LINE_WIDTH_FACTOR)
+                frame_strokes[-1].material_index = output_material_idx
                 frame_strokes[-1].points.add(point_count)
 
                 for i,point in enumerate(frame_strokes[-1].points):
@@ -225,9 +240,9 @@ class ImportLineImageOperator(bpy.types.Operator, ImportHelper):
                         point.strength = 1 - denoised_lumi_mat[img_co]
                     if self.generate_color:
                         point.vertex_color[3] = 1
-                        point.vertex_color[0] = denoised_mat[img_co[0], img_co[1], min(0, img_obj.channels-1)]
-                        point.vertex_color[1] = denoised_mat[img_co[0], img_co[1], min(1, img_obj.channels-1)]
-                        point.vertex_color[2] = denoised_mat[img_co[0], img_co[1], min(2, img_obj.channels-1)]
+                        point.vertex_color[0] = srgb_to_linear(denoised_mat[img_co[0], img_co[1], min(0, img_obj.channels-1)])
+                        point.vertex_color[1] = srgb_to_linear(denoised_mat[img_co[0], img_co[1], min(1, img_obj.channels-1)])
+                        point.vertex_color[2] = srgb_to_linear(denoised_mat[img_co[0], img_co[1], min(2, img_obj.channels-1)])
                 frame_strokes[-1].select = True
 
         if not self.image_sequence:
@@ -290,13 +305,19 @@ class ImportColorImageOperator(bpy.types.Operator, ImportHelper):
     )
     min_length: bpy.props.IntProperty(
             name='Min Stroke Length',
-            default=128, min=0, soft_max=512,
-            description='Number of pixels of a contour, below which a stroke will not be generated'
+            default=16, min=0, soft_max=512,
+            description='Number of pixels, a contour smaller than which will not be converted to a stroke'
     )
     set_line_color: bpy.props.BoolProperty(
             name='Generate Line Color',
             default=True,
             description='Set the line vertex color, otherwise set the fill color only'
+    )
+    output_material: bpy.props.StringProperty(
+        name='Output Material',
+        description='Draw the new stroke using this material. If empty, use the active material',
+        default='',
+        search=lambda self, context, edit_text: [material.name for material in context.object.data.materials if material]
     )
 
     def draw(self, context):
@@ -313,6 +334,7 @@ class ImportColorImageOperator(bpy.types.Operator, ImportHelper):
         box2.prop(self, "size")
         box2.prop(self, "sample_length")
         box2.prop(self, "min_length")
+        box2.prop(self, "output_material", text='Material', icon='MATERIAL')
         box2.prop(self, "set_line_color")
 
     def execute(self, context):
@@ -333,6 +355,13 @@ class ImportColorImageOperator(bpy.types.Operator, ImportHelper):
         gp_obj.data.use_multiedit = self.image_sequence
         bpy.ops.object.mode_set(mode='EDIT_GPENCIL')
         bpy.ops.gpencil.select_all(action='DESELECT')
+
+        # Find the material slot
+        output_material_idx = gp_obj.active_material_index
+        if len(self.output_material) > 0:
+            for i,material_slot in enumerate(gp_obj.material_slots):
+                if material_slot.material and material_slot.material.name == self.output_material:
+                    output_material_idx = i
 
         # Get or generate the starting frame
         if not gp_layer.active_frame:
@@ -389,16 +418,15 @@ class ImportColorImageOperator(bpy.types.Operator, ImportHelper):
             global_mask[1:-1,1:-1] = 1
             global_mask *= alpha_mask
             for i,color in enumerate(palette):
-                res = measure.find_contours( (label==i)*global_mask , 0.5)
+                res = measure.find_contours( (label==i)*global_mask, 0.5, positive_orientation='high')
                 for contour in res:
-                    if len(contour)>self.min_length and not pyclipper.Orientation(contour):
+                    if pyclipper.Area(contour)>self.min_length**2:
                         contours.append(contour[::self.sample_length,:])
                         contour_color.append(color)
 
             # Generate strokes
             line_width = context.tool_settings.gpencil_paint.brush.size
             strength = context.tool_settings.gpencil_paint.brush.gpencil_settings.pen_strength
-            material_index = context.object.active_material_index
             frame_strokes = frame.strokes
             scale_factor = min(img_H, img_W) / self.size
 
@@ -408,7 +436,7 @@ class ImportColorImageOperator(bpy.types.Operator, ImportHelper):
                 stroke: bpy.types.GPencilStroke = frame_strokes[-1]
                 stroke.line_width = line_width
                 stroke.use_cyclic = True
-                stroke.material_index = material_index
+                stroke.material_index = output_material_idx
                 stroke.vertex_color_fill = [srgb_to_linear(color[0]),
                                             srgb_to_linear(color[1]),
                                             srgb_to_linear(color[2]),1]

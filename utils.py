@@ -155,13 +155,14 @@ def is_poly_in_poly(poly1, poly2):
 def get_an_inside_co(poly):
     """Return a coordinate that is inside an integer polygon as part of the triangle input"""
     import pyclipper
-    delta = 5
-    while delta > 0:
+    delta = 64
+    while delta > 1:
         for co in poly:
-            for co_ in [(co[0], co[1]-delta), (co[0], co[1]+delta), (co[0]-delta, co[1]), (co[0]+delta, co[1])]:
+            for co_ in [(co[0]-delta, co[1]-delta), (co[0]-delta, co[1]+delta), 
+                        (co[0]+delta, co[1]-delta), (co[0]+delta, co[1]+delta)]:
                 if pyclipper.PointInPolygon(co_, poly):
                     return co_
-        delta -= 1
+        delta /= 2
     return None
 
 def overlapping_bounding_box(s1, s2):
