@@ -4,7 +4,8 @@
 
 NijiGPen is a [Blender](https://www.blender.org/) add-on that brings new features to Grease Pencil for creating 2D graphic design and illustrations. It provides with the following functions:
 
-- Boolean and Offset operations for 2D shapes
+- 2D polygon operations (Boolean and Offset)
+- Refinement and cleanup of hand-drawn 2D strokes
 - Conversion from 2D shapes to 3D meshes
 - Data exchange with other painting/designing tools
 
@@ -12,7 +13,7 @@ Please note that the development of this add-on is still in an early stage. Bugs
 
 ## Requirements
 
-Blender 3.x (3.3 for full features)
+Blender 3.3 or later
 
 (At the current stage, the add-on focuses on stable verions only. It is not guaranteed that all functions can work normally in alpha or beta verions of Blender.)
 
@@ -24,9 +25,9 @@ Different from most add-ons, NijiGPen heavily relies on third-party Python packa
 
 2. In Blender, open [Edit]->[Preferences]->[Add-ons] and click the Install button to load the archive.
 
-3. **Enable the NijiGPen add-on, and a new panel "Dependency Management" will appear. Click "Refresh" to check if packages are installed, and click "Install" button for those missing. This step requires the Internet connection.**
+3. **Enable the NijiGPen add-on, and a new panel "Dependency Management" will appear. Click "Check" to check if packages are installed, and click "Install" button for those missing. This step requires the Internet connection.**
 
-![image](https://user-images.githubusercontent.com/110356534/199868050-60927e38-88fe-422c-9495-aae62986f9c5.png)
+<img src="https://user-images.githubusercontent.com/110356534/229329621-ccfd0407-af1d-442d-b2f7-05ba7dc54ade.png" width=50% height=50%>
 
 It is recommended to use this add-on with the portable version of Blender, or Blender installed in a non-system folder through the official installer. Otherwise, additional actions may be required. Please refer to the [Wiki page](https://github.com/chsh2/nijiGPen/wiki/Dependency-Installation) for more information.
 
@@ -39,7 +40,7 @@ It is recommended to use this add-on with the portable version of Blender, or Bl
 
 In **Draw** and **Edit** modes of a Grease Pencil object, a label titled “NijiGP” will appear in the sidebar of 3D Viewport window. Most of this add-on’s operators can be found here.
 
-In **Draw** and **Sculpt** modes of a Grease Pencil object, extra undo/redo shortcut buttons will appear in the Properties panel. This feature can be disabled in Preferences setting.
+In **Draw**, **Edit** and **Sculpt** modes of a Grease Pencil object, a group of shortcut buttons will appear at the bottom of the viewport. This feature can be disabled in Preferences setting.
 
 Some of the operations are demonstrated in the following videos:
 
@@ -53,48 +54,24 @@ NijiGPen provides with the following functions:
 
 - 2D Polygon Algorithms
     - Boolean Operation: Union, Difference and Intersection
-        - Perform Boolean in Edit mode, on selected strokes
-        - Perform Boolean in Draw mode, with the last drawn stroke
-        - Both fill and line width can be used as the clip shape
-    - Offset/Inset Operation
-        - Fill Mode: handle self-overlapping correctly
-        - Line Mode: turn a line into a shape
-        - Corner Mode: a bevel-like effect
-        - Color tint
+    - Offset/Inset Operation on either fill, outline or corners of a stroke
 - 2D Line Algorithms
     - Sketch Cleanup: fitting multiple strokes into a single smooth one
 - 3D Mesh Generation
-    - Frustum: multiple slope/corner styles available
-    - Planar: with a normal map and therefore 3D shading
+    - Different types of meshes can be converted from 2D strokes: triangle or grid, 3D depth or normal maps
+    - A series of stylized shaders
 - Import
     - Paste SVG Shapes: extend the built-in SVG module with clipboard reading and hole detection
     - Paste XML Palette: convert XML codes from services such as Adobe Color to a Blender palette
-    - Extract Line Art from Image
+    - Raster Image Tracing: line art and multi-color support
 - UI
-    - Extra Undo/Redo Button: for the convenience of Windows touchscreen users; can be disabled if not needed
+    - A group of shortcut buttons for better touchscreen control
 
 New functions may be added in future releases.
 
 ## Limitations
 
-Currently, a number of limitations exist in different aspects. Some of them may be improved in future releases.
-
-### General
-
-- All 2D operators assume that the user is painting in either XY, XZ or YZ plane. To use them in other planes, one way is to rotate the Grease Pencil object (without applying the rotation).
-
-### Offset/Boolean Operators
-
-- Vertex groups will not be kept after either an Offset or a Boolean operation.
-- If a Boolean operation leads to holes, corresponding strokes will generate but do not appear transparent. You can apply Holdout materials manually.
-
-### SVG Pasting
-
-- Hole detection may fail for complex shapes.
-
-### Mesh Generation
-
-- Vertex color layer is not generated in Blender 3.1 or versions below. 
+Please refer to the [Wiki page](https://github.com/chsh2/nijiGPen/wiki/Known-Issues).
 
 ## Credits
 
@@ -102,6 +79,7 @@ The functions of this add-on are implemented with the following packages:
 
 - [Pyclipper](https://github.com/fonttools/pyclipper) wrapper by [Maxime Chalton](https://sites.google.com/site/maxelsbackyard/home/pyclipper) and the [Clipper](http://www.angusj.com/delphi/clipper.php) library by [Angus Johnson](http://www.angusj.com/delphi/clipper.php)
 - [Triangle](https://github.com/drufat/triangle) by Dzhelil Rufat and [Jonathan Richard Shewchuk](http://www.cs.berkeley.edu/~jrs)
+- [SciPy](https://scipy.org/)
 - [Scikit-image](https://scikit-image.org/) 
 
 Besides, although not using the codes directly or implementing the same algorithm, the functions of this add-on are largely inspired by the following works:
