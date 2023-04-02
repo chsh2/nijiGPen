@@ -4,7 +4,8 @@
 
 NijiGPen是作用于Grease Pencil（蜡笔）的Blender插件，关注Blender在2D平面设计与绘画领域的应用。它的功能如下：
 
-- 补全一些基础的2D功能，如Grease Pencil的布尔运算和偏移运算。
+- 补全一些基础2D几何操作，如布尔运算和偏移运算。
+- 修饰与清理手绘线条。
 - 将手绘2D图形转换为3D网格。
 - 与其它设计/绘图工具的数据互通。
 
@@ -12,7 +13,7 @@ NijiGPen是作用于Grease Pencil（蜡笔）的Blender插件，关注Blender在
 
 ## 需求
 
-Blender 3.0以上版本 (3.3最佳)
+Blender 3.3以上版本
 
 （建议使用稳定版本的Blender，对于alpha或beta版本，无法保证所有功能仍可正常使用。）
 
@@ -22,9 +23,9 @@ Blender 3.0以上版本 (3.3最佳)
 
 1. 在Releases页面下载zip文件。
 2. 在Blender的【偏好设置】面板中安装该zip文件。
-3. **启用插件，面板中将出现如下图所示的Python包管理器。刷新以检测状态，然后点击按钮安装缺失的包。**
+3. **启用插件，面板中将出现如下图所示的Python包管理器。点击按钮以检测状态，或安装缺失的包。**
 
-![image](https://user-images.githubusercontent.com/110356534/199868050-60927e38-88fe-422c-9495-aae62986f9c5.png)
+<img src="https://user-images.githubusercontent.com/110356534/229329621-ccfd0407-af1d-442d-b2f7-05ba7dc54ade.png" width=50% height=50%>
 
 注意：
 
@@ -41,7 +42,7 @@ Blender 3.0以上版本 (3.3最佳)
 
 当处于Grease Pencil的**编辑模式**或**绘制模式**时，3D视图的侧边栏会出现名为“NijiGP”的面板，在其中可使用本插件的全部功能。
 
-另外，处于绘制或雕刻模式时，属性面板中会出现额外的撤销/重做按钮。该功能可在偏好设置中关闭。
+另外，处于绘制、编辑或雕刻模式时，屏幕下方将出现一组快捷按钮。该功能可在偏好设置中关闭。
 
 演示视频：
 
@@ -55,30 +56,23 @@ https://www.bilibili.com/video/bv1tg411C77g
 
 - 2D图形运算
     - 布尔：并集、交集、相减
-    - 偏移
-        - 图形膨胀与收缩
-        - 将线条变为图形
+    - 偏移：线条的形状、轮廓线或拐角均可外扩/内缩
 - 2D线条运算
-    - 线稿清理：从多条手绘线条中提取出单一平滑线条 
+    - 线稿清理：从多条手绘线条中提取出单一平滑线条
+    - 线稿修饰
 - 3D生成
-    - 基于偏移的算法：生成多种样式的3D网格物体（斜面、圆角和等高线图）
-    - 基于法线的算法：生成平面网格和法线贴图
+    - 生成多种样式的3D网格物体（可选三角或方格、法线贴图或3D高度）
+    - 内置卡通渲染材质
 - 导入
-    - 从剪贴板粘贴XML色卡：将Adobe Color等工具生成的XML格式色卡转换为Blender调色板
+    - 从剪贴板粘贴XML色卡：将Adobe Color等工具生成的XML格式色卡或Hex代码转换为Blender调色板
     - 从剪贴板粘贴SVG代码：在Blender自带SVG模块的基础上增加了检测孔洞的功能
-    - 从图片提取线稿
+    - 图片转换为矢量图：在Blender自带模块的基础上增加了线稿导入与彩色图片导入
 
 其它功能将陆续添加。
 
 ## 限制
 
-现阶段，插件的某些功能受到限制，其中一部分可能在将来的版本中修复：
-
-- 插件默认在任一正交平面（XZ, YZ或XY）进行运算。如果想要在其它平面中使用功能，请旋转对应的Grease Pencil物体，但不要应用变换。
-- 执行布尔或偏移运算后，笔画的顶点组数据不会保持。
-- 如果布尔运算使图形出现孔洞，孔洞不会显示为透明。可手动将其改为具有“阻隔”属性的材质来解决问题。
-- 粘贴SVG代码时，如果图形较为复杂，孔洞自动检测功能有可能失效。
-- 生成3D网格时，3.1或以下版本不会自动生成顶点颜色。
+现阶段，插件的某些功能受到限制，详情请见[Wiki页面](https://github.com/chsh2/nijiGPen/wiki/Dependency-Installation).
 
 若发现其它问题，可在Issues页面提出。
 
@@ -88,6 +82,7 @@ https://www.bilibili.com/video/bv1tg411C77g
 
 - [Pyclipper](https://github.com/fonttools/pyclipper) wrapper by [Maxime Chalton](https://sites.google.com/site/maxelsbackyard/home/pyclipper) and the [Clipper](http://www.angusj.com/delphi/clipper.php) library by [Angus Johnson](http://www.angusj.com/delphi/clipper.php)
 - [Triangle](https://github.com/drufat/triangle) by Dzhelil Rufat and [Jonathan Richard Shewchuk](http://www.cs.berkeley.edu/~jrs)
+- [SciPy](https://scipy.org/)
 - [Scikit-image](https://scikit-image.org/) 
 
 另外，虽然没有直接使用代码或算法，本插件的功能受到以下研究工作的启发：
