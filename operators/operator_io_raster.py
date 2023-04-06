@@ -166,7 +166,6 @@ class ImportLineImageOperator(bpy.types.Operator, ImportHelper):
             skel_mat, dist_mat = skimage.morphology.medial_axis(denoised_bin_mat, return_distance=True)
             line_thickness = dist_mat.max()
             dist_mat /= line_thickness
-            dist_mat = dist_mat
 
             # Convert skeleton into line segments
             search_mat = np.zeros(skel_mat.shape)
@@ -308,10 +307,17 @@ class ImportColorImageOperator(bpy.types.Operator, ImportHelper):
             default=16, min=0, soft_max=512,
             description='Number of pixels, a contour smaller than which will not be converted to a stroke'
     )
+    color_mode: bpy.props.EnumProperty(            
+            name='Color Mode',
+            items=[ ('VERTEX', 'Vertex Color', ''),
+                    ('MATERIAL', 'New Materials', '')],
+            default='VERTEX',
+            description='Whether using an existing material with vertex colors, or creating new materials'
+    )
     set_line_color: bpy.props.BoolProperty(
             name='Generate Line Color',
             default=True,
-            description='Set the line vertex color, otherwise set the fill color only'
+            description='Set the line color besides the fill color'
     )
     output_material: bpy.props.StringProperty(
         name='Output Material',
@@ -334,11 +340,13 @@ class ImportColorImageOperator(bpy.types.Operator, ImportHelper):
         box2.prop(self, "size")
         box2.prop(self, "sample_length")
         box2.prop(self, "min_length")
-        box2.prop(self, "output_material", text='Material', icon='MATERIAL')
+        box2.prop(self, "color_mode")
+        if self.color_mode == 'VERTEX':
+            box2.prop(self, "output_material", text='Material', icon='MATERIAL')
         box2.prop(self, "set_line_color")
 
     def execute(self, context):
-        gp_obj = context.object
+        gp_obj: bpy.types.Object = context.object
         gp_layer = gp_obj.data.layers.active
         current_mode = context.mode
         use_multiedit = gp_obj.data.use_multiedit
@@ -355,13 +363,6 @@ class ImportColorImageOperator(bpy.types.Operator, ImportHelper):
         gp_obj.data.use_multiedit = self.image_sequence
         bpy.ops.object.mode_set(mode='EDIT_GPENCIL')
         bpy.ops.gpencil.select_all(action='DESELECT')
-
-        # Find the material slot
-        output_material_idx = gp_obj.active_material_index
-        if len(self.output_material) > 0:
-            for i,material_slot in enumerate(gp_obj.material_slots):
-                if material_slot.material and material_slot.material.name == self.output_material:
-                    output_material_idx = i
 
         # Get or generate the starting frame
         if not gp_layer.active_frame:
@@ -412,8 +413,8 @@ class ImportColorImageOperator(bpy.types.Operator, ImportHelper):
             label = label.reshape((img_H, img_W))
 
             # Get contours of each color
-            contours = []
-            contour_color = []
+            contours, contour_color, contour_label = [], [], []
+            label_count = [0] * len(palette)
             global_mask = np.zeros((img_H,img_W))
             global_mask[1:-1,1:-1] = 1
             global_mask *= alpha_mask
@@ -423,6 +424,53 @@ class ImportColorImageOperator(bpy.types.Operator, ImportHelper):
                     if pyclipper.Area(contour)>self.min_length**2:
                         contours.append(contour[::self.sample_length,:])
                         contour_color.append(color)
+                        contour_label.append(i)
+                        label_count[i] += 1
+
+            # Vertex color mode: find the material slot 
+            if self.color_mode == 'VERTEX':
+                output_material_idx = [gp_obj.active_material_index] * len(palette)
+                if len(self.output_material) > 0:
+                    for i,material_slot in enumerate(gp_obj.material_slots):
+                        if material_slot.material and material_slot.material.name == self.output_material:
+                            output_material_idx = [i] * len(palette)
+                            break
+            # New material mode
+            elif self.color_mode == 'MATERIAL':
+                # Either find or create a material
+                material_names = []
+                for i,color in enumerate(palette):
+                    if label_count[i] == 0:
+                        material_names.append(None)
+                        continue
+                    hex_code = rgb_to_hex_code(color)
+                    material_name = 'GP_Line-Fill'+hex_code if self.set_line_color else 'GP_Fill'+hex_code
+                    material_names.append(material_name)
+                    if material_name not in bpy.data.materials:
+                        mat = bpy.data.materials.new(material_name)
+                        bpy.data.materials.create_gpencil_data(mat)
+                        mat.grease_pencil.fill_color = [srgb_to_linear(color[0]),
+                                            srgb_to_linear(color[1]),
+                                            srgb_to_linear(color[2]),1]
+                        mat.grease_pencil.show_fill = True
+                        mat.grease_pencil.show_stroke = self.set_line_color
+                        if self.set_line_color:
+                            mat.grease_pencil.color = [srgb_to_linear(color[0]),
+                                              srgb_to_linear(color[1]),
+                                              srgb_to_linear(color[2]),1]
+                # Either find or create a slot
+                output_material_idx = []
+                for name in material_names:
+                    if not name:
+                        output_material_idx.append(None)
+                        continue
+                    for i,material_slot in enumerate(gp_obj.material_slots):
+                        if material_slot.material and material_slot.material.name == name:
+                            output_material_idx.append(i)
+                            break
+                    else:
+                        gp_obj.data.materials.append(bpy.data.materials[name])
+                        output_material_idx.append(len(gp_obj.material_slots)-1)
 
             # Generate strokes
             line_width = context.tool_settings.gpencil_paint.brush.size
@@ -431,20 +479,21 @@ class ImportColorImageOperator(bpy.types.Operator, ImportHelper):
             scale_factor = min(img_H, img_W) / self.size
 
             for i,path in enumerate(contours):
-                color = contour_color[i]
+                color, label = contour_color[i], contour_label[i]
                 frame_strokes.new()
                 stroke: bpy.types.GPencilStroke = frame_strokes[-1]
                 stroke.line_width = line_width
                 stroke.use_cyclic = True
-                stroke.material_index = output_material_idx
-                stroke.vertex_color_fill = [srgb_to_linear(color[0]),
-                                            srgb_to_linear(color[1]),
-                                            srgb_to_linear(color[2]),1]
+                stroke.material_index = output_material_idx[label]
+                if self.color_mode == 'VERTEX':
+                    stroke.vertex_color_fill = [srgb_to_linear(color[0]),
+                                                srgb_to_linear(color[1]),
+                                                srgb_to_linear(color[2]),1]
                 stroke.points.add(len(path))
                 for i,point in enumerate(frame_strokes[-1].points):
                     point.co = vec2_to_vec3( (path[i][1] - img_W/2, path[i][0] - img_H/2), 0, scale_factor)
                     point.strength = strength
-                    if self.set_line_color:
+                    if self.color_mode == 'VERTEX' and self.set_line_color:
                         point.vertex_color = [srgb_to_linear(color[0]),
                                               srgb_to_linear(color[1]),
                                               srgb_to_linear(color[2]),1]

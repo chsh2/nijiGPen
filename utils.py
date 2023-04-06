@@ -35,6 +35,11 @@ def hex_to_rgb(h, to_linear = False) -> Color:
         return Color((srgb_to_linear(r/255.0), srgb_to_linear(g/255.0), srgb_to_linear(b/255.0)))
     else:
         return Color((r/255.0, g/255.0, b/255.0))
+    
+def rgb_to_hex_code(color:Color) -> str:
+    r,g,b = int(color[0]*255), int(color[1]*255), int(color[2]*255)
+    hex_code = f"#{r:02x}{g:02x}{b:02x}"
+    return hex_code
 
 def smoothstep(x):
     if x<0:
