@@ -2,6 +2,7 @@ import os
 import bpy
 from bpy_extras.io_utils import ImportHelper
 from bpy_extras import image_utils
+from mathutils import *
 from ..utils import *
 
 class ImportLineImageOperator(bpy.types.Operator, ImportHelper):
@@ -52,13 +53,8 @@ class ImportLineImageOperator(bpy.types.Operator, ImportHelper):
     )
     min_length: bpy.props.IntProperty(
             name='Min Stroke Length',
-            default=4, min=0, soft_max=32,
+            default=4, min=1, soft_max=32,
             description='Number of pixels of a line, below which a stroke will not be generated'
-    )
-    max_length: bpy.props.IntProperty(
-            name='Max Stroke Length',
-            default=512, min=0, soft_max=2048,
-            description='Number of pixels of a line, above which a stroke may be cut into two or more'
     )
     generate_color: bpy.props.BoolProperty(
             name='Generate Vertex Color',
@@ -91,7 +87,6 @@ class ImportLineImageOperator(bpy.types.Operator, ImportHelper):
         box2.prop(self, "size")
         box2.prop(self, "sample_length")
         box2.prop(self, "min_length")
-        box2.prop(self, "max_length")
         box2.prop(self, "output_material", text='Material', icon='MATERIAL')
         box2.prop(self, "generate_color")
         box2.prop(self, "generate_strength")
@@ -164,62 +159,122 @@ class ImportLineImageOperator(bpy.types.Operator, ImportHelper):
 
             # Get skeleton and distance information
             skel_mat, dist_mat = skimage.morphology.medial_axis(denoised_bin_mat, return_distance=True)
-            line_thickness = dist_mat.max()
-            dist_mat /= line_thickness
 
-            # Convert skeleton into line segments
+            # Detect all line segments from the skeleton
             search_mat = np.zeros(skel_mat.shape)
             def line_point_dfs(v, u):
                 """
                 Traverse a 2D matrix to get connected pixels as a line
                 """
                 def get_info(v, u):
-                    if v<0 or v>=img_H:
-                        return None
-                    if u<0 or u>=img_W:
-                        return None
-                    if search_mat[v,u]>0:
-                        return None
+                    if v<0 or v>=img_H or u<0 or u>=img_W:
+                        return 1
                     if skel_mat[v,u]==0:
-                        return None
-                    return (v,u)
+                        return 1
+                    return search_mat[v,u] # 0: not searched, 1: searched non-end point, 2: end point
                     
                 line_points = []
-                # Search along the same direction if possible, otherwise choose a similar direction
                 deltas = ((0,-1), (-1,-1), (-1,0), (-1,1), (0,1), (1,1), (1,0), (1,-1))
-                search_indices = (0, 1, -1, 2, -2, 3, -3, 4)
-                idx0 = 0
                 pos = (v,u)
-                next_pos = None
-                while len(line_points) <= self.max_length:
+                is_starting_point = True
+                while True:
                     line_points.append(pos)
                     search_mat[pos[0],pos[1]] = 1
-                    for idx1 in search_indices:
-                        true_idx = (idx0+idx1)%8
-                        d = deltas[true_idx]
-                        ret = get_info(pos[0]+d[0], pos[1]+d[1])
-                        if ret:
-                            next_pos = ret
-                            idx0 = true_idx
-                            break
-                    if not next_pos:
-                        break
-
-                    pos = next_pos
+                    num_paths = 0
                     next_pos = None
-            
+                    for d in deltas:
+                        ret = get_info(pos[0]+d[0], pos[1]+d[1])
+                        if ret==0:
+                            next_pos = (pos[0]+d[0], pos[1]+d[1])
+                        if ret==0 or ret==2:
+                            num_paths += 1
+                    if (num_paths!=1 and not is_starting_point) or not next_pos:
+                        break
+                    pos = next_pos
+                    is_starting_point = False
+                search_mat[line_points[0]] = 2
+                search_mat[line_points[-1]] = 2
                 return line_points
             
-            lines = []
+            segments = []
             for v in range(img_H):
                 for u in range(img_W):
                     if search_mat[v,u]==0 and skel_mat[v,u]>0:
-                        lines.append(line_point_dfs(v,u))
+                        segments.append(line_point_dfs(v,u))
+
+            # Record information of each tip point: a KDTree
+            #   , a list: [(point_co, direction)]
+            #   , and a map: {point_co: segment_index}
+            tip_factor = 0.25
+            kdt = kdtree.KDTree(2*len(segments))
+            tip_info, tip_map = [], {}
+            for i,seg in enumerate(segments):
+                if len(seg)==1:
+                    kdt.insert((seg[0][0], seg[0][1], 0), len(tip_info))
+                    tip_info.append(( (seg[0][0], seg[0][1]), Vector((0, 0, 0))))
+                    tip_map[(seg[0][0], seg[0][1])] = i
+                else:
+                    tip_length = int(max(1, len(seg)*tip_factor))
+                    start_point_co = Vector((seg[0][0], seg[0][1], 0))
+                    start_direction = start_point_co - Vector((seg[tip_length][0], seg[tip_length][1], 0))
+                    kdt.insert(start_point_co, len(tip_info))
+                    tip_info.append(( (seg[0][0], seg[0][1]), start_direction.normalized()))
+                    tip_map[(seg[0][0], seg[0][1])] = i
+
+                    end_point_co = Vector((seg[-1][0], seg[-1][1], 0))
+                    end_direction = end_point_co - Vector((seg[-1-tip_length][0], seg[-1-tip_length][1], 0))
+                    kdt.insert(end_point_co, len(tip_info))
+                    tip_info.append(( (seg[-1][0], seg[-1][1]), end_direction.normalized()))      
+                    tip_map[(seg[-1][0], seg[-1][1])] = i           
+            kdt.balance()
+
+            # Calculate the similarity between each pair of segments: (tip1, tip2, dot of direction)
+            joint_info = []
+            tip_pair_set = set()
+            for i,tip1 in enumerate(tip_info):
+                candidates = kdt.find_range((tip1[0][0],tip1[0][1],0), max(dist_mat[tip1[0]],1) )
+                for candidate in candidates:
+                    tip2 = tip_info[candidate[1]]
+                    if tip1[0]!=tip2[0] and (tip1[0], tip2[0]) not in tip_pair_set and (tip2[0], tip1[0]) not in tip_pair_set:
+                        tip_pair_set.add(((tip1[0], tip2[0])))
+                        joint_info.append( (tip1[0], tip2[0], tip1[1].dot(tip2[1])) )
+            joint_info.sort(key=lambda x:x[2])
+
+            # Join segments based on similarity
+            merged_tip = set()
+            parent_map = {}
+            for joint in joint_info:
+                if (joint[0] in merged_tip or joint[1] in merged_tip
+                    or joint[2]>0 ):
+                    continue
+                # Determine the indices of segments to merge
+                seg_idx1 = tip_map[joint[0]]
+                seg_idx2 = tip_map[joint[1]]
+                while seg_idx1 in parent_map:
+                    seg_idx1 = parent_map[seg_idx1]
+                while seg_idx2 in parent_map:
+                    seg_idx2 = parent_map[seg_idx2]
+                if seg_idx1 == seg_idx2:
+                    continue
+                # Merge process: 4 cases - head/tail to head/tail
+                if joint[0]==segments[seg_idx1][0]:
+                    segments[seg_idx1].reverse()
+                if joint[1]==segments[seg_idx2][-1]:
+                    segments[seg_idx2].reverse()
+                segments[seg_idx1] += segments[seg_idx2]
+                segments[seg_idx2] = []
+                # State updates
+                parent_map[seg_idx2] = seg_idx1
+                merged_tip.add(joint[0])
+                merged_tip.add(joint[1])
 
             # Generate strokes according to line segments
             frame_strokes = frame.strokes
             scale_factor = min(img_H, img_W) / self.size
-            for line in lines:
+            line_thickness = dist_mat.max()
+            dist_mat /= line_thickness
+
+            for line in segments:
                 if len(line) < self.min_length:
                     continue
                 point_count = len(line) // self.sample_length
@@ -290,7 +345,21 @@ class ImportColorImageOperator(bpy.types.Operator, ImportHelper):
             name='Median Filter Radius',
             default=3, min=0, soft_max=15,
             description='Denoise the image with a median filter. Disabled when the value is 0'
-    )  
+    )
+    color_source: bpy.props.EnumProperty(            
+            name='Color Source',
+            items=[ ('FIRST_FRAME', 'First Frame', ''),
+                    ('EVERY_FRAME', 'Every Frame', ''),
+                    ('PALETTE_RGB', 'Palette by RGB Distance', ''),
+                    ('PALETTE_AREA', 'Palette by Area', '')],
+            default='FIRST_FRAME',
+            description='Where colors are picked for generated strokes'
+    )
+    reference_palette_name: bpy.props.StringProperty(
+        name='Reference Palette',
+        default='',
+        search=lambda self, context, edit_text: [palette.name for palette in bpy.data.palettes if palette]
+    )
     size: bpy.props.FloatProperty(
             name='Size',
             default=2, min=0.001, soft_max=10,
@@ -319,6 +388,11 @@ class ImportColorImageOperator(bpy.types.Operator, ImportHelper):
             default=True,
             description='Set the line color besides the fill color'
     )
+    new_palette: bpy.props.BoolProperty(
+            name='Generate Palette',
+            default=False,
+            description='Generate a new palette based on colors extracted from this image'
+    )
     output_material: bpy.props.StringProperty(
         name='Output Material',
         description='Draw the new stroke using this material. If empty, use the active material',
@@ -335,6 +409,10 @@ class ImportColorImageOperator(bpy.types.Operator, ImportHelper):
         box1.prop(self, "image_sequence")
         if self.image_sequence:
             box1.prop(self, "frame_step")
+        box1.prop(self, "color_source")
+        if self.color_source=='PALETTE_RGB' or self.color_source=='PALETTE_AREA':
+            box1.prop(self, "reference_palette_name")
+
         layout.label(text = "Stroke Options:")
         box2 = layout.box()
         box2.prop(self, "size")
@@ -344,6 +422,8 @@ class ImportColorImageOperator(bpy.types.Operator, ImportHelper):
         if self.color_mode == 'VERTEX':
             box2.prop(self, "output_material", text='Material', icon='MATERIAL')
         box2.prop(self, "set_line_color")
+        if self.color_source!='PALETTE_RGB' and self.color_source!='PALETTE_AREA':
+            layout.prop(self, "new_palette")
 
     def execute(self, context):
         gp_obj: bpy.types.Object = context.object
@@ -382,7 +462,7 @@ class ImportColorImageOperator(bpy.types.Operator, ImportHelper):
             for f in gp_layer.frames:
                 frame_dict[f.frame_number] = f
 
-        def process_single_image(img_filepath, frame):
+        def process_single_image(img_filepath, frame, given_colors = []):
             """
             Quantize colors of a specific image and generate strokes in a given frame
             """
@@ -393,30 +473,44 @@ class ImportColorImageOperator(bpy.types.Operator, ImportHelper):
             img_mat = np.flipud(img_mat)
 
             # Preprocessing: alpha and denoise
-            if img_obj.channels > 3:
+            if img_obj.channels == 4:
                 color_mat = img_mat[:,:,:3]
                 alpha_mask = img_mat[:,:,3]>0
                 num_color_channel = 3
-            else:
+            elif img_obj.channels == 3:
                 color_mat = img_mat
                 alpha_mask = np.ones((img_H,img_W))
                 num_color_channel = img_obj.channels
+            else:
+                self.report({"WARNING"}, "Only RGB or RGBA images are supported.")
+                return {'FINISHED'}   
 
             if self.median_radius > 0:
                 footprint = morphology.disk(self.median_radius)
                 footprint = np.repeat(footprint[:, :, np.newaxis], num_color_channel, axis=2)
                 color_mat = filters.median(color_mat, footprint)
 
-            # Quantization with K-mean
+            # If no colors are given, run K-Means
             pixels_1d = color_mat.reshape(-1,num_color_channel)
-            palette, label = cluster.vq.kmeans2(pixels_1d, self.num_colors, minit='++', seed=0)
+            if len(given_colors)==0:
+                palette, label = cluster.vq.kmeans2(pixels_1d, self.num_colors, minit='++', seed=0)
+            # If given colors, sort colors by either RGB distance or number of colored pixels
+            elif self.color_source == 'PALETTE_AREA':
+                palette, label = cluster.vq.kmeans2(pixels_1d, given_colors.shape[0], minit='++', seed=0)
+                color_seq = np.argsort(-np.bincount(label))
+                palette[color_seq] = given_colors
+            else:
+                palette = given_colors
+                rgb_diff = pixels_1d.reshape(-1,1,num_color_channel) - palette.reshape(1,-1,num_color_channel)
+                rgb_dist = np.sum(np.square(rgb_diff), axis=2)
+                label = np.argmin(rgb_dist, axis=1)
             label = label.reshape((img_H, img_W))
 
             # Get contours of each color
             contours, contour_color, contour_label = [], [], []
             label_count = [0] * len(palette)
             global_mask = np.zeros((img_H,img_W))
-            global_mask[1:-1,1:-1] = 1
+            global_mask[1:-1,1:-1] = 1  # Avoid generating open contours
             global_mask *= alpha_mask
             for i,color in enumerate(palette):
                 res = measure.find_contours( (label==i)*global_mask, 0.5, positive_orientation='high')
@@ -426,6 +520,13 @@ class ImportColorImageOperator(bpy.types.Operator, ImportHelper):
                         contour_color.append(color)
                         contour_label.append(i)
                         label_count[i] += 1
+
+            # Record colors in a Blender palette
+            if len(given_colors)==0 and palette_to_write:
+                for i, color in enumerate(palette):
+                    if label_count[i]>0:
+                        palette_to_write.colors.new()
+                        palette_to_write.colors[-1].color = Color(color)
 
             # Vertex color mode: find the material slot 
             if self.color_mode == 'VERTEX':
@@ -498,19 +599,34 @@ class ImportColorImageOperator(bpy.types.Operator, ImportHelper):
                                               srgb_to_linear(color[1]),
                                               srgb_to_linear(color[2]),1]
                 stroke.select = True
-            
+
             if self.image_sequence:
                 frame.select = True
+            return palette
 
+        # Color palette operations: either read or write, not both
+        given_colors = []
+        palette_to_write = None
+        if self.color_source == 'PALETTE_RGB' or self.color_source == 'PALETTE_AREA':
+            palette_to_read = bpy.data.palettes[self.reference_palette_name]
+            for slot in palette_to_read.colors:
+                given_colors.append(slot.color)
+            given_colors = np.array(given_colors)[:self.num_colors]
+        elif self.new_palette:
+            palette_to_write = bpy.data.palettes.new(self.files[0].name)
+
+        # Main processing loop
         if not self.image_sequence:
-            process_single_image(self.filepath, starting_frame)
+            process_single_image(self.filepath, starting_frame, given_colors)
         else:
             for frame_idx, img_filepath in enumerate(img_filepaths):
                 target_frame_number = starting_frame.frame_number + frame_idx * self.frame_step
                 if target_frame_number in frame_dict:
-                    process_single_image(img_filepath, frame_dict[target_frame_number])
+                    updated_palette = process_single_image(img_filepath, frame_dict[target_frame_number], given_colors)
                 else:
-                    process_single_image(img_filepath, gp_layer.frames.new(target_frame_number))
+                    updated_palette = process_single_image(img_filepath, gp_layer.frames.new(target_frame_number), given_colors)
+                if self.color_source == 'FIRST_FRAME' and len(given_colors)==0:
+                    given_colors = updated_palette
 
         # Refresh the generated strokes, otherwise there might be display errors
         bpy.ops.transform.translate()
