@@ -210,6 +210,8 @@ class MeshGenerationByNormal(bpy.types.Operator):
                             mesh_names.append('Planar_' + layer.info + '_' + str(j))
         poly_list, scale_factor = stroke_to_poly(stroke_list, scale=True, correct_orientation=True)
         mask_poly_list, _ = stroke_to_poly(mask_list, scale=True, correct_orientation=True, scale_factor=scale_factor)
+        if len(poly_list) < 1:
+            return {'FINISHED'}
 
         # Holes should have an opposite direction, and they need a coordinate for triangle input
         mask_hole_points = []
@@ -337,6 +339,8 @@ class MeshGenerationByNormal(bpy.types.Operator):
                         num_verts = len(verts)
 
                 # Refer to: https://rufat.be/triangle/API.html
+                if len(verts)<3:
+                    return
                 tr_input = dict(vertices = verts, segments = np.array(segs))
                 if len(hole_points)>0:
                     tr_input['holes']=hole_points
@@ -459,7 +463,6 @@ class MeshGenerationByNormal(bpy.types.Operator):
                 new_object.data.materials.append(mesh_material)
 
             # Post-processing
-            # TODO: Find a better way for post-processing, especially for mirror
             bpy.ops.object.mode_set(mode='OBJECT')
             bpy.ops.object.select_all(action='DESELECT')
             new_object.select_set(True)

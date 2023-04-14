@@ -2,6 +2,7 @@ import bpy
 import os
 import math
 from ..utils import *
+from ..resources import *
 
 class PasteSVGOperator(bpy.types.Operator):
     """Convert SVG codes in the clipboard to strokes and insert them in the current Grease Pencil object"""
@@ -44,18 +45,13 @@ class PasteSVGOperator(bpy.types.Operator):
         row.prop(self, "auto_holdout", text = "Auto Holdout")
 
     def execute(self, context):
-        preferences = context.preferences.addons[__package__.rsplit('.',1)[0]].preferences
         current_gp_obj = context.object
         current_material_idx = context.object.active_material_index
         num_layers = len(context.object.data.layers)
 
         # Convert clipboard data to SVG file
         svg_str = context.window_manager.clipboard
-        #svg_path = os.path.join(context.preferences.filepaths.temporary_directory, "clipboard.svg")
-        if len(preferences.cache_folder)>0:
-            svg_path = os.path.join(preferences.cache_folder, "clipboard.svg")
-        else:
-            svg_path = os.path.join(bpy.app.tempdir, "clipboard.svg")
+        svg_path = os.path.join( get_cache_folder(), "clipboard.svg")
         svg_file = open(svg_path, "w")
         svg_file.write(svg_str)
         svg_file.close()

@@ -4,6 +4,13 @@ import os
 MATERIAL_PREFIX = {'MESH': 'NijiGP_Mesh: ',
                    'NORMAL': 'NijiGP_Normal: '}
 
+def get_cache_folder():
+    preferences = bpy.context.preferences.addons[__package__].preferences
+    if len(preferences.cache_folder)>0:
+        return preferences.cache_folder
+    else:
+        return bpy.app.tempdir
+
 def get_workspace_tool_icon(file_name):
     """
     Get a pre-defined .dat file as the icon of a workspace tool
