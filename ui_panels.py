@@ -43,8 +43,6 @@ class NIJIGP_PT_draw_panel_io(bpy.types.Panel):
 
     def draw(self, context):
         layout = self.layout
-        scene = context.scene
-        obj = context.object
 
         layout.label(text="Paste from Clipboard:")
         row = layout.row()
@@ -55,6 +53,10 @@ class NIJIGP_PT_draw_panel_io(bpy.types.Panel):
         row = layout.row()
         row.operator("gpencil.nijigp_import_lineart", text="Line Art", icon="LINE_DATA")
         row.operator("gpencil.nijigp_import_color_image", text="Flat Color", icon="IMAGE")
+        
+        layout.label(text="Image Export (Beta):")
+        row = layout.row()
+        row.operator("gpencil.nijigp_multilayer_render", text="Multi-Layer PSD Render", icon="RENDERLAYERS")
          
 class NIJIGP_PT_edit_panel_io(bpy.types.Panel):
     bl_idname = 'NIJIGP_PT_edit_panel_io'
@@ -67,9 +69,7 @@ class NIJIGP_PT_edit_panel_io(bpy.types.Panel):
 
     def draw(self, context):
         layout = self.layout
-        scene = context.scene
-        obj = context.object
-
+        
         layout.label(text="Paste from Clipboard:")
         row = layout.row()
         row.operator("gpencil.nijigp_paste_svg", text="SVG", icon="PASTEDOWN")
@@ -79,6 +79,10 @@ class NIJIGP_PT_edit_panel_io(bpy.types.Panel):
         row = layout.row()
         row.operator("gpencil.nijigp_import_lineart", text="Line Art", icon="LINE_DATA")
         row.operator("gpencil.nijigp_import_color_image", text="Flat Color", icon="IMAGE")
+        
+        layout.label(text="Image Export (Beta):")
+        row = layout.row()
+        row.operator("gpencil.nijigp_multilayer_render", text="Multi-Layer PSD Render", icon="RENDERLAYERS")
 
 class NIJIGP_PT_draw_panel_polygon(bpy.types.Panel):
     bl_idname = 'NIJIGP_PT_draw_panel_polygon'

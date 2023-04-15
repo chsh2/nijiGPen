@@ -2,7 +2,7 @@ import bpy
 import os
 import math
 from ..utils import *
-from ..resources import *
+from ..resources import get_cache_folder
 
 class PasteSVGOperator(bpy.types.Operator):
     """Convert SVG codes in the clipboard to strokes and insert them in the current Grease Pencil object"""
