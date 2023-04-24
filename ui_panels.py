@@ -49,10 +49,14 @@ class NIJIGP_PT_draw_panel_io(bpy.types.Panel):
         row.operator("gpencil.nijigp_paste_svg", text="SVG", icon="PASTEDOWN")
         row.operator("gpencil.nijigp_paste_xml_palette", text="XML/Hex", icon="COLOR")
 
-        layout.label(text="Image Import:")
+        layout.label(text="Image Vectorization:")
         row = layout.row()
         row.operator("gpencil.nijigp_import_lineart", text="Line Art", icon="LINE_DATA")
         row.operator("gpencil.nijigp_import_color_image", text="Flat Color", icon="IMAGE")
+
+        layout.label(text="Asset Import:")
+        row = layout.row()
+        row.operator("gpencil.nijigp_import_brush", text="ABR/GBR Brushes", icon="BRUSH_DATA")
         
         layout.label(text="Image Export (Beta):")
         row = layout.row()
@@ -75,10 +79,14 @@ class NIJIGP_PT_edit_panel_io(bpy.types.Panel):
         row.operator("gpencil.nijigp_paste_svg", text="SVG", icon="PASTEDOWN")
         row.operator("gpencil.nijigp_paste_xml_palette", text="XML/Hex", icon="COLOR")
 
-        layout.label(text="Image Import:")
+        layout.label(text="Image Vectorization:")
         row = layout.row()
         row.operator("gpencil.nijigp_import_lineart", text="Line Art", icon="LINE_DATA")
         row.operator("gpencil.nijigp_import_color_image", text="Flat Color", icon="IMAGE")
+        
+        layout.label(text="Asset Import:")
+        row = layout.row()
+        row.operator("gpencil.nijigp_import_brush", text="ABR/GBR Brushes", icon="BRUSH_DATA")
         
         layout.label(text="Image Export (Beta):")
         row = layout.row()
