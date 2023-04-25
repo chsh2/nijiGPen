@@ -18,10 +18,26 @@ class MultiLayerRenderOperator(bpy.types.Operator, ExportHelper):
         options={'HIDDEN'},
         maxlen=255,  # Max internal buffer length, longer would be clamped.
     )
+    render_target: bpy.props.EnumProperty(            
+            name='Render Target',
+            items=[ ('ACTIVE', 'Active Object', ''),
+                    ('ALL', 'All GPencil Objects', '')],
+            default='ALL'
+    )
+    
+    def draw(self, context):
+        layout = self.layout
+        row = layout.row()
+        row.label(text='Render Target:')
+        row.prop(self, 'render_target', text='')
     
     def execute(self, context):
         import numpy as np
-        gp_obj = context.object
+        
+        if self.render_target=='ACTIVE':
+            gp_obj_list = [context.object] if context.object.type=='GPENCIL' else []
+        else:
+            gp_obj_list = [obj for obj in bpy.data.objects if obj.type=='GPENCIL']
         scene = context.scene
         
         def render_and_load(filepath):
@@ -41,8 +57,10 @@ class MultiLayerRenderOperator(bpy.types.Operator, ExportHelper):
         gplayers_info = []
         for obj in bpy.data.objects:
             hidden_objects[obj.name] = obj.hide_render
-        for layer in gp_obj.data.layers:
-            gplayers_info.append((layer.hide, layer.blend_mode, layer.opacity))
+        for gp_obj in gp_obj_list:
+            gplayers_info.append([])
+            for layer in gp_obj.data.layers:
+                gplayers_info[-1].append((layer.hide, layer.blend_mode, layer.opacity))
         render_setting['film_transparent'] = scene.render.film_transparent
         render_setting['filepath'] = scene.render.filepath
         render_setting['file_format'] = scene.render.image_settings.file_format
@@ -61,7 +79,8 @@ class MultiLayerRenderOperator(bpy.types.Operator, ExportHelper):
         merged_img_mat = render_and_load(os.path.join(cache_folder,'Merged.png'))
         
         # Render the scene without active GPencil
-        gp_obj.hide_render = True
+        for gp_obj in gp_obj_list:
+            gp_obj.hide_render = True
         scene.render.film_transparent = True
         scene_img_mat = render_and_load(os.path.join(cache_folder,'Scene.png'))
         img_W, img_H = scene_img_mat.shape[1], scene_img_mat.shape[0]
@@ -76,25 +95,32 @@ class MultiLayerRenderOperator(bpy.types.Operator, ExportHelper):
         
         # Render each GPencil layer and load the output image
         layer_img_mats = []
-        gp_obj.hide_render = False
-        for layer in gp_obj.data.layers:
-            layer.hide = True
-        for i,layer in enumerate(gp_obj.data.layers):
-            layer.hide, layer.blend_mode, layer.opacity = False, 'REGULAR', 1
-            layer_img_mats.append( render_and_load(os.path.join(cache_folder,str(layer.info)+'.png')) )
-            layer.hide = True
+        for gp_obj in gp_obj_list:
+            gp_obj.hide_render = False
+            for layer in gp_obj.data.layers:
+                layer.hide = True
+            layer_img_mats.append([])
+            for i,layer in enumerate(gp_obj.data.layers):
+                layer.hide, layer.blend_mode, layer.opacity = False, 'REGULAR', 1
+                layer_img_mats[-1].append( render_and_load(os.path.join(cache_folder,str(layer.info)+'.png')) )
+                layer.hide = True
+            gp_obj.hide_render = True
         
         # Convert Blender image objects to PSD format
         psd_template = PsdFileWriter(height=img_H, width=img_W)
         psd_template.set_merged_img(merged_img_mat)
         psd_template.append_layer(PsdLayer(background_img_mat, name='Background', hide=render_setting['film_transparent']))
         psd_template.append_layer(PsdLayer(scene_img_mat, name='3D Scene'))
-        for i,layer in enumerate(gp_obj.data.layers):
-            psd_template.append_layer(PsdLayer(layer_img_mats[i],
-                                               name=layer.info,
-                                               hide=gplayers_info[i][0],
-                                               opacity=gplayers_info[i][2],
-                                               blend_mode_key=gplayers_info[i][1]))
+        
+        for i,gp_obj in enumerate(gp_obj_list):
+            psd_template.append_layer(PsdLayer(np.zeros((1, 1, 4)), name=gp_obj.name, divider_type=3))
+            for j,layer in enumerate(gp_obj.data.layers):
+                psd_template.append_layer(PsdLayer(layer_img_mats[i][j],
+                                                name=layer.info,
+                                                hide=gplayers_info[i][j][0],
+                                                opacity=gplayers_info[i][j][2],
+                                                blend_mode_key=gplayers_info[i][j][1]))
+            psd_template.append_layer(PsdLayer(np.zeros((1, 1, 4)), name=gp_obj.name, divider_type=1))
         psd_fd = open(self.filepath, 'wb')
         psd_fd.write(psd_template.get_file_bytes())
         psd_fd.close()
@@ -102,8 +128,9 @@ class MultiLayerRenderOperator(bpy.types.Operator, ExportHelper):
         # Restore configuration options
         for obj in bpy.data.objects:
             obj.hide_render = hidden_objects[obj.name]
-        for i,layer in enumerate(gp_obj.data.layers):
-            layer.hide, layer.blend_mode, layer.opacity = gplayers_info[i]
+        for i,gp_obj in enumerate(gp_obj_list):
+            for j,layer in enumerate(gp_obj.data.layers):
+                layer.hide, layer.blend_mode, layer.opacity = gplayers_info[i][j]
         scene.render.film_transparent = render_setting['film_transparent']
         scene.render.filepath = render_setting['filepath']
         scene.render.image_settings.file_format = render_setting['file_format']

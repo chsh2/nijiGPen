@@ -213,7 +213,8 @@ class PsdLayer:
                 opacity = 1,
                 hide = False,
                 bit_depth = 8,
-                name = 'new_layer'):
+                name = 'new_layer',
+                divider_type = 0):
         assert bit_depth==8 or bit_depth==16
         self.img_mat = img_mat.astype('>u'+str(bit_depth//8))
         if top and left and bottom and right:
@@ -229,6 +230,8 @@ class PsdLayer:
         self.hide = int(hide)
         self.bit_depth = bit_depth
         self.name = name
+        # 0 = any other type of layer, 1 = open "folder", 2 = closed "folder", 3 = bounding section divider
+        self.divider_type = divider_type
         
     def get_layer_record_bytes(self):
         section_bytes = struct.pack('>IIII H',
@@ -247,8 +250,11 @@ class PsdLayer:
         padding = len(layer_name)%4
         if padding:
             layer_name += bytes(4-padding)
-        extra_data_length = 8+len(layer_name)
-            
+        
+        # "Mask data" and "blending range" sections are skipped as two 4-byte zeros
+        extra_data_length = 8 + len(layer_name)
+        if self.divider_type:
+            extra_data_length += 24
         section_bytes += struct.pack('>4s 4s BBBB I I I',
                                      b'8BIM',
                                      dict_blend_mode[self.blend_mode_key],
@@ -257,6 +263,14 @@ class PsdLayer:
                                      extra_data_length, 0, 0
                                     )
         section_bytes += layer_name
+        
+        # Section divider setting, i.e. "group" or "folder"
+        # Unlike the official documentation, this section should be placed here instead of after the global layer mask
+        if self.divider_type:
+            section_bytes += struct.pack('>4s4s II 4s4s',
+                                        b'8BIM', b'lsct', 12, self.divider_type,
+                                        b'8BIM', b'norm'
+                                    )
         return section_bytes
     
     def get_channel_image_data_bytes(self):
