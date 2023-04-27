@@ -45,6 +45,11 @@ class ImportBrushOperator(bpy.types.Operator, ImportHelper):
             default=False,
             description='If applied, the transparency of the brush pixels will be either 0 or 1'
     )
+    keep_aspect_ratio: bpy.props.BoolProperty(
+            name='Keep Aspect Ratio',
+            default=True,
+            description='If applied, pads the texture to a square to display it without distortion.'
+    )
     template_brush: bpy.props.StringProperty(
             name='Template Brush',
             description='When creating new brushes, copy attributes from the selected brush',
@@ -68,6 +73,9 @@ class ImportBrushOperator(bpy.types.Operator, ImportHelper):
         row = layout.row()
         row.label(text = 'Alpha Clip: ')
         row.prop(self, "alpha_clip", text="")
+        row = layout.row()
+        row.label(text = 'Keep Aspect Ratio: ')
+        row.prop(self, "keep_aspect_ratio", text="")
         if self.texture_usage == "BRUSH":
             row = layout.row()
             row.label(text = 'Template Brush: ')
@@ -129,9 +137,17 @@ class ImportBrushOperator(bpy.types.Operator, ImportHelper):
                     image_mat[:,:,0] = (image_mat[:,:,3] < 1) * 255
                     image_mat[:,:,1] = (image_mat[:,:,3] < 1) * 255
                     image_mat[:,:,2] = (image_mat[:,:,3] < 1) * 255
+                    
                 if self.alpha_clip:
                     image_mat[:,:,3] = (image_mat[:,:,3] > 127) * 255
-            
+                    
+                if self.keep_aspect_ratio:
+                    img_L = max(img_H, img_W)
+                    offset_H, offset_W = (img_L-img_H)//2, (img_L-img_W)//2
+                    square_img_mat = np.zeros((img_L, img_L, 4))
+                    square_img_mat[offset_H:offset_H+img_H, offset_W:offset_W+img_W, :] = image_mat
+                    image_mat, img_H, img_W = square_img_mat, img_L, img_L
+                    
                 # Convert texture to Blender data block
                 img_obj = bpy.data.images.new(brush_name, img_W, img_H, alpha=True, float_buffer=False)
                 img_obj.pixels = np.flipud(image_mat).ravel() / 255.0
