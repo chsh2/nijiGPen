@@ -203,7 +203,10 @@ def distance_to_another_stroke(co_list1, co_list2, kdt2 = None, angular_toleranc
     contact_idx1 = min(contact_idx1, n1-2)
     direction1 = Vector(co_list1[contact_idx1+1]) - Vector(co_list1[contact_idx1])
     direction2 = Vector(co_list2[contact_idx2+1]) - Vector(co_list2[contact_idx2])
-    angle_diff = direction1.angle(direction2)
+    if math.isclose(direction1.length, 0) or math.isclose(direction2.length, 0):
+        angle_diff = 0
+    else:
+        angle_diff = direction1.angle(direction2)
 
     # Three cases of directions: similar, opposite or different
     end2 = n2-1

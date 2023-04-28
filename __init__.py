@@ -17,7 +17,7 @@ bl_info = {
     "author" : "https://github.com/chsh2/nijiGPen",
     "description" : "Tools modifying Grease Pencil strokes in a 2D plane",
     "blender" : (3, 3, 0),
-    "version" : (0, 4, 1),
+    "version" : (0, 4, 2),
     "location" : "View3D > Sidebar > NijiGP, in Draw and Edit mode of Grease Pencil objects",
     "warning" : "This addon is still in an early stage of development",
     "category" : "Object"

@@ -209,11 +209,7 @@ class ImportLineImageOperator(bpy.types.Operator, ImportHelper):
             kdt = kdtree.KDTree(2*len(segments))
             tip_info, tip_map = [], {}
             for i,seg in enumerate(segments):
-                if len(seg)==1:
-                    kdt.insert((seg[0][0], seg[0][1], 0), len(tip_info))
-                    tip_info.append(( (seg[0][0], seg[0][1]), Vector((0, 0, 0))))
-                    tip_map[(seg[0][0], seg[0][1])] = i
-                else:
+                if len(seg) > 1:
                     tip_length = int(max(1, len(seg)*tip_factor))
                     start_point_co = Vector((seg[0][0], seg[0][1], 0))
                     start_direction = start_point_co - Vector((seg[tip_length][0], seg[tip_length][1], 0))
@@ -232,7 +228,7 @@ class ImportLineImageOperator(bpy.types.Operator, ImportHelper):
             joint_info = []
             tip_pair_set = set()
             for i,tip1 in enumerate(tip_info):
-                candidates = kdt.find_range((tip1[0][0],tip1[0][1],0), max(dist_mat[tip1[0]],1) )
+                candidates = kdt.find_range((tip1[0][0],tip1[0][1],0), max(dist_mat[tip1[0]], 1.5) )
                 for candidate in candidates:
                     tip2 = tip_info[candidate[1]]
                     if tip1[0]!=tip2[0] and (tip1[0], tip2[0]) not in tip_pair_set and (tip2[0], tip1[0]) not in tip_pair_set:
@@ -278,7 +274,7 @@ class ImportLineImageOperator(bpy.types.Operator, ImportHelper):
                 if len(line) < self.min_length:
                     continue
                 point_count = len(line) // self.sample_length
-                if len(line)%self.sample_length != 1:
+                if self.sample_length > 1 and len(line)%self.sample_length != 1:
                     point_count += 1
 
                 frame_strokes.new()

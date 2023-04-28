@@ -44,7 +44,7 @@ In **Draw**, **Edit** and **Sculpt** modes of a Grease Pencil object, a group of
 
 Some of the operations are demonstrated in the following videos:
 
-https://www.youtube.com/watch?v=xRzwWkjkBUY
+https://www.youtube.com/playlist?list=PLEgTVZ2uBvPMM0sGzzQTyoV0or8_PTs6t
 
 https://www.bilibili.com/video/bv1tg411C77g
 
@@ -64,6 +64,9 @@ NijiGPen provides with the following functions:
     - Paste SVG Shapes: extend the built-in SVG module with clipboard reading and hole detection
     - Paste XML Palette: convert XML codes from services such as Adobe Color to a Blender palette
     - Raster Image Tracing: line art and multi-color support
+    - ABR/GBR Brushes: extract textures of GIMP/Adobe Photoshop brushes
+- Export
+    - Render PSD: keep layer structure and blending modes
 - UI
     - A group of shortcut buttons for better touchscreen control
 

@@ -46,7 +46,7 @@ Blender 3.3以上版本
 
 演示视频：
 
-https://www.youtube.com/watch?v=xRzwWkjkBUY
+https://www.youtube.com/playlist?list=PLEgTVZ2uBvPMM0sGzzQTyoV0or8_PTs6t
 
 https://www.bilibili.com/video/bv1tg411C77g
 
@@ -67,6 +67,9 @@ https://www.bilibili.com/video/bv1tg411C77g
     - 从剪贴板粘贴XML色卡：将Adobe Color等工具生成的XML格式色卡或Hex代码转换为Blender调色板
     - 从剪贴板粘贴SVG代码：在Blender自带SVG模块的基础上增加了检测孔洞的功能
     - 图片转换为矢量图：在Blender自带模块的基础上增加了线稿导入与彩色图片导入
+    - GBR/ABR笔刷：提取GIMP/Adobe Photoshop笔刷中的贴图并转为Blender可用的格式
+- 导出
+    - 渲染为PSD：保持图层结构与混合模式
 
 其它功能将陆续添加。
 
