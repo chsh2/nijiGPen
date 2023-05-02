@@ -176,14 +176,14 @@ class NijiGPAddonPreferences(bpy.types.AddonPreferences):
                         'signal': self.package_pyclipper, 
                         'operator1':"nijigp.dependencies_pyclipper_install", 
                         'operator2':"nijigp.dependencies_pyclipper_remove"},
-                    {'name': 'Triangle', 'type': 'Essential', 
-                        'signal': self.package_triangle, 
-                        'operator1':"nijigp.dependencies_triangle_install", 
-                        'operator2':"nijigp.dependencies_triangle_remove"},
                     {'name': 'Scikit-Image', 'type': 'Optional', 
                         'signal': self.package_skimage, 
                         'operator1':"nijigp.dependencies_skimage_install", 
-                        'operator2':"nijigp.dependencies_skimage_remove"}]
+                        'operator2':"nijigp.dependencies_skimage_remove"},
+                    {'name': 'Triangle', 'type': 'Optional', 
+                        'signal': self.package_triangle, 
+                        'operator1':"nijigp.dependencies_triangle_install", 
+                        'operator2':"nijigp.dependencies_triangle_remove"},]
         column = box1.column()
         row = column.row()
         for key in table_key:

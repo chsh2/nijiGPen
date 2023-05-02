@@ -25,12 +25,11 @@ def fit_2d_strokes(strokes, search_radius, smoothness_factor = 1, pressure_delta
     '''
     empty_result = None, None, None, None, None
     try:
-        import triangle as tr
         from scipy.sparse.csgraph import minimum_spanning_tree
         from scipy.interpolate import splprep, splev
     except:
         if operator:
-            operator.report({"ERROR"}, "Please install dependencies in the Preferences panel.")
+            operator.report({"ERROR"}, "Please install Scikit-Image in the Preferences panel.")
         return empty_result
     import numpy as np
 
@@ -74,7 +73,8 @@ def fit_2d_strokes(strokes, search_radius, smoothness_factor = 1, pressure_delta
     kdt.balance()
 
     # Triangulation and spanning tree conversion
-    tr_output = tr.triangulate(tr_input, '')
+    tr_output = {}
+    tr_output['vertices'], _, tr_output['triangles'], _,_,_ = geometry.delaunay_2d_cdt(tr_input['vertices'], [], [], 0, 1e-9)
     def e_dist(i,j):
         src = tr_output['vertices'][i]
         dst = tr_output['vertices'][j]
@@ -82,12 +82,9 @@ def fit_2d_strokes(strokes, search_radius, smoothness_factor = 1, pressure_delta
     num_vert = len(tr_output['vertices'])
     dist = np.zeros((num_vert, num_vert))
     for f in tr_output['triangles']:
-        dist[f[1], f[0]] = e_dist(f[0], f[1])
-        dist[f[2], f[0]] = e_dist(f[0], f[2])
-        dist[f[1], f[2]] = e_dist(f[2], f[1])
-        dist[f[0], f[1]] = e_dist(f[0], f[1])
-        dist[f[0], f[2]] = e_dist(f[0], f[2])
-        dist[f[2], f[1]] = e_dist(f[2], f[1])
+        dist[f[1], f[0]] = dist[f[0], f[1]] = e_dist(f[0], f[1])
+        dist[f[2], f[0]] = dist[f[0], f[2]] = e_dist(f[0], f[2])
+        dist[f[1], f[2]] = dist[f[2], f[1]] = e_dist(f[2], f[1])
     mst = minimum_spanning_tree(dist).toarray()
     mst = np.maximum(mst, mst.transpose())
 

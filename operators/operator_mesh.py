@@ -174,12 +174,19 @@ class MeshGenerationByNormal(bpy.types.Operator):
 
     def execute(self, context):
         import numpy as np
+        is_triangle_available = True
         try:
             import pyclipper
-            import triangle as tr
         except ImportError:
-            self.report({"ERROR"}, "Please install dependencies in the Preferences panel.")
+            self.report({"ERROR"}, "Please install PyClipper in the Preferences panel.")
             return {'FINISHED'}
+        
+        if self.mesh_style == 'TRI':
+            try:
+                import triangle as tr
+            except ImportError:
+                self.report({"WARNING"}, "Triangle package is not installed. Some options may be invalid.")
+                is_triangle_available = False
         
         # Load related resources
         current_gp_obj = context.object
@@ -318,7 +325,7 @@ class MeshGenerationByNormal(bpy.types.Operator):
                             to_trim.append(vert)
                     bmesh.ops.dissolve_verts(bm, verts=to_trim)
 
-            # Method 2: use the triangle library
+            # Method 2: use Delaunay triangulation
             elif self.mesh_style=='TRI':
                 segs = []
                 verts= []
@@ -342,10 +349,15 @@ class MeshGenerationByNormal(bpy.types.Operator):
                 if len(verts)<3:
                     return
                 tr_input = dict(vertices = verts, segments = np.array(segs))
-                if len(hole_points)>0:
-                    tr_input['holes']=hole_points
-                area_limit = (u_max-u_min)*(v_max-v_min)/(self.resolution**2)
-                tr_output = tr.triangulate(tr_input, 'pa'+str(area_limit))
+                if is_triangle_available:
+                    if len(hole_points)>0:
+                        tr_input['holes']=hole_points
+                    area_limit = (u_max-u_min)*(v_max-v_min)/(self.resolution**2)
+                    tr_output = tr.triangulate(tr_input, 'pa'+str(area_limit))
+                else:
+                    tr_output = {}
+                    tr_output['vertices'], _, tr_output['triangles'], _,_,_ = geometry.delaunay_2d_cdt(tr_input['vertices'], tr_input['segments'], [], 2, 1e-9)
+                    
                 # Generate vertices and triangle faces
                 for co in tr_output['vertices']:
                     bm.verts.new(vec2_to_vec3(co,0,scale_factor)) 

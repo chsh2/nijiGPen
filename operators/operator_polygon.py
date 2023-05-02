@@ -32,7 +32,7 @@ class HoleProcessingOperator(bpy.types.Operator):
         try:
             import pyclipper
         except ImportError:
-            self.report({"ERROR"}, "Please install dependencies in the Preferences panel.")
+            self.report({"ERROR"}, "Please install PyClipper in the Preferences panel.")
             return {'FINISHED'}
         import numpy as np
         gp_obj: bpy.types.Object = context.object
@@ -240,7 +240,7 @@ class OffsetSelectedOperator(bpy.types.Operator):
         try:
             import pyclipper
         except ImportError:
-            self.report({"ERROR"}, "Please install dependencies in the Preferences panel.")
+            self.report({"ERROR"}, "Please install PyClipper in the Preferences panel.")
             return {'FINISHED'}
         clipper = pyclipper.PyclipperOffset()
         clipper.MiterLimit = math.inf
@@ -426,7 +426,7 @@ class BoolSelectedOperator(bpy.types.Operator):
         try:
             import pyclipper
         except ImportError:
-            self.report({"ERROR"}, "Please install dependencies in the Preferences panel.")
+            self.report({"ERROR"}, "Please install PyClipper in the Preferences panel.")
             return {'FINISHED'}
         clipper = pyclipper.Pyclipper()
         clipper.PreserveCollinear = True
@@ -597,7 +597,7 @@ class BoolLastOperator(bpy.types.Operator):
         try:
             import pyclipper
         except ImportError:
-            self.report({"ERROR"}, "Please install dependencies in the Preferences panel.")
+            self.report({"ERROR"}, "Please install PyClipper in the Preferences panel.")
             return {'FINISHED'}
         clipper = pyclipper.Pyclipper()
         clipper.PreserveCollinear = True
