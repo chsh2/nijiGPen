@@ -267,8 +267,6 @@ def stroke_to_poly(stroke_list, scale = False, correct_orientation = False, scal
     Convert Blender strokes to a list of 2D coordinates compatible with Clipper.
     Scaling can be applied instead of Clipper's built-in method
     """
-
-    import pyclipper
     poly_list = []
     w_bound = [math.inf, -math.inf]
     h_bound = [math.inf, -math.inf]
@@ -305,6 +303,7 @@ def stroke_to_poly(stroke_list, scale = False, correct_orientation = False, scal
     # Since Grease Pencil does not care whether the sequence of points is clockwise,
     # Clipper may regard some strokes as negative polygons, which needs a fix 
     if correct_orientation:
+        import pyclipper
         for co_list in poly_list:
             if not pyclipper.Orientation(co_list):
                 co_list.reverse()
