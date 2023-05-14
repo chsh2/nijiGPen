@@ -2,6 +2,7 @@ import bpy
 import math
 from mathutils import *
 from ..utils import *
+from ..solvers.graph import get_mst_longest_path_from_triangles
 
 def stroke_to_kdtree(co_list):
     n = len(co_list)
@@ -25,7 +26,6 @@ def fit_2d_strokes(strokes, search_radius, smoothness_factor = 1, pressure_delta
     '''
     empty_result = None, None, None, None, None
     try:
-        from scipy.sparse.csgraph import minimum_spanning_tree
         from scipy.interpolate import splprep, splev
     except:
         if operator:
@@ -75,32 +75,7 @@ def fit_2d_strokes(strokes, search_radius, smoothness_factor = 1, pressure_delta
     # Triangulation and spanning tree conversion
     tr_output = {}
     tr_output['vertices'], _, tr_output['triangles'], _,_,_ = geometry.delaunay_2d_cdt(tr_input['vertices'], [], [], 0, 1e-9)
-    def e_dist(i,j):
-        src = tr_output['vertices'][i]
-        dst = tr_output['vertices'][j]
-        return np.sqrt((dst[0]-src[0])**2 + (dst[1]-src[1])**2)
-    num_vert = len(tr_output['vertices'])
-    dist = np.zeros((num_vert, num_vert))
-    for f in tr_output['triangles']:
-        dist[f[1], f[0]] = dist[f[0], f[1]] = e_dist(f[0], f[1])
-        dist[f[2], f[0]] = dist[f[0], f[2]] = e_dist(f[0], f[2])
-        dist[f[1], f[2]] = dist[f[2], f[1]] = e_dist(f[2], f[1])
-    mst = minimum_spanning_tree(dist).toarray()
-    mst = np.maximum(mst, mst.transpose())
-
-    # Find the longest path in the tree by executing DFS twice
-    def tree_dfs(mat, node, parent):
-        dist_sum = 0
-        path = []
-        for i, value in enumerate(mat[node]):
-            if value > 0 and i!=parent:
-                child_sum, child_path = tree_dfs(mat, i, node)
-                if dist_sum < child_sum + value:
-                    dist_sum = child_sum + value
-                    path = child_path
-        return dist_sum, [node]+path    
-    _, path_half = tree_dfs(mst, 0, None)
-    total_length, path_whole = tree_dfs(mst, path_half[-1], None)    
+    total_length, path_whole = get_mst_longest_path_from_triangles(tr_output)
     
     # The fitting method needs at least 4 points
     if len(path_whole)<4:
