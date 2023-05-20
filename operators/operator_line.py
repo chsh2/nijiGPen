@@ -635,12 +635,21 @@ class FitLastOperator(CommonFittingConfig, bpy.types.Operator):
             default=0.05, min=0,
             unit='LENGTH',
             description='Search strokes in the reference layer if it is close enough to the last drawn stroke'
+    )
+    reference_layer: bpy.props.StringProperty(
+        name='Reference Layer',
+        description='The layer with draft strokes which are used to guide the fitting of the newly drawn stroke',
+        default='',
+        search=lambda self, context, edit_text: [layer.info for layer in context.object.data.layers]
     ) 
 
     def draw(self, context):
         layout = self.layout
         layout.label(text = "Input Options:")
         box1 = layout.box()
+        row = box1.row()
+        row.label(text = "Reference Layer:")
+        row.prop(self, "reference_layer", icon='OUTLINER_DATA_GP_LAYER', text='')
         box1.prop(self, "cluster_dist")
         box1.prop(self, "line_sampling_size")
         
@@ -658,14 +667,11 @@ class FitLastOperator(CommonFittingConfig, bpy.types.Operator):
 
         # Get input and context
         gp_obj = context.object
-        reference_layer = None
-        drawing_layer = gp_obj.data.layers.active
-        for layer in gp_obj.data.layers:
-            if layer.info == context.scene.nijigp_draw_fit_reference_layer:
-                reference_layer = layer
-        if not reference_layer:
-            self.report({"INFO"}, "Please select a reference layer.")
+        if len(self.reference_layer) > 0:
+            reference_layer = gp_obj.data.layers[self.reference_layer]
+        else:
             return {'FINISHED'}
+        drawing_layer = gp_obj.data.layers.active
         if not reference_layer.active_frame:
             self.report({"INFO"}, "The reference layer has no stroke data.")
             return {'FINISHED'} 

@@ -58,7 +58,7 @@ class NIJIGP_PT_draw_panel_io(bpy.types.Panel):
         row = layout.row()
         row.operator("gpencil.nijigp_import_brush", text="ABR/GBR Brushes", icon="BRUSH_DATA")
         
-        layout.label(text="Image Export (Beta):")
+        layout.label(text="Image Export:")
         row = layout.row()
         row.operator("gpencil.nijigp_multilayer_render", text="Multi-Layer PSD Render", icon="RENDERLAYERS")
          
@@ -88,7 +88,7 @@ class NIJIGP_PT_edit_panel_io(bpy.types.Panel):
         row = layout.row()
         row.operator("gpencil.nijigp_import_brush", text="ABR/GBR Brushes", icon="BRUSH_DATA")
         
-        layout.label(text="Image Export (Beta):")
+        layout.label(text="Image Export:")
         row = layout.row()
         row.operator("gpencil.nijigp_multilayer_render", text="Multi-Layer PSD Render", icon="RENDERLAYERS")
 
@@ -224,7 +224,6 @@ class NIJIGP_PT_draw_panel_line(bpy.types.Panel):
         scene = context.scene
 
         row = layout.row()
-        row.operator("gpencil.nijigp_fit_last",icon='MOD_SMOOTH')    
-        layout.label(text="Reference Layer:")
+        row.operator("gpencil.nijigp_fit_last", icon='MOD_SMOOTH')
         row = layout.row()
-        row.prop(scene, "nijigp_draw_fit_reference_layer", text='', icon='OUTLINER_DATA_GP_LAYER')        
+        row.operator("gpencil.nijigp_smart_fill", icon='SHADING_SOLID')

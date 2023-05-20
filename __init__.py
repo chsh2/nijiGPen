@@ -47,12 +47,6 @@ def register():
                         default=True, 
                         description="Boolean operations in Draw mode only apply to strokes showing fills"
                         )
-    bpy.types.Scene.nijigp_draw_fit_reference_layer = bpy.props.StringProperty(
-        name='Reference Layer',
-        description='The layer with draft strokes which are used to guide the fitting of the newly drawn stroke',
-        default='',
-        search=lambda self, context, edit_text: [layer.info for layer in context.object.data.layers]
-    )
     register_viewport_tools()
 
 def unregister():

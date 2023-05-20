@@ -403,7 +403,7 @@ class MeshGenerationByNormal(bpy.types.Operator):
                     loop[uv_layer].uv = ( (co[0]*scale_factor-u_min)/(u_max-u_min),
                                            1 -(co[1]*scale_factor-v_min)/(v_max-v_min))
 
-            # Set vertex color from the stroke's both vertex and fill colors
+            # Set vertex color from the stroke's both vertex and material fill colors
             fill_base_color = [1,1,1,1]
             if current_gp_obj.data.materials[stroke_list[i].material_index].grease_pencil.show_fill:
                 fill_base_color[0] = current_gp_obj.data.materials[stroke_list[i].material_index].grease_pencil.fill_color[0]
