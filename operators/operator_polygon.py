@@ -100,12 +100,12 @@ class HoleProcessingOperator(bpy.types.Operator):
                 for j in range(len(to_process)):
                     if i!=j and is_poly_in_poly(poly_list[i], poly_list[j]) and not is_stroke_line(to_process[j], gp_obj):
                         relation_mat[i][j] = 1
-            
+
             # Record each vertex color
             is_hole_map = {0: False}
             if self.separate_colors:
                 for stroke in to_process:
-                    is_hole_map[tuple(stroke.vertex_color_fill)] = False
+                    is_hole_map[rgb_to_hex_code(stroke.vertex_color_fill)] = False
 
             # Iteratively process and exclude outmost strokes
             processed = set()
@@ -116,12 +116,11 @@ class HoleProcessingOperator(bpy.types.Operator):
                 for i in range(len(to_process)):
                     if np.sum(relation_mat[i]) == 0 and i not in processed:
                         idx_list.append(i)
-
                 for i in idx_list:
                     processed.add(i)
                     relation_mat[:,i] = 0
                     to_process[i].select = True
-                    key = tuple(to_process[i].vertex_color_fill) if self.separate_colors else 0
+                    key = rgb_to_hex_code(to_process[i].vertex_color_fill) if self.separate_colors else 0
                     if self.apply_holdout and is_hole_map[key] and not is_stroke_line(to_process[i], gp_obj):
                         change_material(to_process[i])
                     color_modified.add(key)

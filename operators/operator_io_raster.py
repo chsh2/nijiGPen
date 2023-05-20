@@ -94,6 +94,9 @@ class ImportLineImageOperator(bpy.types.Operator, ImportHelper):
     def execute(self, context):
         gp_obj = context.object
         gp_layer = gp_obj.data.layers.active
+        current_mode = context.mode
+        bpy.ops.object.mode_set(mode='EDIT_GPENCIL')
+        bpy.ops.gpencil.select_all(action='DESELECT')
 
         try:
             import skimage.morphology
@@ -304,7 +307,8 @@ class ImportLineImageOperator(bpy.types.Operator, ImportHelper):
                     process_single_image(img_filepath, frame_dict[target_frame_number])
                 else:
                     process_single_image(img_filepath, gp_layer.frames.new(target_frame_number))
-
+        bpy.ops.transform.translate()
+        bpy.ops.object.mode_set(mode=current_mode)
         return {'FINISHED'}
 
 class ImportColorImageOperator(bpy.types.Operator, ImportHelper):
