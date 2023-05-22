@@ -61,7 +61,7 @@ def get_mst_longest_path_from_triangles(tr_output):
     # Trace the map back to get the whole path
     path_whole = [dst_idx]
     predecessor = predecessor_map[dst_idx]
-    while predecessor != src_idx:
+    while predecessor != src_idx and predecessor in predecessor_map:
         path_whole.append(predecessor)
         predecessor = predecessor_map[predecessor]
     path_whole.append(src_idx)

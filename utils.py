@@ -145,6 +145,22 @@ def get_2d_squared_distance(co1, scale_factor1, co2, scale_factor2):
     delta = [co1[0]/scale_factor1 - co2[0]/scale_factor2, co1[1]/scale_factor1 - co2[1]/scale_factor2]
     return delta[0]*delta[0] + delta[1]*delta[1]
 
+def get_stroke_length(stroke: bpy.types.GPencilStroke = None, co_list = None):
+    """Calculate the total length of a stroke"""
+    res = 0
+    if stroke:
+        for i,point in enumerate(stroke.points):
+            point0 = stroke.points[i-1]
+            if i==0 and not stroke.use_cyclic:
+                continue
+            res += (point.co - point0.co).length
+    if co_list:
+        for i,co in enumerate(co_list):
+            co0 = co_list[i-1]
+            if i>0:
+                res += math.sqrt(get_2d_squared_distance(co,1,co0,1))
+    return max(res,1e-9)
+
 def is_poly_in_poly(poly1, poly2):
     """False if either at least one point is outside, or all points are on the boundary"""
     import pyclipper

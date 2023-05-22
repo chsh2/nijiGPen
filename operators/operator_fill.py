@@ -82,10 +82,11 @@ class SmartFillOperator(bpy.types.Operator):
 
         layout.label(text = "Output Options:")
         box3 = layout.box()
+        box3.prop(self, "clear_hint_layer")
+        box3.prop(self, "clear_fill_layer")
         row = box3.row()
-        row.prop(self, "clear_hint_layer")
-        row.prop(self, "clear_fill_layer")
-        box3.prop(self, "color_mode")
+        row.label(text='Color Mode:')
+        row.prop(self, "color_mode", text='')
         if self.color_mode == 'VERTEX':
             box3.prop(self, "output_material", text='Material', icon='MATERIAL')
 
@@ -232,10 +233,17 @@ class SmartFillOperator(bpy.types.Operator):
                 for stroke in list(hint_frame.strokes):
                     hint_frame.strokes.remove(stroke)
 
+        # Get the frames from each layer to process
         if not gp_obj.data.use_multiedit:
-            fill_single_frame(line_layer.active_frame,
-                              hint_layer.active_frame,
-                              fill_layer.active_frame)
+            if fill_layer.active_frame:
+                fill_single_frame(line_layer.active_frame,
+                                hint_layer.active_frame,
+                                fill_layer.active_frame)
+            else:
+                fill_frame = fill_layer.frames.new(line_layer.active_frame.frame_number)
+                fill_single_frame(line_layer.active_frame,
+                                hint_layer.active_frame,
+                                fill_frame)
         else:
             # Process each selected line art frame
             for line_frame in line_layer.frames:

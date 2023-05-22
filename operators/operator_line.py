@@ -24,7 +24,7 @@ def fit_2d_strokes(strokes, search_radius, smoothness_factor = 1, pressure_delta
     The function will return positions and attributes of points in the following sequence:
         2D coordinates, accumulated pressure, base pressure, strength, vertex color
     '''
-    empty_result = None, None, None, None, None
+    empty_result = None, None, None, None, None, None
     try:
         from scipy.interpolate import splprep, splev
     except:
@@ -93,6 +93,7 @@ def fit_2d_strokes(strokes, search_radius, smoothness_factor = 1, pressure_delta
     inherited_pressure_raw = np.zeros(len(path_whole))
     inherited_strength_raw = np.zeros(len(path_whole))
     inherited_color = np.zeros((len(path_whole), 3))
+    inherited_uv_rotation = np.zeros(len(path_whole))
 
     # Apply offsets in the normal direction if there are points in the neighborhood
     # At the same time, inherit the point attributes
@@ -113,16 +114,18 @@ def fit_2d_strokes(strokes, search_radius, smoothness_factor = 1, pressure_delta
             inherited_pressure_raw[i] += kdt_point_list[neighbor[1]].pressure
             inherited_strength_raw[i] += kdt_point_list[neighbor[1]].strength
             inherited_color[i] += np.array(kdt_point_list[neighbor[1]].vertex_color)[:3] * kdt_point_list[neighbor[1]].vertex_color[3]
+            inherited_uv_rotation[i] += kdt_point_list[neighbor[1]].uv_rotation
 
         sum_normal_offset /= len(neighbors)
         inherited_pressure_raw[i] /= len(neighbors)
         inherited_strength_raw[i] /= len(neighbors)
         inherited_color[i] /= len(neighbors)
+        inherited_uv_rotation[i] /= len(neighbors)
         co_raw[i] += unit_normal_vector * sum_normal_offset
 
     # Postprocessing: B-spline fitting
     if smoothness_factor is None:
-        return co_raw, accumulated_pressure_raw, inherited_pressure_raw, inherited_strength_raw, inherited_color
+        return co_raw, accumulated_pressure_raw, inherited_pressure_raw, inherited_strength_raw, inherited_color, inherited_uv_rotation
 
     attributes_index = np.linspace(0,1,len(path_whole))
     if closed:
@@ -132,6 +135,7 @@ def fit_2d_strokes(strokes, search_radius, smoothness_factor = 1, pressure_delta
         inherited_pressure_raw = np.append(inherited_pressure_raw, inherited_pressure_raw[0])
         inherited_strength_raw = np.append(inherited_strength_raw, inherited_strength_raw[0])
         inherited_color = np.append(inherited_color, [inherited_color[0]], axis=0)
+        inherited_uv_rotation = np.append(inherited_uv_rotation, inherited_uv_rotation[0])
     tck, u = splprep([co_raw[:,0], co_raw[:,1]], s=total_length**2 * smoothness_factor * 0.001, per=closed)
     co_fit = np.array(splev(u, tck)).transpose()    
     tck2, u2 = splprep([attributes_index, accumulated_pressure_raw], per=closed)
@@ -141,7 +145,7 @@ def fit_2d_strokes(strokes, search_radius, smoothness_factor = 1, pressure_delta
     tck4, u4 = splprep([attributes_index, inherited_strength_raw], per=closed)
     inherited_strength_fit = np.array(splev(u4, tck4))[1]
 
-    return co_fit, accumulated_pressure_fit, inherited_pressure_fit, inherited_strength_fit, inherited_color
+    return co_fit, accumulated_pressure_fit, inherited_pressure_fit, inherited_strength_fit, inherited_color, inherited_uv_rotation
 
 def distance_to_another_stroke(co_list1, co_list2, kdt2 = None, angular_tolerance = math.pi/4, correct_orientation = True):
     '''
@@ -258,9 +262,10 @@ class CommonFittingConfig:
         items = [
             ('STRENGTH', 'Strength', ''),
             ('PRESSURE', 'Pressure', ''),
-            ('COLOR', 'Color', '')
+            ('COLOR', 'Color', ''),
+            ('UV', 'UV', '')
             ],
-        default=set()
+        default=set(['UV', 'COLOR'])
     )
     output_layer: bpy.props.StringProperty(
         name='Output Layer',
@@ -330,12 +335,12 @@ class FitSelectedOperator(CommonFittingConfig, bpy.types.Operator):
         
         # Execute the fitting function
         b_smoothness = self.b_smoothness if 'SPLPREP' in self.postprocessing_method else None
-        co_list, pressure_accumulation, pressure_list, strength_list, color_list = fit_2d_strokes(stroke_list, 
-                                                                        search_radius=self.line_sampling_size/LINE_WIDTH_FACTOR, 
-                                                                        smoothness_factor=b_smoothness,
-                                                                        pressure_delta=self.pressure_variance*0.01, 
-                                                                        closed = self.closed,
-                                                                        operator=self)
+        co_list, pressure_accumulation, pressure_list, strength_list, color_list, uv_list = fit_2d_strokes(stroke_list, 
+                                                                            search_radius=self.line_sampling_size/LINE_WIDTH_FACTOR, 
+                                                                            smoothness_factor=b_smoothness,
+                                                                            pressure_delta=self.pressure_variance*0.01, 
+                                                                            closed = self.closed,
+                                                                            operator=self)
         if co_list is None:
             bpy.ops.gpencil.select_all(action='DESELECT')
             return {'FINISHED'}
@@ -360,14 +365,26 @@ class FitSelectedOperator(CommonFittingConfig, bpy.types.Operator):
                 if material_slot.material and material_slot.material.name == self.output_material:
                     output_material_idx = i
 
+        # Gather stroke attributes from input strokes
+        line_hardness = 0
+        line_color_fill = np.zeros(4)
+        for stroke in stroke_list:
+            line_hardness += stroke.hardness
+            line_color_fill += stroke.vertex_color_fill
+        line_hardness /= len(stroke_list)
+        line_color_fill /= len(stroke_list)
+
         new_stroke: bpy.types.GPencilStroke = output_frame.strokes.new()
         new_stroke.material_index = output_material_idx
         new_stroke.line_width = self.line_width
+        new_stroke.hardness = line_hardness
+        new_stroke.vertex_color_fill = line_color_fill if 'COLOR' in self.inherited_attributes else [0,0,0,0]
         new_stroke.points.add(co_list.shape[0])
         for i,point in enumerate(new_stroke.points):
             point.co = vec2_to_vec3(co_list[i], depth=0, scale_factor=1)
             point.pressure = pressure_list[i] if 'PRESSURE' in self.inherited_attributes else 1
             point.strength = strength_list[i] if 'STRENGTH' in self.inherited_attributes else 1
+            point.uv_rotation = uv_list[i] if 'UV' in self.inherited_attributes else 0
             point.vertex_color[3] = 1 if 'COLOR' in self.inherited_attributes else 0
             point.vertex_color[0] = color_list[i][0] if 'COLOR' in self.inherited_attributes else 0
             point.vertex_color[1] = color_list[i][1] if 'COLOR' in self.inherited_attributes else 0
@@ -487,17 +504,24 @@ class ClusterAndFitOperator(CommonFittingConfig, bpy.types.Operator):
 
     cluster_criterion: bpy.props.EnumProperty(
             name='Criterion',
-            items=[ ('DIST', 'By Distance', ''),
+            items=[ ('DIST', 'By Distance (Absolute)', ''),
+                    ('RATIO', 'By Distance (Relative)', ''),
                     ('NUM', 'By Number', '')],
-            default='DIST',
+            default='RATIO',
             description='The criterion determining how many clusters selected strokes will be divided into'
     )
     cluster_dist: bpy.props.FloatProperty(
-            name='Min Distance',
+            name='Absolute Distance',
             default=0.05, min=0,
             unit='LENGTH',
             description='The mininum distance between two clusters'
     ) 
+    cluster_ratio: bpy.props.FloatProperty(
+            name='Relative Distance',
+            default=5, min=0, soft_max=100,
+            subtype='PERCENTAGE',
+            description='The mininum relative distance (compared to the stroke length) between two clusters'
+    )
     cluster_num: bpy.props.IntProperty(
             name='Max Number',
             default=5, min=1,
@@ -512,8 +536,10 @@ class ClusterAndFitOperator(CommonFittingConfig, bpy.types.Operator):
         box0.prop(self, "cluster_criterion")
         if self.cluster_criterion == 'DIST':
             box0.prop(self, "cluster_dist")
-        else:
+        elif self.cluster_criterion == 'NUM':
             box0.prop(self, "cluster_num")
+        else:
+            box0.prop(self, "cluster_ratio")
 
         layout.label(text = "Input Options:")
         box1 = layout.box()
@@ -565,8 +591,10 @@ class ClusterAndFitOperator(CommonFittingConfig, bpy.types.Operator):
         # Get stroke information
         poly_list, _ = stroke_to_poly(stroke_list, scale = False, correct_orientation = False)
         kdt_list = []
+        length_list = []
         for co_list in poly_list:
             kdt_list.append(stroke_to_kdtree(co_list))
+            length_list.append(get_stroke_length(co_list=co_list))
 
         # Get stroke distance matrix
         dist_mat = []
@@ -576,11 +604,15 @@ class ClusterAndFitOperator(CommonFittingConfig, bpy.types.Operator):
                     dist1 = distance_to_another_stroke(poly_list[i], poly_list[j], kdt_list[j])
                     dist2 = distance_to_another_stroke(poly_list[j], poly_list[i], kdt_list[i])
                     dist_mat.append(min(dist1,dist2))
+                    if self.cluster_criterion == 'RATIO':
+                        dist_mat[-1] /= 0.5 * (length_list[i] + length_list[j])
 
         # Hierarchy clustering algorithm
         linkage_mat = linkage(dist_mat, method='single')
         if self.cluster_criterion == 'DIST':
             cluster_res = fcluster(linkage_mat, self.cluster_dist, criterion='distance')
+        elif self.cluster_criterion == 'RATIO':
+            cluster_res = fcluster(linkage_mat, self.cluster_ratio/100.0, criterion='distance')
         else:
             cluster_res = fcluster(linkage_mat, self.cluster_num, criterion='maxclust')
                  
@@ -630,11 +662,29 @@ class FitLastOperator(CommonFittingConfig, bpy.types.Operator):
     bl_category = 'View'
     bl_options = {'REGISTER', 'UNDO'}  
 
+    cluster_criterion: bpy.props.EnumProperty(
+            name='Criterion',
+            items=[ ('DIST', 'Absolute', ''),
+                    ('RATIO', 'Relative', '')],
+            default='RATIO',
+            description='The criterion determining which strokes will be divided into'
+    )
+    cluster_ratio: bpy.props.FloatProperty(
+            name='Detection Ratio',
+            default=5, min=0, soft_max=100,
+            subtype='PERCENTAGE',
+            description='Search strokes in the reference layer if it is close enough to the last drawn stroke'
+    )
     cluster_dist: bpy.props.FloatProperty(
             name='Detection Radius',
             default=0.05, min=0,
             unit='LENGTH',
             description='Search strokes in the reference layer if it is close enough to the last drawn stroke'
+    )
+    resample_output: bpy.props.BoolProperty(
+            name='Resample',
+            default=True,
+            description='Resample the generated stroke to keep the number of points similar to the original stroke'
     )
     reference_layer: bpy.props.StringProperty(
         name='Reference Layer',
@@ -650,12 +700,17 @@ class FitLastOperator(CommonFittingConfig, bpy.types.Operator):
         row = box1.row()
         row.label(text = "Reference Layer:")
         row.prop(self, "reference_layer", icon='OUTLINER_DATA_GP_LAYER', text='')
-        box1.prop(self, "cluster_dist")
+        box1.prop(self, "cluster_criterion")
+        if self.cluster_criterion == 'DIST':
+            box1.prop(self, "cluster_dist")
+        else:
+            box1.prop(self, "cluster_ratio")
         box1.prop(self, "line_sampling_size")
         
         layout.label(text = "Post-Processing Options:")
         box2 = layout.box()
         box2.prop(self, "b_smoothness")
+        box2.prop(self, "resample_output")
 
         layout.label(text = "Output Options:")
         box3 = layout.box()   
@@ -687,6 +742,7 @@ class FitLastOperator(CommonFittingConfig, bpy.types.Operator):
         tmp, _ = stroke_to_poly([src_stroke], scale = False, correct_orientation = False)
         src_co_list = tmp[0]
         src_kdt = stroke_to_kdtree(src_co_list)
+        src_stroke_length = get_stroke_length(co_list=src_co_list)
         
         # Check each stroke in the reference layer for similarity
         stroke_list = []
@@ -698,14 +754,18 @@ class FitLastOperator(CommonFittingConfig, bpy.types.Operator):
             kdt = stroke_to_kdtree(co_list)
             line_dist1 = distance_to_another_stroke(co_list, src_co_list, src_kdt)
             line_dist2 = distance_to_another_stroke(src_co_list, co_list, kdt)
-            if min(line_dist1, line_dist2) < self.cluster_dist:
-                stroke_list.append(stroke)
+            if self.cluster_criterion == 'DIST':
+                if min(line_dist1, line_dist2) < self.cluster_dist:
+                    stroke_list.append(stroke)
+            else:
+                if min(line_dist1, line_dist2) < self.cluster_ratio / 100.0 * src_stroke_length:
+                    stroke_list.append(stroke)  
         if len(stroke_list)<1:
             return {'FINISHED'}  
         
         # Execute the fitting function
         b_smoothness = self.b_smoothness
-        new_co_list, pressure_accumulation, _, _, _ = fit_2d_strokes(stroke_list, 
+        new_co_list, pressure_accumulation, _, _, _, _ = fit_2d_strokes(stroke_list, 
                                                                         search_radius=self.line_sampling_size/LINE_WIDTH_FACTOR, 
                                                                         smoothness_factor=b_smoothness,
                                                                         pressure_delta=self.pressure_variance*0.01, 
@@ -717,7 +777,7 @@ class FitLastOperator(CommonFittingConfig, bpy.types.Operator):
         angle_diff = src_direction.angle(new_direction)
         if angle_diff > math.pi/2:
             new_co_list = np.flipud(new_co_list)
-
+            
         # Remove the last drawn stroke and generate a new one
         new_stroke: bpy.types.GPencilStroke = drawing_layer.active_frame.strokes.new()
         new_stroke.material_index, new_stroke.line_width, new_stroke.use_cyclic = src_stroke.material_index, src_stroke.line_width, src_stroke.use_cyclic
@@ -729,7 +789,17 @@ class FitLastOperator(CommonFittingConfig, bpy.types.Operator):
             point.pressure = src_stroke.points[attr_idx].pressure
             point.strength = src_stroke.points[attr_idx].strength
             point.vertex_color = src_stroke.points[attr_idx].vertex_color
+            point.uv_rotation = src_stroke.points[attr_idx].uv_rotation
             point.pressure *= (1 + min(pressure_accumulation[i], self.max_delta_pressure*0.01) )
+
+        # Resample the generated stroke
+        if self.resample_output:
+            resample_length = get_stroke_length(stroke=new_stroke)/(len(src_stroke.points)+.5)
+            select_map = save_stroke_selection(gp_obj)
+            bpy.ops.gpencil.select_all(action='DESELECT')
+            new_stroke.select = True
+            bpy.ops.gpencil.stroke_sample(length=resample_length)
+            load_stroke_selection(gp_obj, select_map)
 
         drawing_layer.active_frame.strokes.remove(src_stroke)
         return {'FINISHED'}  
