@@ -163,12 +163,14 @@ class NijiGPAddonPreferences(bpy.types.AddonPreferences):
 
     def draw(self, context):
         layout = self.layout
+        wiki_url = "https://github.com/chsh2/nijiGPen/wiki/Dependency-Installation"
 
         # Dependency manager
         box1 = layout.box()
         row = box1.row()
         row.label(text = "Dependency Management")
         row.separator()
+        row.operator("wm.url_open", text="Help", icon="HELP").url = wiki_url
         row.operator("nijigp.check_dependencies", text="Check", icon="FILE_REFRESH")
 
         table_key = ['Package', 'Type', 'Status', 'Actions','']

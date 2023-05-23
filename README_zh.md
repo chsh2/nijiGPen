@@ -59,7 +59,7 @@ https://www.bilibili.com/video/bv1tg411C77g
     - 偏移：线条的形状、轮廓线或拐角均可外扩/内缩
 - 2D线条运算
     - 线稿清理：从多条手绘线条中提取出单一平滑线条
-    - 线稿修饰
+    - 智能填充：根据标注的颜色提示，自动对线稿上色
 - 3D生成
     - 生成多种样式的3D网格物体（可选三角或方格、法线贴图或3D高度）
     - 内置卡通渲染材质
@@ -94,4 +94,5 @@ https://www.bilibili.com/video/bv1tg411C77g
 - Liu, Chenxi, Enrique Rosales, and Alla Sheffer. "Strokeaggregator: Consolidating raw sketches into artist-intended curve drawings." ACM Transactions on Graphics (TOG) 37, no. 4 (2018): 1-15.
 - Dvorožňák, Marek, Daniel Sýkora, Cassidy Curtis, Brian Curless, Olga Sorkine-Hornung, and David Salesin. "Monster mash: a single-view approach to casual 3D modeling and animation." ACM Transactions on Graphics (TOG) 39, no. 6 (2020): 1-12.
 - Johnston, Scott F. "Lumo: illumination for cel animation." In Proceedings of the 2nd international symposium on Non-photorealistic animation and rendering, pp. 45-ff. 2002.
-
+- Sýkora, Daniel, John Dingliana, and Steven Collins. "Lazybrush: Flexible painting tool for hand‐drawn cartoons." In Computer Graphics Forum, vol. 28, no. 2, pp. 599-608. Oxford, UK: Blackwell Publishing Ltd, 2009.
+- Parakkat, Amal Dev, Pooran Memari, and Marie‐Paule Cani. "Delaunay Painting: Perceptual Image Colouring from Raster Contours with Gaps." In Computer Graphics Forum, vol. 41, no. 6, pp. 166-181. 2022.

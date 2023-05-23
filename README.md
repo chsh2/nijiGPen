@@ -56,7 +56,8 @@ NijiGPen provides with the following functions:
     - Boolean Operation: Union, Difference and Intersection
     - Offset/Inset Operation on either fill, outline or corners of a stroke
 - 2D Line Algorithms
-    - Sketch Cleanup: fitting multiple strokes into a single smooth one
+    - Sketch Cleanup: fit multiple strokes into a single smooth one
+    - Smart Fill: fill the line art based on strokes with hint colors
 - 3D Mesh Generation
     - Different types of meshes can be converted from 2D strokes: triangle or grid, 3D depth or normal maps
     - A series of stylized shaders
@@ -91,4 +92,5 @@ Besides, although not using the codes directly or implementing the same algorith
  - Liu, Chenxi, Enrique Rosales, and Alla Sheffer. "Strokeaggregator: Consolidating raw sketches into artist-intended curve drawings." ACM Transactions on Graphics (TOG) 37, no. 4 (2018): 1-15.
  - Dvorožňák, Marek, Daniel Sýkora, Cassidy Curtis, Brian Curless, Olga Sorkine-Hornung, and David Salesin. "Monster mash: a single-view approach to casual 3D modeling and animation." ACM Transactions on Graphics (TOG) 39, no. 6 (2020): 1-12.
  - Johnston, Scott F. "Lumo: illumination for cel animation." In Proceedings of the 2nd international symposium on Non-photorealistic animation and rendering, pp. 45-ff. 2002.
-
+ - Sýkora, Daniel, John Dingliana, and Steven Collins. "Lazybrush: Flexible painting tool for hand‐drawn cartoons." In Computer Graphics Forum, vol. 28, no. 2, pp. 599-608. Oxford, UK: Blackwell Publishing Ltd, 2009.
+ - Parakkat, Amal Dev, Pooran Memari, and Marie‐Paule Cani. "Delaunay Painting: Perceptual Image Colouring from Raster Contours with Gaps." In Computer Graphics Forum, vol. 41, no. 6, pp. 166-181. 2022.
