@@ -341,12 +341,12 @@ class FitSelectedOperator(CommonFittingConfig, bpy.types.Operator):
                                                                             pressure_delta=self.pressure_variance*0.01, 
                                                                             closed = self.closed,
                                                                             operator=self)
+        if not self.keep_original:
+            bpy.ops.gpencil.delete()
+
         if co_list is None:
             bpy.ops.gpencil.select_all(action='DESELECT')
             return {'FINISHED'}
-
-        if not self.keep_original:
-            bpy.ops.gpencil.delete()
 
         # Turn fitting output to a new stroke
         output_layer = gp_obj.data.layers.active
@@ -366,18 +366,14 @@ class FitSelectedOperator(CommonFittingConfig, bpy.types.Operator):
                     output_material_idx = i
 
         # Gather stroke attributes from input strokes
-        line_hardness = 0
         line_color_fill = np.zeros(4)
         for stroke in stroke_list:
-            line_hardness += stroke.hardness
             line_color_fill += stroke.vertex_color_fill
-        line_hardness /= len(stroke_list)
         line_color_fill /= len(stroke_list)
 
         new_stroke: bpy.types.GPencilStroke = output_frame.strokes.new()
         new_stroke.material_index = output_material_idx
         new_stroke.line_width = self.line_width
-        new_stroke.hardness = line_hardness
         new_stroke.vertex_color_fill = line_color_fill if 'COLOR' in self.inherited_attributes else [0,0,0,0]
         new_stroke.points.add(co_list.shape[0])
         for i,point in enumerate(new_stroke.points):
