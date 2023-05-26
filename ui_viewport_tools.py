@@ -254,17 +254,36 @@ class ViewportShortcuts(bpy.types.GizmoGroup):
         return (context.mode=='EDIT_GPENCIL' or context.mode=='PAINT_GPENCIL' or context.mode=='SCULPT_GPENCIL')
 
     def draw_prepare(self, context):
-        if context.preferences.addons[__package__].preferences.shortcut_button_enabled:
-            region = context.region
-            total_width = len(self.gizmo_list) * self.button_size * 4 * context.preferences.view.ui_scale
-            for i, gizmo in enumerate(self.gizmo_list):
-                if gizmo:
+        preferences = context.preferences.addons[__package__].preferences
+        if not preferences.shortcut_button_enabled:
+            return
+        region = context.region
+        spacing = preferences.shortcut_button_spacing
+        total_width = len(self.gizmo_list) * self.button_size * 4 * context.preferences.view.ui_scale
+        for i, gizmo in enumerate(self.gizmo_list):
+            if gizmo:
+                if preferences.shortcut_button_style == 'BOTTOM':
                     gizmo.matrix_basis[0][3] = (region.width/2 + total_width/2
-                                                 - self.button_size*4*(i+1) * context.preferences.view.ui_scale
-                                                 + context.preferences.addons[__package__].preferences.shortcut_button_location)
-                    gizmo.matrix_basis[1][3] = self.button_size*2
-
+                                                - self.button_size*spacing*(i+1) * context.preferences.view.ui_scale
+                                                + preferences.shortcut_button_location[0])
+                    gizmo.matrix_basis[1][3] = self.button_size*2 + preferences.shortcut_button_location[1]
+                elif preferences.shortcut_button_style == 'TOP':
+                    gizmo.matrix_basis[0][3] = (region.width/2 + total_width/2
+                                                - self.button_size*spacing*(i+1) * context.preferences.view.ui_scale
+                                                + preferences.shortcut_button_location[0])
+                    gizmo.matrix_basis[1][3] = region.height - self.button_size*4 - preferences.shortcut_button_location[1]
+                elif preferences.shortcut_button_style == 'RIGHT':
+                    gizmo.matrix_basis[0][3] = region.width - self.button_size*3 - preferences.shortcut_button_location[0]
+                    gizmo.matrix_basis[1][3] = (self.button_size*spacing*(i+1) * context.preferences.view.ui_scale
+                                                + preferences.shortcut_button_location[1])   
+                else:             
+                    gizmo.matrix_basis[0][3] = self.button_size*6 + preferences.shortcut_button_location[0]
+                    gizmo.matrix_basis[1][3] = (self.button_size*spacing*(i+1) * context.preferences.view.ui_scale
+                                                + preferences.shortcut_button_location[1])                    
     def setup(self, context):
+        preferences = context.preferences.addons[__package__].preferences
+        if not preferences.shortcut_button_enabled:
+            return
         self.gizmo_list = []
         self.button_profile_list = [{'op': 'ed.redo', 'icon': 'LOOP_FORWARDS'},
                                {'op': 'ed.undo', 'icon': 'LOOP_BACK'},
@@ -275,7 +294,7 @@ class ViewportShortcuts(bpy.types.GizmoGroup):
                                {'op': 'gpencil.nijigp_arrange_modal' ,'icon': 'MOD_DISPLACE'},
                                {'op': 'gpencil.stroke_arrange', 'icon': 'TRIA_DOWN_BAR', 'direction': 'BOTTOM'}
                                ]
-        self.button_size = context.preferences.addons[__package__].preferences.shortcut_button_size 
+        self.button_size = preferences.shortcut_button_size 
         for profile in self.button_profile_list:
             if profile:
                 button = self.gizmos.new("GIZMO_GT_button_2d")

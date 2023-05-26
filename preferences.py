@@ -138,16 +138,29 @@ class NijiGPAddonPreferences(bpy.types.AddonPreferences):
         description='Add a group of buttons at the bottom of the 3D view that brings better touchscreen control',
         default=True
     )
+    shortcut_button_style: bpy.props.EnumProperty(
+            name='Display Location',
+            items=[ ('TOP', 'Top', ''),
+                    ('BOTTOM', 'Bottom', ''),
+                    ('RIGHT', 'Right', ''),
+                    ('LEFT', 'Left', '')],
+            default='BOTTOM',
+            description='The way of displaying the button group'
+    )
     shortcut_button_size: bpy.props.FloatProperty(
         name='Button Size',
         default=18, min=10, max=40
     )
-    shortcut_button_location: bpy.props.FloatProperty(
-        name='Button Location',
-        description='The position of the shortcut buttons. Zero means buttons in the center. Positive/negative values means buttons in the right/left',
-        default=0, soft_min=-2000, soft_max=2000
+    shortcut_button_spacing: bpy.props.FloatProperty(
+        name='Button Spacing',
+        default=4, min=1, max=8,
+        description='Distance between buttons'
     )
-
+    shortcut_button_location: bpy.props.FloatVectorProperty(
+        name='Location Offset',
+        description='The position of the shortcut buttons. Zero means buttons in the center. Positive/negative values means buttons in the right/left',
+        default=(0,0), soft_min=-2000, soft_max=2000, size=2
+    )
     package_pyclipper: bpy.props.BoolProperty(
         name='PyClipper Installed',
         default=False
@@ -201,13 +214,21 @@ class NijiGPAddonPreferences(bpy.types.AddonPreferences):
             row.operator(p['operator1'])
             row.operator(p['operator2'])
 
-        # Other options
-        layout.prop(self, 'cache_folder')
-        layout.label(text='UI Setting:')
-        row = layout.row()
-        row.prop(self, 'shortcut_button_enabled')
+        # UI setting
+        box2 = layout.box()
+        row = box2.row()
+        row.label(text='UI Setting')
+        row.separator()
         row.operator("gpencil.refresh_gizmo", text='Apply')
+        row = box2.row()
+        row.prop(self, 'shortcut_button_enabled')
+        row.separator()
+        row.prop(self, 'shortcut_button_style', text='')
         if self.shortcut_button_enabled:
-            row = layout.row()
+            row = box2.row()
             row.prop(self, 'shortcut_button_size')
-            row.prop(self, 'shortcut_button_location')
+            row.prop(self, 'shortcut_button_spacing')
+            box2.prop(self, 'shortcut_button_location')
+            
+            
+        layout.prop(self, 'cache_folder')
