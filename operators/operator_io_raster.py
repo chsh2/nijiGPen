@@ -3,6 +3,7 @@ import bpy
 from bpy_extras.io_utils import ImportHelper
 from bpy_extras import image_utils
 from mathutils import *
+from .common import *
 from ..utils import *
 
 class ImportLineImageOperator(bpy.types.Operator, ImportHelper):
@@ -298,8 +299,11 @@ class ImportLineImageOperator(bpy.types.Operator, ImportHelper):
                         point.vertex_color[2] = srgb_to_linear(denoised_mat[img_co[0], img_co[1], min(2, img_obj.channels-1)])
                 frame_strokes[-1].select = True
 
+        # Main processing loop
+        processed_frame_numbers = []
         if not self.image_sequence:
             process_single_image(self.filepath, starting_frame)
+            processed_frame_numbers.append(starting_frame)
         else:
             for frame_idx, img_filepath in enumerate(img_filepaths):
                 target_frame_number = starting_frame.frame_number + frame_idx * self.frame_step
@@ -307,7 +311,8 @@ class ImportLineImageOperator(bpy.types.Operator, ImportHelper):
                     process_single_image(img_filepath, frame_dict[target_frame_number])
                 else:
                     process_single_image(img_filepath, gp_layer.frames.new(target_frame_number))
-        bpy.ops.transform.translate()
+                processed_frame_numbers.append(target_frame_number)
+        refresh_strokes(gp_obj, processed_frame_numbers)
         bpy.ops.object.mode_set(mode=current_mode)
         return {'FINISHED'}
 
@@ -616,8 +621,10 @@ class ImportColorImageOperator(bpy.types.Operator, ImportHelper):
             palette_to_write = bpy.data.palettes.new(self.files[0].name)
 
         # Main processing loop
+        processed_frame_numbers = []
         if not self.image_sequence:
             process_single_image(self.filepath, starting_frame, given_colors)
+            processed_frame_numbers.append(starting_frame)
         else:
             for frame_idx, img_filepath in enumerate(img_filepaths):
                 target_frame_number = starting_frame.frame_number + frame_idx * self.frame_step
@@ -627,12 +634,11 @@ class ImportColorImageOperator(bpy.types.Operator, ImportHelper):
                     updated_palette = process_single_image(img_filepath, gp_layer.frames.new(target_frame_number), given_colors)
                 if self.color_source == 'FIRST_FRAME' and len(given_colors)==0:
                     given_colors = updated_palette
+                processed_frame_numbers.append(target_frame_number)
 
-        # Refresh the generated strokes, otherwise there might be display errors
-        bpy.ops.transform.translate()
+        # Post-processing and context recovery
+        refresh_strokes(gp_obj, processed_frame_numbers)
         bpy.ops.gpencil.nijigp_hole_processing(rearrange=True, apply_holdout=False)
-
-        # Recover context
         gp_obj.data.use_multiedit = use_multiedit
         bpy.ops.object.mode_set(mode=current_mode)
 

@@ -1,4 +1,5 @@
 import bpy
+from .common import *
 from ..utils import *
 from ..solvers.graph import SmartFillSolver
 
@@ -226,14 +227,14 @@ class SmartFillOperator(bpy.types.Operator):
                                                         1)
                     for i,co in enumerate(c):
                         new_stroke.points[i].co = vec2_to_vec3(co, 0, scale_factor)
-                    new_stroke.select = True
-            bpy.ops.gpencil.nijigp_hole_processing(rearrange=True, apply_holdout=False)  
+                    new_stroke.select = True  
 
             if self.clear_hint_layer:
                 for stroke in list(hint_frame.strokes):
                     hint_frame.strokes.remove(stroke)
 
         # Get the frames from each layer to process
+        processed_frame_numbers = []
         if not gp_obj.data.use_multiedit:
             if fill_layer.active_frame:
                 fill_single_frame(line_layer.active_frame,
@@ -244,6 +245,7 @@ class SmartFillOperator(bpy.types.Operator):
                 fill_single_frame(line_layer.active_frame,
                                 hint_layer.active_frame,
                                 fill_frame)
+            processed_frame_numbers.append(fill_layer.active_frame.frame_number)
         else:
             # Process each selected line art frame
             for line_frame in line_layer.frames:
@@ -270,7 +272,9 @@ class SmartFillOperator(bpy.types.Operator):
                     fill_frame = fill_layer.frames.new(current_frame)
 
                 fill_single_frame(line_frame, hint_frame, fill_frame)
+                processed_frame_numbers.append(line_frame.frame_number)
 
-        bpy.ops.transform.translate()
+        refresh_strokes(gp_obj, processed_frame_numbers)
+        bpy.ops.gpencil.nijigp_hole_processing(rearrange=True, apply_holdout=False)
         bpy.ops.object.mode_set(mode=current_mode)
         return {'FINISHED'}

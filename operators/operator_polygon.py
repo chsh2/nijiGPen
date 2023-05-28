@@ -1,6 +1,108 @@
 import bpy
 import math
+from .common import *
 from ..utils import *
+
+def poly_to_stroke(co_list, stroke_info, gp_obj, scale_factor, rearrange = True, arrange_offset = 0, ref_stroke_mask = {}):
+    """
+    Generate a new stroke according to 2D polygon data. Point and stroke attributes will be copied from a list of reference strokes.
+    stroke_info: A list of [stroke, layer_index, stroke_index, frame]
+    """
+
+    # Find closest reference point and corresponding stroke
+    ref_stroke_index_list = []
+    ref_point_index_list = []
+    ref_stroke_count = {}
+
+    # Setup a KDTree for point lookup
+    total_point_count = 0
+    for i,info in enumerate(stroke_info):
+        total_point_count += len(info[0].points)
+    kdt = kdtree.KDTree(total_point_count)
+
+    kdtree_indices = []
+    for i,info in enumerate(stroke_info):
+        for j,point in enumerate(info[0].points):
+            kdtree_indices.append( (i,j) )
+            # Ignore the 3rd dimension
+            kdt.insert( vec3_to_vec2(point.co).to_3d(), len(kdtree_indices)-1 )
+    kdt.balance()
+
+    # Search every new generated point in the KDTree
+    for co in co_list:
+        _vec, kdt_idx, _dist = kdt.find([co[0]/scale_factor, co[1]/scale_factor, 0])
+
+        ref_stroke = kdtree_indices[kdt_idx][0]
+        ref_point = kdtree_indices[kdt_idx][1]
+        ref_stroke_index_list.append(ref_stroke)
+        ref_point_index_list.append(ref_point)
+        if ref_stroke in ref_stroke_count:
+            ref_stroke_count[ref_stroke] += 1
+        elif ref_stroke not in ref_stroke_mask:
+            ref_stroke_count[ref_stroke] = 1
+
+    # Determine the reference stroke either by calculating the majority or manual assignment
+    if len(ref_stroke_count) > 0:
+        ref_stroke_index = max(ref_stroke_count, key=ref_stroke_count.get)
+    else:
+        for i in range(len(stroke_info)):
+            if i not in ref_stroke_mask:
+                ref_stroke_index = i
+    layer_index = stroke_info[ref_stroke_index][1]
+    stroke_index = stroke_info[ref_stroke_index][2]
+    src_stroke = stroke_info[ref_stroke_index][0]
+    frame = gp_obj.data.layers[layer_index].active_frame
+    if len(stroke_info[ref_stroke_index]) > 3:
+        frame = stroke_info[ref_stroke_index][3]
+
+    # Making the starting point of the new stroke close to the existing one
+    min_distance = None
+    index_offset = None
+    for i,co in enumerate(co_list):
+        distance = get_2d_squared_distance(co, scale_factor, vec3_to_vec2(src_stroke.points[0].co), 1)
+        if min_distance == None or min_distance > distance:
+            min_distance = distance
+            index_offset = i
+
+    # Create a new stroke
+    new_stroke = frame.strokes.new()
+    N = len(co_list)
+    new_stroke.points.add(N)
+    for i in range(N):
+        new_i = (i + index_offset) % N
+        set_vec2(new_stroke.points[i], co_list[new_i], scale_factor)
+
+    # Copy stroke properties
+    copy_stroke_attributes(new_stroke, [src_stroke],
+                           copy_hardness=True, copy_linewidth=True,
+                           copy_cap=True, copy_cyclic=True,
+                           copy_uv=True, copy_material=True, copy_color=True)
+
+    # Copy point properties
+    for i in range(N):
+        new_i = (i + index_offset) % N
+        src_stroke = stroke_info[ref_stroke_index_list[new_i]][0]
+        src_point = src_stroke.points[ref_point_index_list[new_i]]
+        dst_point = new_stroke.points[i]
+        dst_point.pressure = src_point.pressure * src_stroke.line_width / new_stroke.line_width
+        dst_point.strength = src_point.strength
+        dst_point.uv_factor = src_point.uv_factor
+        dst_point.uv_fill = src_point.uv_fill
+        dst_point.uv_rotation = src_point.uv_rotation
+        dst_point.vertex_color = src_point.vertex_color
+        set_depth(dst_point, vec3_to_depth(src_point.co))
+
+    # Rearrange the new stroke
+    current_index = len(frame.strokes) - 1
+    new_index = current_index
+    if rearrange:
+        new_index = stroke_index + 1 - arrange_offset
+        bpy.ops.gpencil.select_all(action='DESELECT')
+        new_stroke.select = True
+        for i in range(current_index - new_index):
+            bpy.ops.gpencil.stroke_arrange("EXEC_DEFAULT", direction='DOWN')
+
+    return new_stroke, new_index, layer_index
 
 class HoleProcessingOperator(bpy.types.Operator):
     """Reorder strokes and assign holdout materials to holes inside another stroke"""
@@ -37,19 +139,7 @@ class HoleProcessingOperator(bpy.types.Operator):
         import numpy as np
         gp_obj: bpy.types.Object = context.object
 
-        frames_to_process = []
-        if gp_obj.data.use_multiedit:
-            # Process every selected frame
-            for i,layer in enumerate(gp_obj.data.layers):
-                for j,frame in enumerate(layer.frames):
-                    if frame.select:
-                        frames_to_process.append(frame)
-        else:
-            # Process only the active frame of each layer
-            for i,layer in enumerate(gp_obj.data.layers):
-                if layer.active_frame:
-                    frames_to_process.append(layer.active_frame)
-
+        frames_to_process = get_input_frames(gp_obj, gp_obj.data.use_multiedit)
         material_idx_map = {}
         def change_material(stroke):
             '''
@@ -87,14 +177,10 @@ class HoleProcessingOperator(bpy.types.Operator):
 
         def process_one_frame(frame):
             select_map = save_stroke_selection(gp_obj)
-            strokes = frame.strokes
-            to_process = []
-            for stroke in strokes:
-                if stroke.select:
-                    to_process.append(stroke)
+            to_process = get_input_strokes(gp_obj, frame)
 
             # Initialize the relationship matrix
-            poly_list, scale_factor = stroke_to_poly(to_process, True)
+            poly_list, _ = stroke_to_poly(to_process, True)
             relation_mat = np.zeros((len(to_process),len(to_process)))
             for i in range(len(to_process)):
                 for j in range(len(to_process)):
@@ -133,7 +219,6 @@ class HoleProcessingOperator(bpy.types.Operator):
                     break
 
             load_stroke_selection(gp_obj, select_map)
-
 
         for frame in frames_to_process:
             process_one_frame(frame)
@@ -289,9 +374,9 @@ class OffsetSelectedOperator(bpy.types.Operator):
             for i,frame in layer_frame_map.items():
                 layer = current_gp_obj.data.layers[i]
                 # Consider the case where active_frame is None
-                if not layer.lock and not layer.hide and hasattr(frame, "strokes"):
+                if not is_layer_locked(layer) and hasattr(frame, "strokes"):
                     for j,stroke in enumerate(frame.strokes):
-                        if stroke.select:
+                        if stroke.select and not is_stroke_locked(stroke, current_gp_obj):
                             stroke_info.append([stroke, i, j, frame])
                             stroke_list.append(stroke)
             poly_list, scale_factor = stroke_to_poly(stroke_list, scale = True)
@@ -349,6 +434,7 @@ class OffsetSelectedOperator(bpy.types.Operator):
                 for i in range(4):
                     point.vertex_color[i] = point.vertex_color[i] * (1 - self.line_color_factor) + self.change_line_color[i] * self.line_color_factor
             stroke.select = True
+        refresh_strokes(current_gp_obj, list(frames_to_process.keys()))
 
         return {'FINISHED'}
 
@@ -471,9 +557,9 @@ class BoolSelectedOperator(bpy.types.Operator):
             # Convert selected strokes to 2D polygon point lists
             for i,frame in layer_frame_map.items():
                 layer = current_gp_obj.data.layers[i]
-                if not layer.lock and not layer.hide and hasattr(frame, "strokes"):
+                if not is_layer_locked(layer) and hasattr(frame, "strokes"):
                     for j,stroke in enumerate(frame.strokes):
-                        if stroke.select:
+                        if stroke.select and not is_stroke_locked(stroke, current_gp_obj):
                             stroke_info.append([stroke, i, j, frame])
                             stroke_list.append(stroke)
                             select_seq_map[len(stroke_list) - 1] = select_map[layer][frame][stroke]
@@ -549,6 +635,7 @@ class BoolSelectedOperator(bpy.types.Operator):
                     stroke_info[i][3].strokes.remove(info[0])
 
         # Post-processing
+        refresh_strokes(current_gp_obj, list(frames_to_process.keys()))
         bpy.ops.gpencil.select_all(action='DESELECT')
         for stroke in generated_strokes:
             stroke.select = True
@@ -681,7 +768,6 @@ class BoolLastOperator(bpy.types.Operator):
         for info in stroke_info:
             layer_index = info[1]
             current_gp_obj.data.layers[layer_index].active_frame.strokes.remove(info[0])
-
 
         bpy.ops.object.mode_set(mode='PAINT_GPENCIL')
         return {'FINISHED'}

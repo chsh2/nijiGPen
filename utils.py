@@ -252,31 +252,11 @@ def is_stroke_hole(stroke, gp_obj):
     material = gp_obj.material_slots[mat_idx].material
     return material.grease_pencil.use_fill_holdout
 
-def save_stroke_selection(gp_obj):
+def is_layer_locked(layer: bpy.types.GPencilLayer):
     """
-    Record the selection state of a Grease Pencil object to a map
+    Check if a layer should be edited
     """
-    select_map = {}
-    for layer in gp_obj.data.layers:
-        select_map[layer] = {}
-        for frame in layer.frames:
-            select_map[layer][frame] = {}
-            for stroke in frame.strokes:
-                select_map[layer][frame][stroke] = stroke.select_index
-    return select_map
-
-def load_stroke_selection(gp_obj, select_map):
-    """
-    Apply selection to strokes according to a map saved by save_stroke_selection()
-    """
-    for layer in gp_obj.data.layers:
-        for frame in layer.frames:
-            for stroke in frame.strokes:
-                if stroke in select_map[layer][frame]:
-                    stroke.select = (select_map[layer][frame][stroke] > 0)
-                else:
-                    stroke.select = False
-
+    return layer.lock or layer.hide
 
 def stroke_to_poly(stroke_list, scale = False, correct_orientation = False, scale_factor=None):
     """
@@ -326,109 +306,3 @@ def stroke_to_poly(stroke_list, scale = False, correct_orientation = False, scal
 
     return poly_list, scale_factor
 
-def poly_to_stroke(co_list, stroke_info, gp_obj, scale_factor, rearrange = True, arrange_offset = 0, ref_stroke_mask = {}):
-    """
-    Generate a new stroke according to 2D polygon data. Point and stroke attributes will be copied from a list of reference strokes.
-    stroke_info: A list of [stroke, layer_index, stroke_index, frame]
-    """
-
-    # Find closest reference point and corresponding stroke
-    ref_stroke_index_list = []
-    ref_point_index_list = []
-    ref_stroke_count = {}
-
-    # Setup a KDTree for point lookup
-    total_point_count = 0
-    for i,info in enumerate(stroke_info):
-        total_point_count += len(info[0].points)
-    kdt = kdtree.KDTree(total_point_count)
-
-    kdtree_indices = []
-    for i,info in enumerate(stroke_info):
-        for j,point in enumerate(info[0].points):
-            kdtree_indices.append( (i,j) )
-            # Ignore the 3rd dimension
-            kdt.insert( vec3_to_vec2(point.co).to_3d(), len(kdtree_indices)-1 )
-    kdt.balance()
-
-    # Search every new generated point in the KDTree
-    for co in co_list:
-        vec_, kdt_idx, dist_ = kdt.find([co[0]/scale_factor, co[1]/scale_factor, 0])
-
-        ref_stroke = kdtree_indices[kdt_idx][0]
-        ref_point = kdtree_indices[kdt_idx][1]
-        ref_stroke_index_list.append(ref_stroke)
-        ref_point_index_list.append(ref_point)
-        if ref_stroke in ref_stroke_count:
-            ref_stroke_count[ref_stroke] += 1
-        elif ref_stroke not in ref_stroke_mask:
-            ref_stroke_count[ref_stroke] = 1
-
-    # Determine the reference stroke either by calculating the majority or manual assignment
-    if len(ref_stroke_count) > 0:
-        ref_stroke_index = max(ref_stroke_count, key=ref_stroke_count.get)
-    else:
-        for i in range(len(stroke_info)):
-            if i not in ref_stroke_mask:
-                ref_stroke_index = i
-    layer_index = stroke_info[ref_stroke_index][1]
-    stroke_index = stroke_info[ref_stroke_index][2]
-    src_stroke = stroke_info[ref_stroke_index][0]
-    frame = gp_obj.data.layers[layer_index].active_frame
-    if len(stroke_info[ref_stroke_index]) > 3:
-        frame = stroke_info[ref_stroke_index][3]
-
-    # Making the starting point of the new stroke close to the existing one
-    min_distance = None
-    index_offset = None
-    for i,co in enumerate(co_list):
-        distance = get_2d_squared_distance(co, scale_factor, vec3_to_vec2(src_stroke.points[0].co), 1)
-        if min_distance == None or min_distance > distance:
-            min_distance = distance
-            index_offset = i
-
-    # Create a new stroke
-    new_stroke = frame.strokes.new()
-    N = len(co_list)
-    new_stroke.points.add(N)
-    for i in range(N):
-        new_i = (i + index_offset) % N
-        set_vec2(new_stroke.points[i], co_list[new_i], scale_factor)
-
-    # Copy stroke properties
-    new_stroke.hardness = src_stroke.hardness
-    new_stroke.line_width = src_stroke.line_width
-    new_stroke.material_index = src_stroke.material_index
-    new_stroke.start_cap_mode = src_stroke.start_cap_mode
-    new_stroke.end_cap_mode = src_stroke.end_cap_mode
-    new_stroke.use_cyclic = src_stroke.use_cyclic
-    new_stroke.uv_rotation = src_stroke.uv_rotation
-    new_stroke.uv_scale = src_stroke.uv_scale
-    new_stroke.uv_translation = src_stroke.uv_translation
-    new_stroke.vertex_color_fill = src_stroke.vertex_color_fill
-
-    # Copy point properties
-    for i in range(N):
-        new_i = (i + index_offset) % N
-        src_stroke = stroke_info[ref_stroke_index_list[new_i]][0]
-        src_point = src_stroke.points[ref_point_index_list[new_i]]
-        dst_point = new_stroke.points[i]
-        dst_point.pressure = src_point.pressure * src_stroke.line_width / new_stroke.line_width
-        dst_point.strength = src_point.strength
-        dst_point.uv_factor = src_point.uv_factor
-        dst_point.uv_fill = src_point.uv_fill
-        dst_point.uv_rotation = src_point.uv_rotation
-        dst_point.vertex_color = src_point.vertex_color
-        set_depth(dst_point, vec3_to_depth(src_point.co))
-
-    # Rearrange the new stroke
-    current_index = len(frame.strokes) - 1
-    new_index = current_index
-    if rearrange:
-        new_index = stroke_index + 1 - arrange_offset
-        bpy.ops.gpencil.select_all(action='DESELECT')
-        new_stroke.select = True
-        for i in range(current_index - new_index):
-            bpy.ops.gpencil.stroke_arrange("EXEC_DEFAULT", direction='DOWN')
-
-    return new_stroke, new_index, layer_index

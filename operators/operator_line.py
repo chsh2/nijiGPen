@@ -1,6 +1,7 @@
 import bpy
 import math
 from mathutils import *
+from .common import *
 from ..utils import *
 from ..solvers.graph import get_mst_longest_path_from_triangles
 
@@ -327,11 +328,9 @@ class FitSelectedOperator(CommonFittingConfig, bpy.types.Operator):
         # Get input strokes
         gp_obj = context.object
         stroke_list = []
-        for i,layer in enumerate(gp_obj.data.layers):
-            if layer.active_frame and not layer.lock and not layer.hide:
-                for stroke in layer.active_frame.strokes:
-                    if stroke.select:
-                        stroke_list.append(stroke)
+        frames_to_process = get_input_frames(gp_obj, multiframe=False)
+        for frame in frames_to_process:
+            stroke_list += get_input_strokes(gp_obj, frame)
         
         # Execute the fitting function
         b_smoothness = self.b_smoothness if 'SPLPREP' in self.postprocessing_method else None
@@ -366,15 +365,12 @@ class FitSelectedOperator(CommonFittingConfig, bpy.types.Operator):
                     output_material_idx = i
 
         # Gather stroke attributes from input strokes
-        line_color_fill = np.zeros(4)
-        for stroke in stroke_list:
-            line_color_fill += stroke.vertex_color_fill
-        line_color_fill /= len(stroke_list)
-
         new_stroke: bpy.types.GPencilStroke = output_frame.strokes.new()
         new_stroke.material_index = output_material_idx
         new_stroke.line_width = self.line_width
-        new_stroke.vertex_color_fill = line_color_fill if 'COLOR' in self.inherited_attributes else [0,0,0,0]
+        copy_stroke_attributes(new_stroke, stroke_list,
+                               copy_color = 'COLOR' in self.inherited_attributes,
+                               copy_uv = 'UV' in self.inherited_attributes)
         new_stroke.points.add(co_list.shape[0])
         for i,point in enumerate(new_stroke.points):
             point.co = vec2_to_vec3(co_list[i], depth=0, scale_factor=1)
@@ -435,43 +431,29 @@ class SelectSimilarOperator(bpy.types.Operator):
 
     def execute(self, context):
         gp_obj: bpy.types.Object = context.object
-
-        # Get the scope of searching
-        frame_list, frame_set = [], set()
-        stroke_list, stroke_set = [], set()
-        for layer in gp_obj.data.layers:
-            for frame in layer.frames:
-                for stroke in frame.strokes:
-                    if stroke.select and not is_stroke_locked(stroke, gp_obj):
-                        stroke_list.append(stroke)
-                        frame_list.append(frame)
-                        stroke_set.add(stroke)
-                        frame_set.add(frame)
-
-        # Initialization
-        poly_list, _ = stroke_to_poly(stroke_list, scale = False, correct_orientation = False)
-        kdt_list = []
-
-        for i,stroke in enumerate(stroke_list):
-            kdt_list.append(stroke_to_kdtree(poly_list[i]))
-
-        # Check every stroke in target frames
-        while True:
-            new_strokes = []
-            new_stroke_frames= []
-            for frame in frame_set:
+        frames_to_process = get_input_frames(gp_obj, gp_obj.data.use_multiedit)
+        
+        def process_one_frame(frame):
+            stroke_list = get_input_strokes(gp_obj, frame)
+            stroke_set = set()
+            poly_list, _ = stroke_to_poly(stroke_list, scale = False, correct_orientation = False)
+            kdt_list = []
+            for i,stroke in enumerate(stroke_list):
+                kdt_list.append(stroke_to_kdtree(poly_list[i]))
+                
+            # Add new strokes to selection whenever possible
+            while True:
+                new_strokes = []
                 for stroke in frame.strokes:
                     tmp, _ = stroke_to_poly([stroke], scale = False, correct_orientation = False)
                     co_list = tmp[0]
                     kdt = stroke_to_kdtree(co_list)
                     for i,src_stroke in enumerate(stroke_list):
-                        if frame_list[i] != frame:
-                            continue
                         if self.same_material and src_stroke.material_index != stroke.material_index:
                             continue
                         if not overlapping_bounding_box(stroke, src_stroke):
                             continue
-
+                        # Determine similarity based on the distance function
                         line_dist1 = distance_to_another_stroke(co_list, poly_list[i], kdt_list[i], self.angular_tolerance)
                         line_dist2 = distance_to_another_stroke(poly_list[i], co_list, kdt, self.angular_tolerance)
                         if min(line_dist1, line_dist2) < self.line_sampling_size / LINE_WIDTH_FACTOR:
@@ -480,15 +462,15 @@ class SelectSimilarOperator(bpy.types.Operator):
                             if stroke not in stroke_set and self.repeat:
                                 stroke_set.add(stroke)
                                 new_strokes.append(stroke)
-                                new_stroke_frames.append(frame)
                                 poly_list.append(co_list)
                                 kdt_list.append(kdt)
                             break
-            if len(new_strokes) < 1:
-                break
-            stroke_list += new_strokes
-            frame_list += new_stroke_frames
-
+                if len(new_strokes) < 1:
+                    break
+                stroke_list += new_strokes
+        
+        for frame in frames_to_process:
+            process_one_frame(frame)
         return {'FINISHED'}
     
 class ClusterAndFitOperator(CommonFittingConfig, bpy.types.Operator):
@@ -575,11 +557,9 @@ class ClusterAndFitOperator(CommonFittingConfig, bpy.types.Operator):
         # Get input strokes
         gp_obj = context.object
         stroke_list = []
-        for i,layer in enumerate(gp_obj.data.layers):
-            if layer.active_frame and not layer.lock and not layer.hide:
-                for stroke in layer.active_frame.strokes:
-                    if stroke.select:
-                        stroke_list.append(stroke)
+        frames_to_process = get_input_frames(gp_obj, multiframe=False)
+        for frame in frames_to_process:
+            stroke_list += get_input_strokes(gp_obj, frame)
         if len(stroke_list)<2:
             self.report({"INFO"}, "Please select at least two strokes.")
             return {'FINISHED'}
@@ -640,11 +620,8 @@ class ClusterAndFitOperator(CommonFittingConfig, bpy.types.Operator):
                                             output_material = self.output_material,
                                             keep_original = self.keep_original)
             # Record the stroke selection status
-            for i,layer in enumerate(gp_obj.data.layers):
-                if layer.active_frame and not layer.lock and not layer.hide:
-                    for stroke in layer.active_frame.strokes:
-                        if stroke.select:
-                            generated_strokes.append(stroke)
+            for frame in frames_to_process:
+                generated_strokes += get_input_strokes(gp_obj, frame)
         
         # Select all generated strokes
         for stroke in generated_strokes:
@@ -682,6 +659,11 @@ class FitLastOperator(CommonFittingConfig, bpy.types.Operator):
             default=True,
             description='Resample the generated stroke to keep the number of points similar to the original stroke'
     )
+    trim_ends: bpy.props.BoolProperty(
+            name='Trim Ends',
+            default=True,
+            description='Move ends of the drawn stroke as little as possible'
+    )
     reference_layer: bpy.props.StringProperty(
         name='Reference Layer',
         description='The layer with draft strokes which are used to guide the fitting of the newly drawn stroke',
@@ -706,7 +688,9 @@ class FitLastOperator(CommonFittingConfig, bpy.types.Operator):
         layout.label(text = "Post-Processing Options:")
         box2 = layout.box()
         box2.prop(self, "b_smoothness")
-        box2.prop(self, "resample_output")
+        row = box2.row()
+        row.prop(self, "resample_output")
+        row.prop(self, "trim_ends")
 
         layout.label(text = "Output Options:")
         box3 = layout.box()   
@@ -742,6 +726,8 @@ class FitLastOperator(CommonFittingConfig, bpy.types.Operator):
         
         # Check each stroke in the reference layer for similarity
         stroke_list = []
+        threshold = (self.cluster_dist if self.cluster_criterion == 'DIST' else
+                     self.cluster_ratio / 100.0 * src_stroke_length)
         for stroke in reference_layer.active_frame.strokes:
             if not overlapping_bounding_box(stroke, src_stroke):
                 continue
@@ -750,12 +736,9 @@ class FitLastOperator(CommonFittingConfig, bpy.types.Operator):
             kdt = stroke_to_kdtree(co_list)
             line_dist1 = distance_to_another_stroke(co_list, src_co_list, src_kdt)
             line_dist2 = distance_to_another_stroke(src_co_list, co_list, kdt)
-            if self.cluster_criterion == 'DIST':
-                if min(line_dist1, line_dist2) < self.cluster_dist:
-                    stroke_list.append(stroke)
-            else:
-                if min(line_dist1, line_dist2) < self.cluster_ratio / 100.0 * src_stroke_length:
-                    stroke_list.append(stroke)  
+            if min(line_dist1, line_dist2) < threshold:
+                stroke_list.append(stroke)
+
         if len(stroke_list)<1:
             return {'FINISHED'}  
         
@@ -767,17 +750,34 @@ class FitLastOperator(CommonFittingConfig, bpy.types.Operator):
                                                                         pressure_delta=self.pressure_variance*0.01, 
                                                                         closed=src_stroke.use_cyclic,
                                                                         operator=self)
-        # Correct the orientation of the generated stroke
+        # Orientation correction and trimming
         src_direction = Vector(src_co_list[-1]) - Vector(src_co_list[0])
         new_direction = Vector(new_co_list[-1]) - Vector(new_co_list[0])
         angle_diff = src_direction.angle(new_direction)
         if angle_diff > math.pi/2:
             new_co_list = np.flipud(new_co_list)
             
+        if self.trim_ends:
+            start_idx, end_idx = 0, len(new_co_list)-1
+            for i,co in enumerate(new_co_list):
+                vec = Vector(co)-Vector(src_co_list[0])
+                if vec.length < threshold:
+                    start_idx = i
+                    break
+            for i,co in enumerate(np.flipud(new_co_list)):
+                vec = Vector(co)-Vector(src_co_list[-1])
+                if vec.length < threshold:
+                    end_idx = len(new_co_list)-i
+                    break
+            if start_idx < end_idx:
+                new_co_list = new_co_list[start_idx:end_idx]
+            
         # Remove the last drawn stroke and generate a new one
         new_stroke: bpy.types.GPencilStroke = drawing_layer.active_frame.strokes.new()
-        new_stroke.material_index, new_stroke.line_width, new_stroke.use_cyclic = src_stroke.material_index, src_stroke.line_width, src_stroke.use_cyclic
-        new_stroke.hardness, new_stroke.start_cap_mode, new_stroke.end_cap_mode, new_stroke.vertex_color_fill = src_stroke.hardness, src_stroke.start_cap_mode, src_stroke.end_cap_mode, src_stroke.vertex_color_fill
+        copy_stroke_attributes(new_stroke, [src_stroke],
+                            copy_hardness=True, copy_linewidth=True,
+                            copy_cap=True, copy_cyclic=True,
+                            copy_uv=True, copy_material=True, copy_color=True)
         new_stroke.points.add(new_co_list.shape[0])
         for i,point in enumerate(new_stroke.points):
             point.co = vec2_to_vec3(new_co_list[i], depth=0, scale_factor=1)
@@ -868,11 +868,12 @@ class PinchSelectedOperator(bpy.types.Operator):
         # Get input strokes
         gp_obj = context.object
         stroke_list = []
-        for i,layer in enumerate(gp_obj.data.layers):
-            if layer.active_frame and not layer.lock and not layer.hide:
-                for stroke in layer.active_frame.strokes:
-                    if stroke.select and len(stroke.points)>1 and not stroke.use_cyclic:
-                        stroke_list.append(stroke)
+        frames_to_process = get_input_frames(gp_obj, multiframe=False)
+        for frame in frames_to_process:
+            stroke_list += get_input_strokes(gp_obj, frame)
+        stroke_list = [stroke for stroke in stroke_list
+                       if len(stroke.points)>1 and not stroke.use_cyclic]
+
         if len(stroke_list)<2:
             self.report({"INFO"}, "Please select at least two open strokes.")
             return {'FINISHED'}
@@ -994,7 +995,6 @@ class PinchSelectedOperator(bpy.types.Operator):
                     if stroke_chain_idx[stroke]==i:
                         stroke.select = True
                 bpy.ops.gpencil.stroke_join()
-
 
         return {'FINISHED'}
     
@@ -1146,11 +1146,12 @@ class TaperSelectedOperator(bpy.types.Operator):
                 if 'STRENGTH' in self.target_attributes:
                     point.strength = point.strength * factor_arr[i] if self.operation=='MULTIPLY' else factor_arr[i]
 
-        for layer in context.object.data.layers:
-            if not layer.lock and not layer.hide:
-                for frame in layer.frames:
-                    for stroke in frame.strokes:
-                        if stroke.select and not is_stroke_locked(stroke, context.object):
-                            process_one_stroke(stroke)
+        gp_obj = context.object
+        frames_to_process = get_input_frames(gp_obj, gp_obj.data.use_multiedit)
+        stroke_list = []
+        for frame in frames_to_process:
+            stroke_list += get_input_strokes(gp_obj, frame)
+        for stroke in stroke_list:
+            process_one_stroke(stroke)
 
         return {'FINISHED'}
