@@ -1,5 +1,6 @@
 import os
 import bpy
+import numpy as np
 from bpy_extras.io_utils import ImportHelper
 from bpy_extras import image_utils
 from mathutils import *
@@ -98,11 +99,11 @@ class ImportLineImageOperator(bpy.types.Operator, ImportHelper):
         current_mode = context.mode
         bpy.ops.object.mode_set(mode='EDIT_GPENCIL')
         bpy.ops.gpencil.select_all(action='DESELECT')
-
+        t_mat, inv_mat = get_transformation_mat(mode=context.scene.nijigp_working_plane,
+                                                gp_obj=gp_obj)
         try:
             import skimage.morphology
             import skimage.filters
-            import numpy as np
         except:
             self.report({"ERROR"}, "Please install Scikit-Image in the Preferences panel.")
             return {'FINISHED'}
@@ -288,7 +289,7 @@ class ImportLineImageOperator(bpy.types.Operator, ImportHelper):
 
                 for i,point in enumerate(frame_strokes[-1].points):
                     img_co = line[min(i*self.sample_length, len(line)-1)]
-                    point.co = vec2_to_vec3( (img_co[1] - img_W/2, img_co[0] - img_H/2), 0, scale_factor)
+                    point.co = (np.array((img_co[1]-img_W/2, -img_co[0]+img_H/2, 0))/scale_factor).dot(inv_mat)
                     point.pressure = dist_mat[img_co]
                     if self.generate_strength:
                         point.strength = 1 - denoised_lumi_mat[img_co]
@@ -303,7 +304,7 @@ class ImportLineImageOperator(bpy.types.Operator, ImportHelper):
         processed_frame_numbers = []
         if not self.image_sequence:
             process_single_image(self.filepath, starting_frame)
-            processed_frame_numbers.append(starting_frame)
+            processed_frame_numbers.append(starting_frame.frame_number)
         else:
             for frame_idx, img_filepath in enumerate(img_filepaths):
                 target_frame_number = starting_frame.frame_number + frame_idx * self.frame_step
@@ -312,6 +313,9 @@ class ImportLineImageOperator(bpy.types.Operator, ImportHelper):
                 else:
                     process_single_image(img_filepath, gp_layer.frames.new(target_frame_number))
                 processed_frame_numbers.append(target_frame_number)
+        # Post-processing
+        if context.scene.tool_settings.gpencil_stroke_placement_view3d == 'CURSOR':
+            bpy.ops.transform.translate(value=context.scene.cursor.location)
         refresh_strokes(gp_obj, processed_frame_numbers)
         bpy.ops.object.mode_set(mode=current_mode)
         return {'FINISHED'}
@@ -435,11 +439,11 @@ class ImportColorImageOperator(bpy.types.Operator, ImportHelper):
         gp_layer = gp_obj.data.layers.active
         current_mode = context.mode
         use_multiedit = gp_obj.data.use_multiedit
-
+        t_mat, inv_mat = get_transformation_mat(mode=context.scene.nijigp_working_plane,
+                                                gp_obj=gp_obj)
         try:
             from skimage import morphology, filters, measure
             from scipy import cluster
-            import numpy as np
             import pyclipper
         except:
             self.report({"ERROR"}, "Please install Scikit-Image in the Preferences panel.")
@@ -597,7 +601,7 @@ class ImportColorImageOperator(bpy.types.Operator, ImportHelper):
                                                 srgb_to_linear(color[2]),1]
                 stroke.points.add(len(path))
                 for i,point in enumerate(frame_strokes[-1].points):
-                    point.co = vec2_to_vec3( (path[i][1] - img_W/2, path[i][0] - img_H/2), 0, scale_factor)
+                    point.co = (np.array((path[i][1]-img_W/2, -path[i][0]+img_H/2, 0))/scale_factor).dot(inv_mat)
                     point.strength = strength
                     if self.color_mode == 'VERTEX' and self.set_line_color:
                         point.vertex_color = [srgb_to_linear(color[0]),
@@ -624,7 +628,7 @@ class ImportColorImageOperator(bpy.types.Operator, ImportHelper):
         processed_frame_numbers = []
         if not self.image_sequence:
             process_single_image(self.filepath, starting_frame, given_colors)
-            processed_frame_numbers.append(starting_frame)
+            processed_frame_numbers.append(starting_frame.frame_number)
         else:
             for frame_idx, img_filepath in enumerate(img_filepaths):
                 target_frame_number = starting_frame.frame_number + frame_idx * self.frame_step
@@ -637,6 +641,8 @@ class ImportColorImageOperator(bpy.types.Operator, ImportHelper):
                 processed_frame_numbers.append(target_frame_number)
 
         # Post-processing and context recovery
+        if context.scene.tool_settings.gpencil_stroke_placement_view3d == 'CURSOR':
+            bpy.ops.transform.translate(value=context.scene.cursor.location)
         refresh_strokes(gp_obj, processed_frame_numbers)
         bpy.ops.gpencil.nijigp_hole_processing(rearrange=True, apply_holdout=False)
         gp_obj.data.use_multiedit = use_multiedit

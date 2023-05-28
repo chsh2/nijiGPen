@@ -1,6 +1,7 @@
 import bpy
 import os
-import math
+import numpy as np
+from mathutils import *
 from ..utils import *
 from ..resources import get_cache_folder
 
@@ -24,7 +25,7 @@ class PasteSVGOperator(bpy.types.Operator):
             )
     svg_scale: bpy.props.FloatProperty(
             name='Scale',
-            min=0, max=100, default=10,
+            min=0, max=100, default=50,
             description='Scale of pasted SVG',
             )
     auto_holdout: bpy.props.BoolProperty(
@@ -48,6 +49,7 @@ class PasteSVGOperator(bpy.types.Operator):
         current_gp_obj = context.object
         current_material_idx = context.object.active_material_index
         num_layers = len(context.object.data.layers)
+        t_mat, inv_mat = get_transformation_mat(mode=context.scene.nijigp_working_plane)
 
         # Convert clipboard data to SVG file
         svg_str = context.window_manager.clipboard
@@ -93,10 +95,15 @@ class PasteSVGOperator(bpy.types.Operator):
                 stroke.select = True
         current_gp_obj.active_material_index = current_material_idx
 
-        if bpy.context.scene.nijigp_working_plane == 'X-Y':
-            bpy.ops.transform.rotate(value=math.pi/2, orient_axis='X', orient_type='LOCAL')
-        if bpy.context.scene.nijigp_working_plane == 'Y-Z':
-            bpy.ops.transform.rotate(value=-math.pi/2, orient_axis='Z', orient_type='LOCAL')
+        # Transform the figure to the working 2D plane
+        # Default plane is X-Z for imported SVG. Convert it to X-Y first
+        bpy.ops.transform.rotate(value=math.pi/2, orient_axis='X', orient_type='LOCAL')
+        for i in range(len(context.object.data.layers) - num_layers):
+            for stroke in context.object.data.layers[i].active_frame.strokes:
+                for point in stroke.points:
+                    point.co = np.array(point.co).dot(inv_mat)
+        if context.scene.tool_settings.gpencil_stroke_placement_view3d == 'CURSOR':
+            bpy.ops.transform.translate(value=context.scene.cursor.location)
 
         if self.auto_holdout:
             bpy.ops.gpencil.nijigp_hole_processing(rearrange=True, separate_colors=True)

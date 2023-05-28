@@ -1,5 +1,6 @@
 import bpy
 import math
+import numpy as np
 from .common import *
 from ..utils import *
 
@@ -104,6 +105,29 @@ def poly_to_stroke(co_list, stroke_info, gp_obj, scale_factor, rearrange = True,
 
     return new_stroke, new_index, layer_index
 
+def overlapping_strokes(s1, s2):
+    """
+    Check if two strokes overlap with each other. Ignore the cases involving holes
+    """
+    
+    # First, check if bounding boxes overlap
+    if not overlapping_bounding_box(s1, s2):
+        return False
+    
+    # Then check every pair of edge
+    N1 = len(s1.points)
+    N2 = len(s2.points)
+    for i in range(N1):
+        for j in range(N2):
+            p1 = vec3_to_vec2(s1.points[i].co)
+            p2 = vec3_to_vec2(s1.points[(i+1)%N1].co)
+            p3 = vec3_to_vec2(s2.points[j].co)
+            p4 = vec3_to_vec2(s2.points[(j+1)%N2].co)
+            if geometry.intersect_line_line_2d(p1,p2,p3,p4):
+                return True
+
+    return False
+
 class HoleProcessingOperator(bpy.types.Operator):
     """Reorder strokes and assign holdout materials to holes inside another stroke"""
     bl_idname = "gpencil.nijigp_hole_processing"
@@ -136,9 +160,8 @@ class HoleProcessingOperator(bpy.types.Operator):
         except ImportError:
             self.report({"ERROR"}, "Please install PyClipper in the Preferences panel.")
             return {'FINISHED'}
-        import numpy as np
+        
         gp_obj: bpy.types.Object = context.object
-
         frames_to_process = get_input_frames(gp_obj, gp_obj.data.use_multiedit)
         material_idx_map = {}
         def change_material(stroke):
@@ -178,9 +201,10 @@ class HoleProcessingOperator(bpy.types.Operator):
         def process_one_frame(frame):
             select_map = save_stroke_selection(gp_obj)
             to_process = get_input_strokes(gp_obj, frame)
-
+            t_max, inv_max = get_transformation_mat(mode=context.scene.nijigp_working_plane,
+                                                    gp_obj=gp_obj, strokes=to_process, operator=self)
             # Initialize the relationship matrix
-            poly_list, _ = stroke_to_poly(to_process, True)
+            poly_list, _, _ = get_strokes_2d(to_process, t_max, scale=True)
             relation_mat = np.zeros((len(to_process),len(to_process)))
             for i in range(len(to_process)):
                 for j in range(len(to_process)):

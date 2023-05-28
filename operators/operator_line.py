@@ -1,5 +1,6 @@
 import bpy
 import math
+import numpy as np
 from mathutils import *
 from .common import *
 from ..utils import *
@@ -32,7 +33,6 @@ def fit_2d_strokes(strokes, search_radius, smoothness_factor = 1, pressure_delta
         if operator:
             operator.report({"ERROR"}, "Please install Scikit-Image in the Preferences panel.")
         return empty_result
-    import numpy as np
 
     # Create a KDTree for point attribute lookup
     poly_list, scale_factor = stroke_to_poly(strokes)
@@ -152,7 +152,6 @@ def distance_to_another_stroke(co_list1, co_list2, kdt2 = None, angular_toleranc
     '''
     Calculating the similarity between two lines
     '''
-    import numpy as np
     # Some algorithms do not support infinity; use a finite number instead.
     no_similarity = 65535
 
@@ -323,7 +322,6 @@ class FitSelectedOperator(CommonFittingConfig, bpy.types.Operator):
         box3.prop(self, "keep_original")
 
     def execute(self, context):
-        import numpy as np
 
         # Get input strokes
         gp_obj = context.object
@@ -547,7 +545,6 @@ class ClusterAndFitOperator(CommonFittingConfig, bpy.types.Operator):
         box3.prop(self, "keep_original")
 
     def execute(self, context):
-        import numpy as np
         try:
             from scipy.cluster.hierarchy import linkage, fcluster
         except ImportError:
@@ -698,8 +695,6 @@ class FitLastOperator(CommonFittingConfig, bpy.types.Operator):
         box3.prop(self, "max_delta_pressure")
 
     def execute(self, context):
-        import numpy as np
-
         # Get input and context
         gp_obj = context.object
         if len(self.reference_layer) > 0:
@@ -1095,7 +1090,6 @@ class TaperSelectedOperator(bpy.types.Operator):
         box3.prop(self, "operation")
 
     def execute(self, context):
-        import numpy as np
 
         def process_one_stroke(stroke: bpy.types.GPencilStroke):
             if self.line_width > 0:

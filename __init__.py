@@ -35,7 +35,9 @@ def register():
                         name='Working Plane',
                         items=[('X-Z', 'Front (X-Z)', ''),
                                 ('Y-Z', 'Side (Y-Z)', ''),
-                                ('X-Y', 'Top (X-Y)', '')],
+                                ('X-Y', 'Top (X-Y)', ''),
+                                ('VIEW', 'View (Debug: DO NOT USE)', ''),
+                                ('AUTO', 'Auto (Debug: DO NOT USE)', '')],
                         default='X-Z',
                         description='The 2D (local) plane that most add-on operators are working on'
                         )
