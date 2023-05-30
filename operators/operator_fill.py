@@ -1,7 +1,6 @@
 import bpy
 from .common import *
 from ..utils import *
-from ..solvers.graph import SmartFillSolver
 
 class SmartFillOperator(bpy.types.Operator):
     """Generate fill shapes given a line art layer and a hint layer"""
@@ -94,7 +93,12 @@ class SmartFillOperator(bpy.types.Operator):
     def execute(self, context):
         gp_obj = context.object
         current_mode = context.mode
-
+        try:
+            from ..solvers.graph import SmartFillSolver
+        except:
+            self.report({"ERROR"}, "Please install Scikit-Image in the Preferences panel.")
+            return {'FINISHED'}
+        
         # Get and validate layers
         if (len(self.line_layer) < 1 or
             len(self.hint_layer) < 1 or

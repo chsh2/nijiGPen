@@ -26,33 +26,45 @@ def load_stroke_selection(gp_obj, select_map):
                 else:
                     stroke.select = False
 
-def get_input_frames(gp_obj, multiframe=False, return_range=False):
+def get_input_frames(gp_obj, multiframe=False, return_map=False):
     """
-    Get either active frames or all selected frames depending on the edit mode
+    Get either active frames or all selected frames depending on the edit mode.
+    Return either a list of frames, or a detailed map with the following format:
+        {frame_number: {layer_index: [frame, (start_frame_num, end_frame_num)]}}
     """
     frames_to_process = []
-    time_ranges = []
-    if multiframe:
-        # Process every selected frame
-        for i,layer in enumerate(gp_obj.data.layers):
-            if not is_layer_locked(layer):
-                for j,frame in enumerate(layer.frames):
-                    if frame.select:
-                        frames_to_process.append(frame)
-                        # Get start and end frame numbers
-                        if j != len(layer.frames)-1:
-                            time_ranges.append( (frame.frame_number, layer.frames[j+1].frame_number))
-                        else:
-                            time_ranges.append( (frame.frame_number, bpy.context.scene.frame_end))
-    else:
-        # Process only the active frame of each layer
-        for i,layer in enumerate(gp_obj.data.layers):
-            if layer.active_frame and not is_layer_locked(layer):
-                frames_to_process.append(layer.active_frame)
-    if return_range:
-        return frames_to_process, time_ranges
+    frame_number_layer_map = {}
+    
+    layer_active_frames_number = []
+    for i,layer in enumerate(gp_obj.data.layers):
+        if layer.active_frame:
+            layer_active_frames_number.append(layer.active_frame.frame_number)
+        else:
+            layer_active_frames_number.append(None)            
+
+    # Process every selected frame
+    for i,layer in enumerate(gp_obj.data.layers):
+        if not is_layer_locked(layer):
+            for j,frame in enumerate(layer.frames):
+                f_num = frame.frame_number
+                if ((multiframe and frame.select) or
+                    (not multiframe and f_num == layer_active_frames_number[i])):
+                    
+                    frames_to_process.append(frame)
+                    if f_num not in frame_number_layer_map:
+                        frame_number_layer_map[f_num] = {}
+                    frame_number_layer_map[f_num][i] = [frame , None]
+                    
+                    # Get frame number range
+                    if j != len(layer.frames)-1:
+                        frame_number_layer_map[f_num][i][1] = (f_num, layer.frames[j+1].frame_number)
+                    else:
+                        frame_number_layer_map[f_num][i][1] = (f_num, bpy.context.scene.frame_end + 1)
+    if return_map:
+        return frame_number_layer_map
     else:
         return frames_to_process
+
                 
 def get_input_strokes(gp_obj, frame: bpy.types.GPencilFrame, select_all = False):
     """

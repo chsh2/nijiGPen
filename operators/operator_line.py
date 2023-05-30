@@ -4,7 +4,6 @@ import numpy as np
 from mathutils import *
 from .common import *
 from ..utils import *
-from ..solvers.graph import get_mst_longest_path_from_triangles
 
 def stroke_to_kdtree(co_list):
     n = len(co_list)
@@ -29,6 +28,7 @@ def fit_2d_strokes(strokes, search_radius, smoothness_factor = 1, pressure_delta
     empty_result = None, None, None, None, None, None
     try:
         from scipy.interpolate import splprep, splev
+        from ..solvers.graph import get_mst_longest_path_from_triangles
     except:
         if operator:
             operator.report({"ERROR"}, "Please install Scikit-Image in the Preferences panel.")

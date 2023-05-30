@@ -2,7 +2,6 @@ import math
 import bpy
 import numpy as np
 from mathutils import *
-from .solvers.optimizer import pca
 
 SCALE_CONSTANT = 8192
 LINE_WIDTH_FACTOR = 2000.0
@@ -107,6 +106,21 @@ def get_an_inside_co(poly):
                     return co_
         delta /= 2
     return None
+
+def bound_box_overlapping(pa1, pa2, pb1, pb2):
+    """Given the bound box of two strokes (each box represented by 2 points), judge whether they overlap in the 2D plane"""
+    for i in range(2):
+        pa_min, pa_max = min(pa1[i], pa2[i]), max(pa1[i], pa2[i])
+        pb_min, pb_max = min(pb1[i], pb2[i]), max(pb1[i], pb2[i])
+        if pa_min > pb_max or pb_min > pa_max:
+            return False
+    return True
+
+def stroke_bound_box_overlapping(s1, s2, t_mat):
+    bb = []
+    for vec in (s1.bound_box_min, s1.bound_box_max, s2.bound_box_min, s2.bound_box_max):
+        bb.append(np.array(vec).dot(t_mat))
+    return bound_box_overlapping(bb[0],bb[1],bb[2],bb[3])
 #endregion
 
 #region [Bpy Utilities]
@@ -158,6 +172,20 @@ def get_stroke_length(stroke: bpy.types.GPencilStroke = None, co_list = None):
 #endregion
 
 #region [3D<->2D Utilities]
+def pca(data):
+    """
+    Calculate the matrix that projects 3D shapes to 2D in the optimal way
+    """
+    mean = np.mean(data, axis=0)
+    centered_data = data - mean
+    covariance_matrix = np.cov(centered_data, rowvar=False)
+    eigenvalues, eigenvectors = np.linalg.eig(covariance_matrix)
+
+    idx = eigenvalues.argsort()[::-1]  
+    values =  eigenvalues[idx]
+    mat = eigenvectors[:,idx]
+    return mat, values
+
 def get_transformation_mat(mode='VIEW', gp_obj=None, strokes=[], operator=None):
     """
     Get the transformation matrix and its inverse matrix given a 2D working plane.
@@ -176,30 +204,38 @@ def get_transformation_mat(mode='VIEW', gp_obj=None, strokes=[], operator=None):
     view_matrix = bpy.context.space_data.region_3d.view_matrix.to_3x3()
     view_matrix = np.array(view_matrix)
 
-    # Orthogonal planes
+    # Use orthogonal planes
     if mode in presets:
         mat = presets[mode]
         return mat, np.linalg.pinv(mat)
-    # View plane
-    if mode == 'VIEW' or (mode == 'AUTO' and len(strokes)==0):
-        mat = np.transpose(view_matrix)
-        return mat, np.linalg.pinv(mat)
+    
     # Auto mode: use PCA combined with the view vector to determine
-    if mode == 'AUTO':
-        data = []
-        for stroke in strokes:
-            for point in stroke.points:
-                data.append(point.co)
-        mat, eigenvalues = pca(np.array(data))
-        
-        if eigenvalues[-1] > 1e-6 and operator:
-            operator.report({"INFO"}, "More than one 2D plane detected. The result may be inaccurate.")
+    for _ in range(1):
+        if mode == 'AUTO':
+            data = []
+            for stroke in strokes:
+                for point in stroke.points:
+                    data.append(point.co)
+            if len(data) < 2:   # PCA cannot handle. Use view plane instead.
+                break
             
-        if mat[:,2].dot(view_matrix[:,2]) < 0:  # Align depth axis with current view
-            mat = -mat
-        return mat, np.linalg.pinv(mat)
+            mat, eigenvalues = pca(np.array(data))
+            
+            if eigenvalues[1] < 1e-6 and eigenvalues[2] < 1e-6:
+                break           # 1-dimension only. Use view plane instead
+            
+            if eigenvalues[-1] > 1e-6 and operator:
+                operator.report({"INFO"}, "More than one 2D plane detected. The result may be inaccurate.")
+                
+            if mat[:,2].dot(view_matrix[:,2]) < 0:  # Align depth axis with current view
+                mat = -mat
+            return mat, np.linalg.pinv(mat)
+        
+    # Use view plane
+    mat = np.transpose(view_matrix)
+    return mat, np.linalg.pinv(mat)
 
-def get_strokes_2d(stroke_list, t_mat, scale = False, correct_orientation = False, scale_factor=None):
+def get_2d_co_from_strokes(stroke_list, t_mat, scale = False, correct_orientation = False, scale_factor=None):
     """
     Convert points from a list of strokes to 2D coordinates. Scale them to be compatible with Clipper.
     Return a 2D coordinate list, a z-depth list and the scale factor 
@@ -252,9 +288,16 @@ def get_strokes_2d(stroke_list, t_mat, scale = False, correct_orientation = Fals
 
     return poly_list, poly_depth_list, scale_factor
 
-def xy0(vec):
+def xy0(vec, depth=0):
     """Empty the depth for 2D lookup, e.g., KDTree search"""
-    return Vector((vec[0],vec[1],0))
+    return Vector((vec[0],vec[1],depth))
+
+def restore_3d_co(co, depth, inv_mat, scale_factor=1):
+    """Perform inverse transformation on 2D coordinates"""
+    vec = np.array([co[0]/ scale_factor,
+                    co[1]/ scale_factor,
+                    depth]).dot(inv_mat)
+    return vec
 #endregion
 
 
