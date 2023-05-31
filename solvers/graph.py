@@ -69,7 +69,6 @@ def get_mst_longest_path_from_triangles(tr_output):
     return total_length, path_whole
 
 class SmartFillSolver:
-
     tr_map: dict
     graph: csr_matrix
     solid_edges: set                # Edges from original strokes are treated as "walls" that prevent nodes from connecting to each other
