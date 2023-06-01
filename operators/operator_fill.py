@@ -174,7 +174,7 @@ class SmartFillOperator(bpy.types.Operator):
                 hint_points_co, hint_points_label = [], []
                 for point in stroke.points:
                         color = (point.vertex_color if point.vertex_color[3] > 0 else
-                                 gp_obj.data.materials[stroke.material_index].grease_pencil.color)
+                                 gp_obj.data.materials[stroke.material_index].grease_pencil.fill_color)
                         c_key = rgb_to_hex_code(color)
                         if c_key not in label_color_map:
                             label_color_map[c_key] = len(label_colors)
