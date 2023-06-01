@@ -50,6 +50,7 @@ class SmartFillOperator(bpy.types.Operator):
     color_mode: bpy.props.EnumProperty(            
         name='Color Mode',
         items=[ ('VERTEX', 'Vertex Color', ''),
+                ('ORIGIN', 'Original Materials', ''),
                 ('MATERIAL', 'New Materials', '')],
         default='MATERIAL',
         description='Whether using an existing material with vertex colors, or creating new materials'
@@ -209,6 +210,9 @@ class SmartFillOperator(bpy.types.Operator):
                         mat.grease_pencil.show_fill = True
                         mat.grease_pencil.show_stroke = False
                         mat.grease_pencil.fill_color = [color[0],color[1],color[2],1]
+                    else:
+                        mat = gp_obj.data.materials[stroke.material_index]
+                        bpy.data.materials.create_gpencil_data(mat)
                     # Case 3: Material created but not added
                     gp_obj.data.materials.append(bpy.data.materials[material_name])
                     output_material_idx.append(len(gp_obj.material_slots)-1)
