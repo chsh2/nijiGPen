@@ -51,6 +51,7 @@ class SmartFillOperator(bpy.types.Operator):
     color_mode: bpy.props.EnumProperty(            
         name='Color Mode',
         items=[ ('VERTEX', 'Vertex Color', ''),
+                ('ORIGIN', 'Origin Materials', ''),
                 ('MATERIAL', 'New Materials', '')],
         default='MATERIAL',
         description='Whether using an existing material with vertex colors, or creating new materials'
@@ -176,7 +177,7 @@ class SmartFillOperator(bpy.types.Operator):
             
             # Extract colors from hint strokes to label the triangle node graph
             # Label 0 is reserved for transparent regions
-            label_colors, label_color_map = [None], {}
+            label_colors, label_color_map, label_colors_mat = [None], {}, {}
             for stroke in reversed(hint_frame.strokes):
                 hint_points_co, hint_points_label = [], []
                 use_line_color = is_stroke_line(stroke, gp_obj)
@@ -187,6 +188,9 @@ class SmartFillOperator(bpy.types.Operator):
                         else:
                             color = (stroke.vertex_color_fill if stroke.vertex_color_fill[3] > 0 else
                                     gp_obj.data.materials[stroke.material_index].grease_pencil.fill_color)
+                        if self.color_mode == 'ORIGIN':
+                            if gp_obj.data.materials[stroke.material_index].name is not None :
+                                label_colors_mat[c_key] = gp_obj.data.materials[stroke.material_index].name
                         c_key = rgb_to_hex_code(color)
                         if c_key not in label_color_map:
                             label_color_map[c_key] = len(label_colors)
@@ -208,6 +212,9 @@ class SmartFillOperator(bpy.types.Operator):
                     continue
                 if self.color_mode == 'MATERIAL':
                     material_name = 'GP_Fill' + rgb_to_hex_code(color)
+                if self.color_mode == 'ORIGIN':
+                    if label_colors_mat[rgb_to_hex_code(color)] is not None :
+                        material_name = label_colors_mat[rgb_to_hex_code(color)]
                 for i,material_slot in enumerate(gp_obj.material_slots):
                     # Case 1: Material added to active object
                     if material_slot.material and material_slot.material.name == material_name:
