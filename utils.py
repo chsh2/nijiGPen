@@ -292,6 +292,29 @@ def xy0(vec, depth=0):
     """Empty the depth for 2D lookup, e.g., KDTree search"""
     return Vector((vec[0],vec[1],depth))
 
+class DepthLookupTree:
+    """
+    Data structure based on KDTree to get depth value from 2D coordinates.
+    Some operators have more complicated rules to determine the depth and do not use this class
+    """
+    def __init__(self, poly_list, depth_list):
+        self.co2d = []
+        self.depth = []
+        self.count = 0
+        for i,co_list in enumerate(poly_list):
+            for j,co in enumerate(co_list):
+                self.co2d.append(xy0(co))
+                self.depth.append(depth_list[i][j])
+                self.count += 1
+        self.kdtree = kdtree.KDTree(self.count)
+        for i in range(self.count):
+            self.kdtree.insert(self.co2d[i], i)
+        self.kdtree.balance()
+
+    def get_depth(self, co):
+        _, i, _ = self.kdtree.find(xy0(co))
+        return self.depth[i]
+
 def restore_3d_co(co, depth, inv_mat, scale_factor=1):
     """Perform inverse transformation on 2D coordinates"""
     vec = np.array([co[0]/ scale_factor,
@@ -323,19 +346,6 @@ def vec2_to_vec3(co, depth = 0.0, scale_factor = 1.0) -> Vector:
         return Vector([depth, co[0] / scale_factor, -co[1] / scale_factor])
     if scene.nijigp_working_plane == 'X-Y':
         return Vector([co[0] / scale_factor, -co[1] / scale_factor, depth])
-
-def set_vec2(point, co, scale_factor = 1.0):
-    """Set 2D coordinates to a GP point"""
-    scene = bpy.context.scene
-    if scene.nijigp_working_plane == 'X-Z':    
-        point.co.x = co[0] / scale_factor
-        point.co.z = -co[1] / scale_factor
-    if scene.nijigp_working_plane == 'Y-Z':    
-        point.co.y = co[0] / scale_factor
-        point.co.z = -co[1] / scale_factor
-    if scene.nijigp_working_plane == 'X-Y':    
-        point.co.x = co[0] / scale_factor
-        point.co.y = -co[1] / scale_factor
 
 def vec3_to_depth(co):
     """Get depth value from 3D coordinates"""
@@ -370,25 +380,6 @@ def get_depth_direction() -> Vector:
         return Vector((1,0,0))
     if scene.nijigp_working_plane == 'X-Y':    
         return Vector((0,0,1))
-
-def overlapping_bounding_box(s1, s2):
-    scene = bpy.context.scene
-    if scene.nijigp_working_plane == 'X-Z':
-        if s1.bound_box_max[0] < s2.bound_box_min[0] or s1.bound_box_max[2] < s2.bound_box_min[2]:
-            return False
-        if s2.bound_box_max[0] < s1.bound_box_min[0] or s2.bound_box_max[2] < s1.bound_box_min[2]:
-            return False
-    if scene.nijigp_working_plane == 'Y-Z':
-        if s1.bound_box_max[1] < s2.bound_box_min[1] or s1.bound_box_max[2] < s2.bound_box_min[2]:
-            return False
-        if s2.bound_box_max[1] < s1.bound_box_min[1] or s2.bound_box_max[2] < s1.bound_box_min[2]:
-            return False
-    if scene.nijigp_working_plane == 'X-Y':
-        if s1.bound_box_max[0] < s2.bound_box_min[0] or s1.bound_box_max[1] < s2.bound_box_min[1]:
-            return False
-        if s2.bound_box_max[0] < s1.bound_box_min[0] or s2.bound_box_max[1] < s1.bound_box_min[1]:
-            return False
-    return True    
 
 def stroke_to_poly(stroke_list, scale = False, correct_orientation = False, scale_factor=None):
     """

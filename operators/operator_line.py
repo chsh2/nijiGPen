@@ -9,11 +9,11 @@ def stroke_to_kdtree(co_list):
     n = len(co_list)
     kdt = kdtree.KDTree(n)
     for i in range(n):
-        kdt.insert(vec2_to_vec3(co_list[i]), i)
+        kdt.insert(xy0(co_list[i]), i)
     kdt.balance()
     return kdt
 
-def fit_2d_strokes(strokes, search_radius, smoothness_factor = 1, pressure_delta = 0, closed = False, operator = None):
+def fit_2d_strokes(strokes, search_radius, smoothness_factor = 1, pressure_delta = 0, closed = False, operator = None, t_mat = []):
     '''
     Fit points from multiple strokes to a single curve, by executing the following operations:
         1. Delaunay triangulation
@@ -25,7 +25,7 @@ def fit_2d_strokes(strokes, search_radius, smoothness_factor = 1, pressure_delta
     The function will return positions and attributes of points in the following sequence:
         2D coordinates, accumulated pressure, base pressure, strength, vertex color
     '''
-    empty_result = None, None, None, None, None, None
+    empty_result = None, None, None, None, None, None, None, None
     try:
         from scipy.interpolate import splprep, splev
         from ..solvers.graph import get_mst_longest_path_from_triangles
@@ -34,8 +34,14 @@ def fit_2d_strokes(strokes, search_radius, smoothness_factor = 1, pressure_delta
             operator.report({"ERROR"}, "Please install Scikit-Image in the Preferences panel.")
         return empty_result
 
-    # Create a KDTree for point attribute lookup
-    poly_list, scale_factor = stroke_to_poly(strokes)
+    if len(t_mat)<1:
+        t_mat, inv_mat = get_transformation_mat(mode=bpy.context.scene.nijigp_working_plane,
+                                                gp_obj=bpy.context.active_object,
+                                                strokes=strokes, operator=operator)
+    else:
+        inv_mat = np.linalg.pinv(t_mat)
+    poly_list, depth_list, _ = get_2d_co_from_strokes(strokes, t_mat, scale=False)
+    
     total_point_count = 0
     for i,stroke in enumerate(strokes):
         if len(stroke.points)<2:
@@ -44,10 +50,13 @@ def fit_2d_strokes(strokes, search_radius, smoothness_factor = 1, pressure_delta
 
     if total_point_count<3:
         return empty_result
+    
+    # Create a KDTree for point attribute lookup
     kdt = kdtree.KDTree(total_point_count)
     kdt_tangent_list = []
     kdt_stroke_list = []
     kdt_point_list = []
+    kdt_depth_list = []
     kdt_idx = 0
     co_set = set()
 
@@ -60,7 +69,7 @@ def fit_2d_strokes(strokes, search_radius, smoothness_factor = 1, pressure_delta
         for j,point in enumerate(stroke.points):
             if (poly_list[i][j][0],poly_list[i][j][1]) not in co_set:
                 co_set.add((poly_list[i][j][0],poly_list[i][j][1]))
-                kdt.insert(vec2_to_vec3(poly_list[i][j],0,1), kdt_idx)
+                kdt.insert( xy0(poly_list[i][j]), kdt_idx)
                 kdt_idx += 1
                 if j>0:
                     kdt_tangent_list.append((poly_list[i][j][0]-poly_list[i][j-1][0],
@@ -70,6 +79,7 @@ def fit_2d_strokes(strokes, search_radius, smoothness_factor = 1, pressure_delta
                                             poly_list[i][j+1][1]-poly_list[i][j][1]))    
                 kdt_stroke_list.append(i)
                 kdt_point_list.append(point)
+                kdt_depth_list.append(depth_list[i][j])
                 tr_input['vertices'].append(poly_list[i][j])                    
     kdt.balance()
 
@@ -93,40 +103,43 @@ def fit_2d_strokes(strokes, search_radius, smoothness_factor = 1, pressure_delta
     accumulated_pressure_raw = np.zeros(len(path_whole))
     inherited_pressure_raw = np.zeros(len(path_whole))
     inherited_strength_raw = np.zeros(len(path_whole))
+    inherited_depth_raw = np.zeros(len(path_whole))
     inherited_color = np.zeros((len(path_whole), 3))
     inherited_uv_rotation = np.zeros(len(path_whole))
 
     # Apply offsets in the normal direction if there are points in the neighborhood
     # At the same time, inherit the point attributes
     for i,co in enumerate(co_raw):
-        self_vec ,self_idx,_ = kdt.find(vec2_to_vec3(co,0,1))
-        self_vec = vec3_to_vec2(self_vec)
+        self_vec ,self_idx,_ = kdt.find(xy0(co))
+        self_vec = self_vec.xy
         self_stroke = kdt_stroke_list[self_idx]
         unit_normal_vector = Vector(kdt_tangent_list[self_idx]).orthogonal().normalized()
         sum_normal_offset = 0
-        neighbors = kdt.find_range(vec2_to_vec3(co,0,1), search_radius)
+        neighbors = kdt.find_range(xy0(co), search_radius)
         for neighbor in neighbors:
             if kdt_stroke_list[neighbor[1]]!=self_stroke:
-                normal_dist = vec3_to_vec2(neighbor[0]) - self_vec
+                normal_dist = neighbor[0].xy - self_vec
                 normal_dist = normal_dist.dot(unit_normal_vector)
                 sum_normal_offset += normal_dist
                 accumulated_pressure_raw[i] += pressure_delta
             # Inherit each attribute
             inherited_pressure_raw[i] += kdt_point_list[neighbor[1]].pressure
             inherited_strength_raw[i] += kdt_point_list[neighbor[1]].strength
+            inherited_depth_raw[i] += kdt_depth_list[neighbor[1]]
             inherited_color[i] += np.array(kdt_point_list[neighbor[1]].vertex_color)[:3] * kdt_point_list[neighbor[1]].vertex_color[3]
             inherited_uv_rotation[i] += kdt_point_list[neighbor[1]].uv_rotation
 
         sum_normal_offset /= len(neighbors)
         inherited_pressure_raw[i] /= len(neighbors)
         inherited_strength_raw[i] /= len(neighbors)
+        inherited_depth_raw[i] /= len(neighbors)
         inherited_color[i] /= len(neighbors)
         inherited_uv_rotation[i] /= len(neighbors)
         co_raw[i] += unit_normal_vector * sum_normal_offset
 
     # Postprocessing: B-spline fitting
     if smoothness_factor is None:
-        return co_raw, accumulated_pressure_raw, inherited_pressure_raw, inherited_strength_raw, inherited_color, inherited_uv_rotation
+        return inv_mat, co_raw, accumulated_pressure_raw, inherited_pressure_raw, inherited_strength_raw, inherited_color, inherited_uv_rotation, inherited_depth_raw
 
     attributes_index = np.linspace(0,1,len(path_whole))
     if closed:
@@ -135,6 +148,7 @@ def fit_2d_strokes(strokes, search_radius, smoothness_factor = 1, pressure_delta
         accumulated_pressure_raw = np.append(accumulated_pressure_raw, accumulated_pressure_raw[0])
         inherited_pressure_raw = np.append(inherited_pressure_raw, inherited_pressure_raw[0])
         inherited_strength_raw = np.append(inherited_strength_raw, inherited_strength_raw[0])
+        inherited_depth_raw = np.append(inherited_depth_raw, inherited_depth_raw[0])
         inherited_color = np.append(inherited_color, [inherited_color[0]], axis=0)
         inherited_uv_rotation = np.append(inherited_uv_rotation, inherited_uv_rotation[0])
     tck, u = splprep([co_raw[:,0], co_raw[:,1]], s=total_length**2 * smoothness_factor * 0.001, per=closed)
@@ -145,8 +159,10 @@ def fit_2d_strokes(strokes, search_radius, smoothness_factor = 1, pressure_delta
     inherited_pressure_fit = np.array(splev(u3, tck3))[1]
     tck4, u4 = splprep([attributes_index, inherited_strength_raw], per=closed)
     inherited_strength_fit = np.array(splev(u4, tck4))[1]
+    tck5, u5 = splprep([attributes_index, inherited_depth_raw], s=total_length**2 * smoothness_factor * 0.001, per=closed)
+    inherited_depth_fit = np.array(splev(u5, tck5))[1]
 
-    return co_fit, accumulated_pressure_fit, inherited_pressure_fit, inherited_strength_fit, inherited_color, inherited_uv_rotation
+    return inv_mat, co_fit, accumulated_pressure_fit, inherited_pressure_fit, inherited_strength_fit, inherited_color, inherited_uv_rotation, inherited_depth_fit
 
 def distance_to_another_stroke(co_list1, co_list2, kdt2 = None, angular_tolerance = math.pi/4, correct_orientation = True):
     '''
@@ -164,14 +180,14 @@ def distance_to_another_stroke(co_list1, co_list2, kdt2 = None, angular_toleranc
     if not kdt2:
         kdt2 = kdtree.KDTree(n2)
         for i in range(n2):
-            kdt2.insert(vec2_to_vec3(co_list2[i]), i)
+            kdt2.insert(xy0(co_list2[i]), i)
         kdt2.balance()        
 
     # Get point-wise distance values
     idx_arr = np.zeros(n1, dtype='int')
     dist_arr = np.zeros(n1)
     for i in range(n1):
-        _, idx_arr[i], dist_arr[i] = kdt2.find(vec2_to_vec3(co_list1[i]))
+        _, idx_arr[i], dist_arr[i] = kdt2.find(xy0(co_list1[i]))
 
     # Calculate the orientation difference of two lines
     contact_idx1 = np.argmin(dist_arr)
@@ -332,7 +348,7 @@ class FitSelectedOperator(CommonFittingConfig, bpy.types.Operator):
         
         # Execute the fitting function
         b_smoothness = self.b_smoothness if 'SPLPREP' in self.postprocessing_method else None
-        co_list, pressure_accumulation, pressure_list, strength_list, color_list, uv_list = fit_2d_strokes(stroke_list, 
+        inv_mat, co_list, pressure_accumulation, pressure_list, strength_list, color_list, uv_list, depth_list = fit_2d_strokes(stroke_list, 
                                                                             search_radius=self.line_sampling_size/LINE_WIDTH_FACTOR, 
                                                                             smoothness_factor=b_smoothness,
                                                                             pressure_delta=self.pressure_variance*0.01, 
@@ -371,7 +387,7 @@ class FitSelectedOperator(CommonFittingConfig, bpy.types.Operator):
                                copy_uv = 'UV' in self.inherited_attributes)
         new_stroke.points.add(co_list.shape[0])
         for i,point in enumerate(new_stroke.points):
-            point.co = vec2_to_vec3(co_list[i], depth=0, scale_factor=1)
+            point.co = restore_3d_co(co_list[i], depth_list[i], inv_mat)
             point.pressure = pressure_list[i] if 'PRESSURE' in self.inherited_attributes else 1
             point.strength = strength_list[i] if 'STRENGTH' in self.inherited_attributes else 1
             point.uv_rotation = uv_list[i] if 'UV' in self.inherited_attributes else 0
@@ -434,7 +450,9 @@ class SelectSimilarOperator(bpy.types.Operator):
         def process_one_frame(frame):
             stroke_list = get_input_strokes(gp_obj, frame)
             stroke_set = set()
-            poly_list, _ = stroke_to_poly(stroke_list, scale = False, correct_orientation = False)
+            t_mat, inv_mat = get_transformation_mat(mode=context.scene.nijigp_working_plane,
+                                                    gp_obj=gp_obj, operator=self)
+            poly_list, _, _ = get_2d_co_from_strokes(stroke_list, t_mat, scale=False)
             kdt_list = []
             for i,stroke in enumerate(stroke_list):
                 kdt_list.append(stroke_to_kdtree(poly_list[i]))
@@ -443,13 +461,13 @@ class SelectSimilarOperator(bpy.types.Operator):
             while True:
                 new_strokes = []
                 for stroke in frame.strokes:
-                    tmp, _ = stroke_to_poly([stroke], scale = False, correct_orientation = False)
+                    tmp, _, _ = get_2d_co_from_strokes([stroke], t_mat, scale = False)
                     co_list = tmp[0]
                     kdt = stroke_to_kdtree(co_list)
                     for i,src_stroke in enumerate(stroke_list):
                         if self.same_material and src_stroke.material_index != stroke.material_index:
                             continue
-                        if not overlapping_bounding_box(stroke, src_stroke):
+                        if not stroke_bound_box_overlapping(stroke, src_stroke, t_mat):
                             continue
                         # Determine similarity based on the distance function
                         line_dist1 = distance_to_another_stroke(co_list, poly_list[i], kdt_list[i], self.angular_tolerance)
@@ -562,7 +580,9 @@ class ClusterAndFitOperator(CommonFittingConfig, bpy.types.Operator):
             return {'FINISHED'}
 
         # Get stroke information
-        poly_list, _ = stroke_to_poly(stroke_list, scale = False, correct_orientation = False)
+        t_mat, inv_mat = get_transformation_mat(mode=context.scene.nijigp_working_plane,
+                                                gp_obj=gp_obj, strokes=stroke_list, operator=self)
+        poly_list, _, _ = get_2d_co_from_strokes(stroke_list, t_mat, scale=False)
         kdt_list = []
         length_list = []
         for co_list in poly_list:
@@ -714,8 +734,12 @@ class FitLastOperator(CommonFittingConfig, bpy.types.Operator):
             return {'FINISHED'} 
         stroke_index = 0 if context.scene.tool_settings.use_gpencil_draw_onback else -1
         src_stroke: bpy.types.GPencilStroke = drawing_layer.active_frame.strokes[stroke_index]
-        tmp, _ = stroke_to_poly([src_stroke], scale = False, correct_orientation = False)
+        
+        t_mat, inv_mat = get_transformation_mat(mode=context.scene.nijigp_working_plane,
+                                                gp_obj=gp_obj, operator=self)
+        tmp, tmp2, _ = get_2d_co_from_strokes([src_stroke], t_mat, scale=False)
         src_co_list = tmp[0]
+        depth_lookup_tree = DepthLookupTree(tmp, tmp2)
         src_kdt = stroke_to_kdtree(src_co_list)
         src_stroke_length = get_stroke_length(co_list=src_co_list)
         
@@ -724,9 +748,9 @@ class FitLastOperator(CommonFittingConfig, bpy.types.Operator):
         threshold = (self.cluster_dist if self.cluster_criterion == 'DIST' else
                      self.cluster_ratio / 100.0 * src_stroke_length)
         for stroke in reference_layer.active_frame.strokes:
-            if not overlapping_bounding_box(stroke, src_stroke):
+            if not stroke_bound_box_overlapping(stroke, src_stroke, t_mat):
                 continue
-            tmp, _ = stroke_to_poly([stroke], scale = False, correct_orientation = False)
+            tmp, _, _ = get_2d_co_from_strokes([stroke], t_mat, scale=False)
             co_list = tmp[0]
             kdt = stroke_to_kdtree(co_list)
             line_dist1 = distance_to_another_stroke(co_list, src_co_list, src_kdt)
@@ -739,12 +763,13 @@ class FitLastOperator(CommonFittingConfig, bpy.types.Operator):
         
         # Execute the fitting function
         b_smoothness = self.b_smoothness
-        new_co_list, pressure_accumulation, _, _, _, _ = fit_2d_strokes(stroke_list, 
+        _, new_co_list, pressure_accumulation, _, _, _, _, _ = fit_2d_strokes(stroke_list, 
                                                                         search_radius=self.line_sampling_size/LINE_WIDTH_FACTOR, 
                                                                         smoothness_factor=b_smoothness,
                                                                         pressure_delta=self.pressure_variance*0.01, 
                                                                         closed=src_stroke.use_cyclic,
-                                                                        operator=self)
+                                                                        operator=self,
+                                                                        t_mat = t_mat)
         # Orientation correction and trimming
         src_direction = Vector(src_co_list[-1]) - Vector(src_co_list[0])
         new_direction = Vector(new_co_list[-1]) - Vector(new_co_list[0])
@@ -775,7 +800,7 @@ class FitLastOperator(CommonFittingConfig, bpy.types.Operator):
                             copy_uv=True, copy_material=True, copy_color=True)
         new_stroke.points.add(new_co_list.shape[0])
         for i,point in enumerate(new_stroke.points):
-            point.co = vec2_to_vec3(new_co_list[i], depth=0, scale_factor=1)
+            point.co = restore_3d_co(new_co_list[i], depth_lookup_tree.get_depth(new_co_list[i]), inv_mat)
             attr_idx = int( float(i) / (len(new_stroke.points)-1) * (len(src_stroke.points)-1) )
             point.pressure = src_stroke.points[attr_idx].pressure
             point.strength = src_stroke.points[attr_idx].strength
@@ -868,13 +893,20 @@ class PinchSelectedOperator(bpy.types.Operator):
             stroke_list += get_input_strokes(gp_obj, frame)
         stroke_list = [stroke for stroke in stroke_list
                        if len(stroke.points)>1 and not stroke.use_cyclic]
-
+        
         if len(stroke_list)<2:
             self.report({"INFO"}, "Please select at least two open strokes.")
             return {'FINISHED'}
-        point_processed = set()
-
+        
+        # Variables related to transformation
+        t_mat, inv_mat = get_transformation_mat(mode=context.scene.nijigp_working_plane,
+                                                gp_obj=gp_obj, strokes=stroke_list, operator=self)
+        poly_list, depth_list, _ = get_2d_co_from_strokes(stroke_list, t_mat, scale=False)
+        depth_lookup_tree = DepthLookupTree(poly_list, depth_list)
+        trans2d = lambda co: Vector((np.array(co).dot(t_mat))[:2])
+        
         # Detect and eliminate the gap between two end points
+        point_processed = set()
         if self.end_to_end:
             num_chains = 0
             stroke_chain_idx = {}
@@ -888,7 +920,7 @@ class PinchSelectedOperator(bpy.types.Operator):
                             break
                         for point0 in [stroke0.points[0], stroke0.points[-1]]:
                             # The case where two points are close and not paired
-                            if i<j and point0 not in point_offset and (vec3_to_vec2(point0.co)-vec3_to_vec2(point.co)).length < self.threshold:
+                            if i<j and point0 not in point_offset and (trans2d(point0.co)-trans2d(point.co)).length < self.threshold:
                                 # Assign the stroke to a chain
                                 if stroke0 in stroke_chain_idx and stroke in stroke_chain_idx:
                                     pass
@@ -902,9 +934,9 @@ class PinchSelectedOperator(bpy.types.Operator):
                                     num_chains += 1
 
                                 # Calculate the offset value
-                                center = 0.5 * (vec3_to_vec2(point0.co)+vec3_to_vec2(point.co))
-                                point_offset[point] = center - vec3_to_vec2(point.co)
-                                point_offset[point0] = center - vec3_to_vec2(point0.co)
+                                center = 0.5 * (trans2d(point0.co)+trans2d(point.co))
+                                point_offset[point] = center - trans2d(point.co)
+                                point_offset[point0] = center - trans2d(point0.co)
                                 break
             # Padding zeros for ends without offsets
             for i,stroke in enumerate(stroke_list):
@@ -921,10 +953,10 @@ class PinchSelectedOperator(bpy.types.Operator):
                     J = len(stroke.points)-1
                     w1 = 1 - j/J/self.transition_length
                     w2 = 1 - (J-j)/J/self.transition_length
-                    new_co = vec3_to_vec2(point.co)
+                    new_co = trans2d(point.co)
                     new_co += self.mix_factor * (point_offset[stroke.points[0]] * smoothstep(w1) 
                                                  + point_offset[stroke.points[-1]] * smoothstep(w2))
-                    set_vec2(point, new_co)
+                    point.co = restore_3d_co(new_co, depth_lookup_tree.get_depth(new_co), inv_mat)
 
         # Detect and eliminate the gap between an endpoint and a non-endpoint
         def prolong_to_stroke(stroke, end_type, ray_length, stroke0):
@@ -932,18 +964,18 @@ class PinchSelectedOperator(bpy.types.Operator):
             Add length to the end of a stroke to see if it crosses another stroke
             '''
             if end_type == 'start':
-                p1 = vec3_to_vec2(stroke.points[0].co)
-                delta = (p1 - vec3_to_vec2(stroke.points[1].co)).normalized() * ray_length
+                p1 = trans2d(stroke.points[0].co)
+                delta = (p1 - trans2d(stroke.points[1].co)).normalized() * ray_length
             else:
-                p1 = vec3_to_vec2(stroke.points[-1].co)
-                delta = (p1 - vec3_to_vec2(stroke.points[-2].co)).normalized() * ray_length
+                p1 = trans2d(stroke.points[-1].co)
+                delta = (p1 - trans2d(stroke.points[-2].co)).normalized() * ray_length
             min_dist = None
             ret = None, None
             for i,p3 in enumerate(stroke0.points):
                 if i==0:
                     continue
-                p3 = vec3_to_vec2(p3.co)
-                p4 = vec3_to_vec2(stroke0.points[i-1].co)
+                p3 = trans2d(p3.co)
+                p4 = trans2d(stroke0.points[i-1].co)
                 for p2 in (p1-delta, p1+delta):
                     intersect = geometry.intersect_line_line_2d(p1,p2,p3,p4)
                     if intersect:
@@ -964,12 +996,12 @@ class PinchSelectedOperator(bpy.types.Operator):
                         intersect, contact_idx = prolong_to_stroke(stroke, end_type, self.threshold, stroke0)
                         if intersect:
                             # Move the end of the stroke immediately
-                            offset = intersect - vec3_to_vec2(point.co)
+                            offset = intersect - trans2d(point.co)
                             L = math.ceil((len(stroke.points)-1)*self.transition_length)
                             for l in range(L+1):
                                 target_point = stroke.points[l] if end_type=='start' else stroke.points[-l-1]
-                                new_co = vec3_to_vec2(target_point.co) + offset * (1-l/L) * self.mix_factor
-                                set_vec2(target_point, new_co)
+                                new_co = trans2d(target_point.co) + offset * (1-l/L) * self.mix_factor
+                                target_point.co = restore_3d_co(new_co, depth_lookup_tree.get_depth(new_co), inv_mat)
 
                             # Thicken the contact points
                             contact_pressure = self.contact_pressure * self.mix_factor
@@ -1091,7 +1123,7 @@ class TaperSelectedOperator(bpy.types.Operator):
 
     def execute(self, context):
 
-        def process_one_stroke(stroke: bpy.types.GPencilStroke):
+        def process_one_stroke(stroke: bpy.types.GPencilStroke, co_list):
             if self.line_width > 0:
                 stroke.line_width = self.line_width
             L = len(stroke.points)
@@ -1117,10 +1149,10 @@ class TaperSelectedOperator(bpy.types.Operator):
             additional_factor_arr = np.ones(L)
             if L>2:
                 for i in range(1, L-1):
-                    co0 = vec3_to_vec2(stroke.points[i-1].co)
-                    co1 = vec3_to_vec2(stroke.points[i].co)
-                    co2 = vec3_to_vec2(stroke.points[i+1].co)
-                    curvature, center = get_concyclic_info(co0.x,co0.y,co1.x,co1.y,co2.x,co2.y)
+                    co0 = Vector(co_list[i-1])
+                    co1 = Vector(co_list[i])
+                    co2 = Vector(co_list[i+1])
+                    curvature, center = get_concyclic_info(co0[0],co0[1],co1[0],co1[1],co2[0],co2[1])
                     direction = 0 if not center else (co2-co1).angle_signed(center-co1)
                     delta = min(curvature * self.curvature_factor, self.curvature_limit)
                     if (direction<0 and self.invert_rightturn) or (direction>0 and self.invert_leftturn):
@@ -1145,7 +1177,10 @@ class TaperSelectedOperator(bpy.types.Operator):
         stroke_list = []
         for frame in frames_to_process:
             stroke_list += get_input_strokes(gp_obj, frame)
-        for stroke in stroke_list:
-            process_one_stroke(stroke)
+        t_mat, inv_mat = get_transformation_mat(mode=context.scene.nijigp_working_plane,
+                                                    gp_obj=gp_obj, strokes=stroke_list, operator=self)
+        poly_list, _, _ = get_2d_co_from_strokes(stroke_list, t_mat, scale=False)
+        for i, stroke in enumerate(stroke_list):
+            process_one_stroke(stroke, poly_list[i])
 
         return {'FINISHED'}

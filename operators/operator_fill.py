@@ -1,4 +1,5 @@
 import bpy
+import numpy as np
 from .common import *
 from ..utils import *
 
@@ -123,7 +124,8 @@ class SmartFillOperator(bpy.types.Operator):
             resolution = self.precision
             if self.clear_fill_layer:
                 for stroke in list(fill_frame.strokes):
-                    fill_frame.strokes.remove(stroke)
+                    if not stroke.is_nofill_stroke:
+                        fill_frame.strokes.remove(stroke)
                     
             # Get points and bound box of line frame
             margin_sizes = (0.1, 0.3, 0.5)
@@ -131,13 +133,18 @@ class SmartFillOperator(bpy.types.Operator):
             stroke_list = []
             for stroke in line_frame.strokes:
                 stroke_list.append(stroke)
+            t_mat, inv_mat = get_transformation_mat(mode=context.scene.nijigp_working_plane,
+                                                    gp_obj=gp_obj, strokes=stroke_list, operator=self)
+            for stroke in line_frame.strokes:
                 for co in (stroke.bound_box_min, stroke.bound_box_max):
-                    u, v = vec3_to_vec2(co)
+                    co_2d = np.array(co).dot(t_mat)
+                    u, v = co_2d[0], co_2d[1]
                     corners[0] = u if (not corners[0] or u<corners[0]) else corners[0]
                     corners[1] = v if (not corners[1] or v<corners[1]) else corners[1]
                     corners[2] = u if (not corners[2] or u>corners[2]) else corners[2]
                     corners[3] = v if (not corners[3] or v>corners[3]) else corners[3]
-            poly_list, scale_factor = stroke_to_poly(stroke_list, True)
+            poly_list, depth_list, scale_factor = get_2d_co_from_strokes(stroke_list, t_mat, scale=True)
+            depth_lookup_tree = DepthLookupTree(poly_list, depth_list)
             corners = [co * scale_factor for co in corners]
             bound_W, bound_H = corners[2]-corners[0], corners[3]-corners[1]
             
@@ -170,7 +177,7 @@ class SmartFillOperator(bpy.types.Operator):
             # Extract colors from hint strokes to label the triangle node graph
             # Label 0 is reserved for transparent regions
             label_colors, label_color_map = [None], {}
-            for stroke in hint_frame.strokes:
+            for stroke in reversed(hint_frame.strokes):
                 hint_points_co, hint_points_label = [], []
                 use_line_color = is_stroke_line(stroke, gp_obj)
                 for point in stroke.points:
@@ -184,7 +191,7 @@ class SmartFillOperator(bpy.types.Operator):
                         if c_key not in label_color_map:
                             label_color_map[c_key] = len(label_colors)
                             label_colors.append(color)
-                        hint_points_co.append(vec3_to_vec2(point.co) * scale_factor)
+                        hint_points_co.append(np.array(point.co).dot(t_mat) * scale_factor)
                         hint_points_label.append(label_color_map[c_key])
                 solver.set_labels_from_points(hint_points_co, hint_points_label)
             solver.propagate_labels()
@@ -235,8 +242,8 @@ class SmartFillOperator(bpy.types.Operator):
                                                         label_colors[label][2],
                                                         1)
                     for i,co in enumerate(c):
-                        new_stroke.points[i].co = vec2_to_vec3(co, 0, scale_factor)
-                    new_stroke.select = True  
+                        new_stroke.points[i].co = restore_3d_co(co, depth_lookup_tree.get_depth(co), inv_mat, scale_factor)
+                    new_stroke.select = True
 
             if self.clear_hint_layer:
                 for stroke in list(hint_frame.strokes):
