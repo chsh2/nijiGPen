@@ -284,27 +284,27 @@ class SmartFillOperator(bpy.types.Operator):
                 if line_frame.select:
                     current_frame = line_frame.frame_number
 
-                # Find the hint frame
-                hint_frame = None
-                for f in hint_layer.frames:
-                    if f.frame_number > current_frame:
-                        break
-                    hint_frame = f
-                if not hint_frame:
-                    self.report({"WARNING"}, "Please add a keyframe in the hint layer.")
-                    return {'FINISHED'}
-                
-                # Find or create the fill frame
-                fill_frame = None
-                for f in fill_layer.frames:
-                    if f.frame_number == current_frame:
-                        fill_frame = f
-                        break
-                if not fill_frame:
-                    fill_frame = fill_layer.frames.new(current_frame)
+                    # Find the hint frame
+                    hint_frame = None
+                    for f in hint_layer.frames:
+                        if f.frame_number > current_frame:
+                            break
+                        hint_frame = f
+                    if not hint_frame:
+                        self.report({"WARNING"}, "Please add a keyframe in the hint layer.")
+                        return {'FINISHED'}
+                    
+                    # Find or create the fill frame
+                    fill_frame = None
+                    for f in fill_layer.frames:
+                        if f.frame_number == current_frame:
+                            fill_frame = f
+                            break
+                    if not fill_frame:
+                        fill_frame = fill_layer.frames.new(current_frame)
 
-                fill_single_frame(line_frame, hint_frame, fill_frame)
-                processed_frame_numbers.append(line_frame.frame_number)
+                    fill_single_frame(line_frame, hint_frame, fill_frame)
+                    processed_frame_numbers.append(line_frame.frame_number)
 
         refresh_strokes(gp_obj, processed_frame_numbers)
         bpy.ops.gpencil.nijigp_hole_processing(rearrange=True, apply_holdout=False)
