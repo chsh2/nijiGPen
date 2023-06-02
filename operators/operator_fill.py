@@ -28,6 +28,11 @@ class SmartFillOperator(bpy.types.Operator):
         default='',
         search=lambda self, context, edit_text: [layer.info for layer in context.object.data.layers]
     )
+    use_boundary_strokes: bpy.props.BoolProperty(
+        name='Boundary Strokes as Hints',
+        default=False,
+        description='Use boundary strokes in the fill layer as hints'
+    )
     precision: bpy.props.FloatProperty(
         name='Precision',
         default=0.01, min=0.001, max=1,
@@ -48,12 +53,13 @@ class SmartFillOperator(bpy.types.Operator):
         default=False,
         description=''
     )
-    color_mode: bpy.props.EnumProperty(            
-        name='Color Mode',
-        items=[ ('VERTEX', 'Vertex Color', ''),
-                ('MATERIAL', 'New Materials', '')],
-        default='MATERIAL',
-        description='Whether using an existing material with vertex colors, or creating new materials'
+    material_mode: bpy.props.EnumProperty(            
+        name='Material Mode',
+        items=[ ('NEW', 'New Materials', ''),
+               ('SELECT', 'Select a Material', ''),
+               ('HINT', 'From Hints', ''),],
+        default='NEW',
+        description='Whether using existing materials or creating new ones based on vertex colors'
     )
     output_material: bpy.props.StringProperty(
         name='Output Material',
@@ -69,12 +75,14 @@ class SmartFillOperator(bpy.types.Operator):
         row = box1.row()
         row.label(text = "Line Art Layer:")
         row.prop(self, "line_layer", icon='OUTLINER_DATA_GP_LAYER', text='')
-        row = box1.row()
-        row.label(text = "Hint Layer:")
-        row.prop(self, "hint_layer", icon='OUTLINER_DATA_GP_LAYER', text='')
+        if not self.use_boundary_strokes:
+            row = box1.row()
+            row.label(text = "Hint Layer:")
+            row.prop(self, "hint_layer", icon='OUTLINER_DATA_GP_LAYER', text='')
         row = box1.row()
         row.label(text = "Fill Layer:")
         row.prop(self, "fill_layer", icon='OUTLINER_DATA_GP_LAYER', text='')
+        box1.prop(self, "use_boundary_strokes")
 
         layout.label(text = "Geometry Options:")
         box2 = layout.box()
@@ -83,12 +91,13 @@ class SmartFillOperator(bpy.types.Operator):
 
         layout.label(text = "Output Options:")
         box3 = layout.box()
-        box3.prop(self, "clear_hint_layer")
-        box3.prop(self, "clear_fill_layer")
         row = box3.row()
-        row.label(text='Color Mode:')
-        row.prop(self, "color_mode", text='')
-        if self.color_mode == 'VERTEX':
+        row.prop(self, "clear_hint_layer")
+        row.prop(self, "clear_fill_layer")
+        row = box3.row()
+        row.label(text='Material Mode:')
+        row.prop(self, "material_mode", text='')
+        if self.material_mode == 'SELECT':
             box3.prop(self, "output_material", text='Material', icon='MATERIAL')
 
     def execute(self, context):
@@ -101,20 +110,21 @@ class SmartFillOperator(bpy.types.Operator):
             return {'FINISHED'}
         
         # Get and validate layers
-        if (len(self.line_layer) < 1 or
-            len(self.hint_layer) < 1 or
-            len(self.fill_layer) < 1):
+        if (len(self.line_layer) < 1
+            or (len(self.hint_layer) < 1 and not self.use_boundary_strokes)
+            or len(self.fill_layer) < 1):
             return {'FINISHED'}
         line_layer = gp_obj.data.layers[self.line_layer]
-        hint_layer = gp_obj.data.layers[self.hint_layer]
+        hint_layer = (gp_obj.data.layers[self.fill_layer] if self.use_boundary_strokes else
+                      gp_obj.data.layers[self.hint_layer])
         fill_layer = gp_obj.data.layers[self.fill_layer]
         if fill_layer.lock:
             self.report({"WARNING"}, "The output layer is locked.")
             return {'FINISHED'}
-        if (self.line_layer == self.hint_layer or
-            self.line_layer == self.fill_layer or
-            self.hint_layer == self.fill_layer):
-            self.report({"INFO"}, "Please select 3 different layers.")
+        if (self.line_layer == self.hint_layer 
+            or (self.hint_layer==self.fill_layer and not self.use_boundary_strokes)
+            or self.line_layer == self.fill_layer):
+            self.report({"INFO"}, "Please select different layers.")
             return {'FINISHED'}
 
         bpy.ops.object.mode_set(mode='EDIT_GPENCIL')
@@ -174,44 +184,50 @@ class SmartFillOperator(bpy.types.Operator):
             solver = SmartFillSolver()
             solver.build_graph(tr_output)
             
-            # Extract colors from hint strokes to label the triangle node graph
+            # Extract colors/materials from hint strokes to label the triangle node graph
             # Label 0 is reserved for transparent regions
-            label_colors, label_color_map = [None], {}
+            labels_info, label_map = [(None, None)], {}
             for stroke in reversed(hint_frame.strokes):
+                if self.use_boundary_strokes and not stroke.is_nofill_stroke:
+                    continue
                 hint_points_co, hint_points_label = [], []
                 use_line_color = is_stroke_line(stroke, gp_obj)
                 for point in stroke.points:
                         if use_line_color:
                             color = (point.vertex_color if point.vertex_color[3] > 0 else
                                     gp_obj.data.materials[stroke.material_index].grease_pencil.color)
+                            use_vertex_color = (point.vertex_color[3] > 0)
                         else:
                             color = (stroke.vertex_color_fill if stroke.vertex_color_fill[3] > 0 else
                                     gp_obj.data.materials[stroke.material_index].grease_pencil.fill_color)
-                        c_key = rgb_to_hex_code(color)
-                        if c_key not in label_color_map:
-                            label_color_map[c_key] = len(label_colors)
-                            label_colors.append(color)
+                            use_vertex_color = (stroke.vertex_color_fill[3] > 0)
+                        # Use both color and material index to define a label
+                        material_idx = stroke.material_index if self.material_mode == 'HINT' else -1
+                        c_key = (rgb_to_hex_code(color), material_idx, use_vertex_color)
+                        if c_key not in label_map:
+                            label_map[c_key] = len(labels_info)
+                            labels_info.append([color, material_idx, use_vertex_color])
                         hint_points_co.append(np.array(point.co).dot(t_mat) * scale_factor)
-                        hint_points_label.append(label_color_map[c_key])
+                        hint_points_label.append(label_map[c_key])
                 solver.set_labels_from_points(hint_points_co, hint_points_label)
             solver.propagate_labels()
             if self.fill_holes:
                 solver.complete_labels()
             
             # Find or generate materials for each label (color)
-            output_material_idx = [None]
             material_name = self.output_material
             if len(material_name)<1:
                 material_name = gp_obj.active_material.name
-            for color in label_colors:
-                if not color:
+            for item in labels_info:
+                color = item[0]
+                if not color or item[1] > -1:   # Material already known
                     continue
-                if self.color_mode == 'MATERIAL':
+                if self.material_mode == 'NEW':
                     material_name = 'GP_Fill' + rgb_to_hex_code(color)
                 for i,material_slot in enumerate(gp_obj.material_slots):
                     # Case 1: Material added to active object
                     if material_slot.material and material_slot.material.name == material_name:
-                        output_material_idx.append(i)
+                        item[1] = i
                         break
                 else:
                     # Case 2: Material not created
@@ -223,7 +239,7 @@ class SmartFillOperator(bpy.types.Operator):
                         mat.grease_pencil.fill_color = [color[0],color[1],color[2],1]
                     # Case 3: Material created but not added
                     gp_obj.data.materials.append(bpy.data.materials[material_name])
-                    output_material_idx.append(len(gp_obj.material_slots)-1)
+                    item[1] = len(gp_obj.material_slots)-1
 
             # Generate new strokes from contours of the filled regions
             contours_co, contours_label = solver.get_contours()
@@ -235,19 +251,19 @@ class SmartFillOperator(bpy.types.Operator):
                     new_stroke: bpy.types.GPencilStroke = fill_frame.strokes.new()
                     new_stroke.points.add(len(c))
                     new_stroke.use_cyclic = True
-                    new_stroke.material_index = output_material_idx[label]
-                    if self.color_mode == 'VERTEX':
-                        new_stroke.vertex_color_fill = (label_colors[label][0],
-                                                        label_colors[label][1],
-                                                        label_colors[label][2],
-                                                        1)
+                    new_stroke.material_index = labels_info[label][1]
+                    if (self.material_mode == 'SELECT' or
+                        (self.material_mode == 'HINT' and labels_info[label][2]) ):
+                        color = labels_info[label][0]
+                        new_stroke.vertex_color_fill = (color[0], color[1], color[2], 1)
                     for i,co in enumerate(c):
                         new_stroke.points[i].co = restore_3d_co(co, depth_lookup_tree.get_depth(co), inv_mat, scale_factor)
                     new_stroke.select = True
 
             if self.clear_hint_layer:
                 for stroke in list(hint_frame.strokes):
-                    hint_frame.strokes.remove(stroke)
+                    if not self.use_boundary_strokes or stroke.is_nofill_stroke:
+                        hint_frame.strokes.remove(stroke)
 
         # Get the frames from each layer to process
         processed_frame_numbers = []
