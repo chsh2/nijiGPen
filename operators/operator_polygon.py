@@ -711,14 +711,15 @@ class BoolLastOperator(bpy.types.Operator):
             self.report({"INFO"}, "Please select a non-empty layer.")
             bpy.ops.object.mode_set(mode='PAINT_GPENCIL')
             return {'FINISHED'}   
-                 
-        t_mat, inv_mat = get_transformation_mat(mode=context.scene.nijigp_working_plane,
-                                                gp_obj=current_gp_obj, operator=self)
+        
         # Check every stroke if it can be operated
         stroke_index = 0 if context.scene.tool_settings.use_gpencil_draw_onback else (len(layer.active_frame.strokes) - 1)
         clip_stroke = layer.active_frame.strokes[stroke_index]
         stroke_info = [[clip_stroke, layer_index, stroke_index]]
         stroke_list = [clip_stroke]
+        t_mat, inv_mat = get_transformation_mat(mode=context.scene.nijigp_working_plane,
+                                                strokes = stroke_list,
+                                                gp_obj=current_gp_obj, operator=self)
         for j,stroke in enumerate(layer.active_frame.strokes):
             if j == stroke_index:
                 continue

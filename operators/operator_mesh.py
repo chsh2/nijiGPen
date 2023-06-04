@@ -8,14 +8,23 @@ from mathutils import *
 
 MAX_DEPTH = 4096
 
-# TODO: A new implementation is needed to mirror an object in arbitrary direction
-def apply_mirror(obj):
-    """Apply a Mirror modifier in the Object mode"""
+def apply_mirror_in_depth(obj, inv_mat, loc = (0,0,0)):
+    """Apply a Mirror modifier in the Object mode with given center and axis"""
     obj.modifiers.new(name="nijigp_Mirror", type='MIRROR')
-    obj.modifiers["nijigp_Mirror"].use_axis[0] = (bpy.context.scene.nijigp_working_plane == 'Y-Z')
-    obj.modifiers["nijigp_Mirror"].use_axis[1] = (bpy.context.scene.nijigp_working_plane == 'X-Z')
-    obj.modifiers["nijigp_Mirror"].use_axis[2] = (bpy.context.scene.nijigp_working_plane == 'X-Y')
-    bpy.ops.object.modifier_apply("EXEC_DEFAULT", modifier = "nijigp_Mirror")     
+    obj.modifiers["nijigp_Mirror"].use_axis = (False, False, True)
+    
+    # Create an empty object as the mirror reference
+    empty_object = bpy.data.objects.new("Empty", None)
+    bpy.context.collection.objects.link(empty_object)
+    empty_object.location = loc
+    empty_object.parent = obj
+    empty_object.rotation_mode = 'QUATERNION'
+    empty_object.rotation_quaternion = Matrix(np.transpose(inv_mat)).to_quaternion()
+    obj.modifiers["nijigp_Mirror"].mirror_object = empty_object
+    
+    # Clean-up
+    bpy.ops.object.modifier_apply("EXEC_DEFAULT", modifier = "nijigp_Mirror")
+    bpy.data.objects.remove(empty_object)
 
 class MeshManagement(bpy.types.Operator):
     """Manage mesh objects generated from the active GPencil object"""
@@ -216,8 +225,15 @@ class MeshGenerationByNormal(bpy.types.Operator):
                             stroke_info.append([stroke, i, j])
                             stroke_list.append(stroke)
                             mesh_names.append('Planar_' + layer.info + '_' + str(j))
-        poly_list, scale_factor = stroke_to_poly(stroke_list, scale=True, correct_orientation=True)
-        mask_poly_list, _ = stroke_to_poly(mask_list, scale=True, correct_orientation=True, scale_factor=scale_factor)
+        t_mat, inv_mat = get_transformation_mat(mode=context.scene.nijigp_working_plane,
+                                                gp_obj=current_gp_obj, strokes=stroke_list, operator=self)
+        poly_list, depth_list, scale_factor = get_2d_co_from_strokes(stroke_list, t_mat, 
+                                                                     scale=True, correct_orientation=True)
+        mask_poly_list, mask_depth_list, _ = get_2d_co_from_strokes(mask_list, t_mat, 
+                                                            scale=True, correct_orientation=True,
+                                                            scale_factor=scale_factor)
+        trans2d = lambda co: Vector((np.array(co).dot(t_mat))[:2])
+
         if len(poly_list) < 1:
             return {'FINISHED'}
 
@@ -273,6 +289,7 @@ class MeshGenerationByNormal(bpy.types.Operator):
             
             # Generate vertices and faces in BMesh
             # Method 1: use Knife Project with a 2D grid
+            mean_depth = np.mean(np.array(depth_list[i]))
             if self.mesh_style=='QUAD':
                 # Convert the stroke curve to a temporary mesh
                 bm_cut = bmesh.new()
@@ -295,15 +312,16 @@ class MeshGenerationByNormal(bpy.types.Operator):
                 bpy.ops.object.mode_set(mode='OBJECT')
                 grid_size = max((u_max-u_min), (v_max-v_min))/scale_factor
                 margin_size = grid_size/self.resolution * 0.5
-                grid_loc = vec2_to_vec3([(u_max+u_min)/2, (v_max+v_min)/2],0,scale_factor)
+                grid_loc = restore_3d_co([(u_max+u_min)/2, (v_max+v_min)/2], mean_depth, inv_mat, scale_factor)
                 bpy.ops.mesh.primitive_grid_add(x_subdivisions=self.resolution,
                                                 y_subdivisions=self.resolution,
                                                 size= grid_size + margin_size,  
                                                 align='WORLD',
                                                 location=grid_loc, 
-                                                rotation= [(bpy.context.scene.nijigp_working_plane == 'X-Z')*math.pi/2,
-                                                            (bpy.context.scene.nijigp_working_plane == 'Y-Z')*math.pi/2,0],
                                                 scale=(1, 1, 1))
+                grid_obj = bpy.context.object
+                grid_obj.rotation_mode = 'QUATERNION'
+                grid_obj.rotation_quaternion = Matrix(np.transpose(inv_mat)).to_quaternion() 
                 bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
                 grid_obj = bpy.context.object
                 grid_obj.parent = current_gp_obj
@@ -361,10 +379,11 @@ class MeshGenerationByNormal(bpy.types.Operator):
                     
                 # Generate vertices and triangle faces
                 for co in tr_output['vertices']:
-                    bm.verts.new(vec2_to_vec3(co,0,scale_factor)) 
+                    bm.verts.new(restore_3d_co(co, mean_depth, inv_mat, scale_factor))
                 bm.verts.ensure_lookup_table()
+                bm.verts.index_update()
                 for f in tr_output['triangles']:
-                    v_list = (bm.verts[f[2]], bm.verts[f[1]], bm.verts[f[0]])
+                    v_list = (bm.verts[f[0]], bm.verts[f[1]], bm.verts[f[2]])
                     bm.faces.new(v_list)    
 
             # Normal and height calculation
@@ -372,8 +391,8 @@ class MeshGenerationByNormal(bpy.types.Operator):
             depth_offset = np.cos(self.max_vertical_angle) / np.sqrt(1 + 
                                                               (self.vertical_scale**2 - 1) *
                                                               (np.sin(self.max_vertical_angle)**2))
-            for vert in bm.verts:
-                co_2d = vec3_to_vec2(vert.co) * scale_factor
+            for j,vert in enumerate(bm.verts):
+                co_2d = trans2d(vert.co) * scale_factor
                 co_key = (int(co_2d[0]), int(co_2d[1]))
                 norm = Vector((0,0,0))
                 # Contour vertex case
@@ -400,9 +419,9 @@ class MeshGenerationByNormal(bpy.types.Operator):
             # UV projection, required for correct tangent direction
             for face in bm.faces:
                 for loop in face.loops:
-                    co = vec3_to_vec2(loop.vert.co)
-                    loop[uv_layer].uv = ( (co[0]*scale_factor-u_min)/(u_max-u_min),
-                                           1 -(co[1]*scale_factor-v_min)/(v_max-v_min))
+                    co_2d = trans2d(loop.vert.co) * scale_factor
+                    loop[uv_layer].uv = ( (co_2d[0]*scale_factor-u_min)/(u_max-u_min),
+                                           1 -(co_2d[1]*scale_factor-v_min)/(v_max-v_min))
 
             # Set vertex color from the stroke's both vertex and material fill colors
             fill_base_color = [1,1,1,1]
@@ -424,15 +443,16 @@ class MeshGenerationByNormal(bpy.types.Operator):
             ray_receiver = {}
             for j,obj in enumerate(generated_objects):
                 for v in bm.verts:
-                    ray_emitter = Vector(v.co)
-                    set_depth(ray_emitter, MAX_DEPTH)
-                    res, loc, norm, idx = obj.ray_cast(ray_emitter, -get_depth_direction())
+                    ray_emitter = np.array(v.co)
+                    ray_direction = np.array([0,0,1]).dot(inv_mat)
+                    ray_emitter += ray_direction * MAX_DEPTH
+                    res, loc, norm, idx = obj.ray_cast(ray_emitter, -ray_direction)
+                    ray_hitpoint = (np.array(loc)-np.array(v.co)).dot(t_mat)
                     if res:
-                        depth = vec3_to_depth(loc)
-                        vertical_pos = max(depth, vertical_pos)
+                        vertical_pos = max(vertical_pos, ray_hitpoint[2])
                         if self.transition and 'NormalMap' in obj.data.attributes:
-                            if v not in ray_receiver or ray_receiver[v][2]<depth:
-                                ray_receiver[v] = (obj, idx, depth)
+                            if v not in ray_receiver or ray_receiver[v][2]<ray_hitpoint[2]:
+                                ray_receiver[v] = (obj, idx, ray_hitpoint[2])
             vertical_pos += self.vertical_gap
 
             # Adjust transparency and normal vector values if transition is enabled
@@ -457,20 +477,27 @@ class MeshGenerationByNormal(bpy.types.Operator):
 
             # Update vertices locations and make a new BVHTree
             depth_scale = maxmin_dist * self.vertical_scale * np.sign(self.max_vertical_angle)
-            for v in bm.verts:
+            for j,v in enumerate(bm.verts):
                 if self.mesh_type == 'MESH':
-                    set_depth(v, v[depth_layer]*depth_scale)
+                    co_2d = trans2d(v.co) * scale_factor
+                    v.co = restore_3d_co(co_2d, mean_depth+v[depth_layer]*depth_scale, inv_mat, scale_factor)
             bm.to_mesh(new_mesh)
             bm.free()
 
             # Object generation
             new_object = bpy.data.objects.new(mesh_names[i], new_mesh)
             new_object['nijigp_mesh'] = 'planar' if self.mesh_type=='NORMAL' else '3d'
-            set_depth(new_object.location, vertical_pos)
+            new_object.location = np.array([0,0,vertical_pos]).dot(inv_mat)
             bpy.context.collection.objects.link(new_object)
             new_object.parent = current_gp_obj
             generated_objects.append(new_object)
 
+            # Apply transform, necessary because of the movement in depth
+            mb = new_object.matrix_basis
+            new_object.data.transform(mb)
+            applied_offset = Vector(new_object.location)
+            new_object.location = Vector((0, 0, 0)) 
+            
             # Assign material
             if mesh_material:
                 new_object.data.materials.append(mesh_material)
@@ -481,14 +508,10 @@ class MeshGenerationByNormal(bpy.types.Operator):
             new_object.select_set(True)
             context.view_layer.objects.active = new_object
             bpy.ops.object.shade_smooth(use_auto_smooth=False)
+            mean_depth_offset = Vector(np.array((0, 0, mean_depth)).dot(inv_mat))
             if self.mesh_type=='MESH' and self.postprocess_double_sided:
-                apply_mirror(new_object)
-            # Apply transform, necessary because of the movement in depth
-            mb = new_object.matrix_basis
-            if hasattr(new_object.data, "transform"):
-                new_object.data.transform(mb)
-            new_object.location = Vector((0, 0, 0))           
-
+                apply_mirror_in_depth(new_object, inv_mat, applied_offset + mean_depth_offset)
+         
         for i,co_list in enumerate(poly_list):
             # Identify the holes that should be considered: same layer, arranged beyond and inside
             mask_indices = []
@@ -650,7 +673,6 @@ class MeshGenerationByOffsetting(bpy.types.Operator):
         layout.prop(self, "reuse_material")
         layout.prop(self, "keep_original", text = "Keep Original")
 
-
     def execute(self, context):
 
         # Import and configure Clipper
@@ -667,7 +689,6 @@ class MeshGenerationByOffsetting(bpy.types.Operator):
         elif self.corner_shape == "JT_MITER":
             jt = pyclipper.JT_MITER
         et = pyclipper.ET_CLOSEDPOLYGON
-
 
         # Convert selected strokes to 2D polygon point lists
         current_gp_obj = context.object
@@ -686,8 +707,11 @@ class MeshGenerationByOffsetting(bpy.types.Operator):
                         stroke_info.append([stroke, i, j])
                         stroke_list.append(stroke)
                         mesh_names.append('Offset_' + layer.info + '_' + str(j))
-        poly_list, scale_factor = stroke_to_poly(stroke_list, scale = True)
-
+        t_mat, inv_mat = get_transformation_mat(mode=context.scene.nijigp_working_plane,
+                                                gp_obj=current_gp_obj, strokes=stroke_list, operator=self)
+        poly_list, depth_list, scale_factor = get_2d_co_from_strokes(stroke_list, t_mat, scale=True)
+        #depth_lookup_tree = DepthLookupTree(poly_list, depth_list)
+        
         generated_objects = []
         for obj in current_gp_obj.children:
             if 'nijigp_mesh' in obj:
@@ -720,9 +744,9 @@ class MeshGenerationByOffsetting(bpy.types.Operator):
                                 if k==0:
                                     true_poly.append(point)
                                     continue
-                                p0 = vec2_to_vec3(point,0,scale_factor)
-                                p1 = vec2_to_vec3(true_poly[-1],0,scale_factor)
-                                if (p0-p1).length > self.merge_distance:
+                                p0 = Vector(point)
+                                p1 = Vector(true_poly[-1])
+                                if (p0-p1).length > self.merge_distance * scale_factor:
                                     true_poly.append(point)
                             if len(true_poly)<3:
                                 true_poly = poly
@@ -732,10 +756,10 @@ class MeshGenerationByOffsetting(bpy.types.Operator):
                         vert_counter += num_vert
                         new_contour.append(true_poly)
                     contours.append(new_contour)
-                    vert_idx_list.append(new_idx_list)
-                    
+                    vert_idx_list.append(new_idx_list)   
 
             # Mesh generation
+            mean_depth = np.mean(np.array(depth_list[i]))
             new_mesh = bpy.data.meshes.new(mesh_names[i])
             bm = bmesh.new()
             vertex_color_layer = bm.verts.layers.color.new('Color')
@@ -761,7 +785,10 @@ class MeshGenerationByOffsetting(bpy.types.Operator):
 
                     for co in poly:
                         verts_by_level[-1].append(
-                            bm.verts.new(vec2_to_vec3(co, height, scale_factor))
+                            bm.verts.new(restore_3d_co(co,
+                                                       height + mean_depth,
+                                                       inv_mat, scale_factor)
+                                        )
                             )
                     bm.verts.ensure_lookup_table()
 
@@ -849,11 +876,13 @@ class MeshGenerationByOffsetting(bpy.types.Operator):
             vertical_pos = 0
             for j,obj in enumerate(generated_objects):
                 for v in bm.verts:
-                    ray_emitter = Vector(v.co)
-                    set_depth(ray_emitter, MAX_DEPTH)
-                    res, loc, norm, idx = obj.ray_cast(ray_emitter, -get_depth_direction())
+                    ray_emitter = np.array(v.co)
+                    ray_direction = np.array([0,0,1]).dot(inv_mat)
+                    ray_emitter += ray_direction * MAX_DEPTH
+                    res, loc, norm, idx = obj.ray_cast(ray_emitter, -ray_direction)
+                    ray_hitpoint = (np.array(loc)-np.array(v.co)).dot(t_mat)
                     if res:
-                        vertical_pos = max(vertical_pos, vec3_to_depth(loc))
+                        vertical_pos = max(vertical_pos, ray_hitpoint[2])
                         if obj['nijigp_mesh'] == 'planar':
                             break
             vertical_pos += self.vertical_gap
@@ -864,10 +893,16 @@ class MeshGenerationByOffsetting(bpy.types.Operator):
             # Object generation
             new_object = bpy.data.objects.new(mesh_names[i], new_mesh)
             new_object['nijigp_mesh'] = '3d'
-            set_depth(new_object.location, vertical_pos)
+            new_object.location = np.array([0,0,vertical_pos]).dot(inv_mat)
             bpy.context.collection.objects.link(new_object)
             new_object.parent = current_gp_obj
             generated_objects.append(new_object)
+
+            # Apply transform, necessary because of the movement in depth
+            mb = new_object.matrix_basis
+            new_object.data.transform(mb)
+            applied_offset = Vector(new_object.location)
+            new_object.location = Vector((0, 0, 0))
 
             # Assign material
             if mesh_material:
@@ -883,9 +918,10 @@ class MeshGenerationByOffsetting(bpy.types.Operator):
                     bpy.ops.mesh.faces_shade_smooth()
 
             # Post-processing: mirror
+            mean_depth_offset = Vector(np.array((0, 0, mean_depth)).dot(inv_mat))
             bpy.ops.object.mode_set(mode='OBJECT')
             if self.postprocess_double_sided:
-                apply_mirror(new_object)
+                apply_mirror_in_depth(new_object, inv_mat, applied_offset + mean_depth_offset)
             
             # Post-processing: remesh
             if self.postprocess_remesh:
@@ -895,12 +931,6 @@ class MeshGenerationByOffsetting(bpy.types.Operator):
                 bpy.ops.object.voxel_remesh("EXEC_DEFAULT")
 
             new_object.data.use_auto_smooth = self.postprocess_shade_smooth
-
-            # Apply transform, necessary because of the movement in depth
-            mb = new_object.matrix_basis
-            if hasattr(new_object.data, "transform"):
-                new_object.data.transform(mb)
-            new_object.location = Vector((0, 0, 0))
 
         for i,co_list in enumerate(poly_list):
             process_single_stroke(i, co_list)

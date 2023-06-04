@@ -64,8 +64,7 @@ def get_input_frames(gp_obj, multiframe=False, return_map=False):
         return frame_number_layer_map
     else:
         return frames_to_process
-
-                
+               
 def get_input_strokes(gp_obj, frame: bpy.types.GPencilFrame, select_all = False):
     """
     Check each stroke in a frame if it belongs to the input

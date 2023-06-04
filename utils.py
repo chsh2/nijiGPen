@@ -107,20 +107,30 @@ def get_an_inside_co(poly):
         delta /= 2
     return None
 
-def bound_box_overlapping(pa1, pa2, pb1, pb2):
-    """Given the bound box of two strokes (each box represented by 2 points), judge whether they overlap in the 2D plane"""
+def stroke_bound_box_overlapping(s1, s2, t_mat):
+    """Judge if bound boxes of two strokes overlap in any given 2D plane"""
+    
+    # Bpy provides two bound box points for each stroke, however we need all 8 points
+    bound_points = []
+    for s in (s1,s2):
+        bound_points.append([])
+        for x in (s.bound_box_min.x, s.bound_box_max.x):
+            for y in (s.bound_box_min.y, s.bound_box_max.y):
+                for z in (s.bound_box_min.z, s.bound_box_max.z):
+                    bound_points[-1].append(np.array([x,y,z]))
     for i in range(2):
-        pa_min, pa_max = min(pa1[i], pa2[i]), max(pa1[i], pa2[i])
-        pb_min, pb_max = min(pb1[i], pb2[i]), max(pb1[i], pb2[i])
+        for j in range(8):
+            co_2d = bound_points[i][j].dot(t_mat)
+            bound_points[i][j] = co_2d
+    # Check first two axes if strokes overlap on them
+    bound_points = np.array(bound_points)
+    for i in range(2):
+        pa_min, pa_max = min(bound_points[0,:,i]), max(bound_points[0,:,i])
+        pb_min, pb_max = min(bound_points[1,:,i]), max(bound_points[1,:,i])
         if pa_min > pb_max or pb_min > pa_max:
             return False
-    return True
+    return True        
 
-def stroke_bound_box_overlapping(s1, s2, t_mat):
-    bb = []
-    for vec in (s1.bound_box_min, s1.bound_box_max, s2.bound_box_min, s2.bound_box_max):
-        bb.append(np.array(vec).dot(t_mat))
-    return bound_box_overlapping(bb[0],bb[1],bb[2],bb[3])
 #endregion
 
 #region [Bpy Utilities]
@@ -227,12 +237,16 @@ def get_transformation_mat(mode='VIEW', gp_obj=None, strokes=[], operator=None):
             if eigenvalues[-1] > 1e-6 and operator:
                 operator.report({"INFO"}, "More than one 2D plane detected. The result may be inaccurate.")
                 
-            if mat[:,2].dot(view_matrix[:,2]) < 0:  # Align depth axis with current view
-                mat = -mat
+            if mat[:,2].dot(view_matrix[2,:]) < 0:  
+                mat[:,2] *= -1                          # Align depth axis with current view
+            if np.cross(mat[:,0], mat[:,1]).dot(mat[:,2]) < 0:
+                mat[:,1] *= -1                          # Ensure the rule of calculating normals is consistent
             return mat, np.linalg.pinv(mat)
         
     # Use view plane
     mat = np.transpose(view_matrix)
+    if np.cross(mat[:,0], mat[:,1]).dot(mat[:,2]) < 0:
+        mat[:,1] *= -1 
     return mat, np.linalg.pinv(mat)
 
 def get_2d_co_from_strokes(stroke_list, t_mat, scale = False, correct_orientation = False, scale_factor=None):
@@ -322,110 +336,3 @@ def restore_3d_co(co, depth, inv_mat, scale_factor=1):
                     depth]).dot(inv_mat)
     return vec
 #endregion
-
-
-
-
-# TODO: Replace or deprecate all functions below
-def vec3_to_vec2(co) -> Vector:
-    """Convert 3D coordinates into 2D"""
-    scene = bpy.context.scene
-    if scene.nijigp_working_plane == 'X-Z':
-        return Vector([co.x, -co.z])
-    if scene.nijigp_working_plane == 'Y-Z':
-        return Vector([co.y, -co.z])
-    if scene.nijigp_working_plane == 'X-Y':
-        return Vector([co.x, -co.y])
-
-def vec2_to_vec3(co, depth = 0.0, scale_factor = 1.0) -> Vector:
-    """Convert 2D coordinates into 3D"""
-    scene = bpy.context.scene
-    if scene.nijigp_working_plane == 'X-Z':
-        return Vector([co[0] / scale_factor, -depth, -co[1] / scale_factor])
-    if scene.nijigp_working_plane == 'Y-Z':
-        return Vector([depth, co[0] / scale_factor, -co[1] / scale_factor])
-    if scene.nijigp_working_plane == 'X-Y':
-        return Vector([co[0] / scale_factor, -co[1] / scale_factor, depth])
-
-def vec3_to_depth(co):
-    """Get depth value from 3D coordinates"""
-    scene = bpy.context.scene
-    if scene.nijigp_working_plane == 'X-Z':    
-        return -co.y
-    if scene.nijigp_working_plane == 'Y-Z':    
-        return co.x
-    if scene.nijigp_working_plane == 'X-Y':    
-        return co.z
-
-def set_depth(point, depth):
-    """Set depth to a GP point"""
-    scene = bpy.context.scene
-    if hasattr(point, 'co'):
-        target = point.co
-    else:
-        target = point
-    if scene.nijigp_working_plane == 'X-Z':    
-        target.y = -depth
-    if scene.nijigp_working_plane == 'Y-Z':    
-        target.x = depth
-    if scene.nijigp_working_plane == 'X-Y':    
-        target.z = depth
-
-def get_depth_direction() -> Vector:
-    """Return a vector pointing to the positive side of the depth dimension"""
-    scene = bpy.context.scene
-    if scene.nijigp_working_plane == 'X-Z':    
-        return Vector((0,-1,0))
-    if scene.nijigp_working_plane == 'Y-Z':    
-        return Vector((1,0,0))
-    if scene.nijigp_working_plane == 'X-Y':    
-        return Vector((0,0,1))
-
-def stroke_to_poly(stroke_list, scale = False, correct_orientation = False, scale_factor=None):
-    """
-    Convert Blender strokes to a list of 2D coordinates compatible with Clipper.
-    Scaling can be applied instead of Clipper's built-in method
-    """
-    poly_list = []
-    w_bound = [math.inf, -math.inf]
-    h_bound = [math.inf, -math.inf]
-
-    for stroke in stroke_list:
-        co_list = []
-        for point in stroke.points:
-            co_list.append(vec3_to_vec2(point.co))
-            w_bound[0] = min(w_bound[0], co_list[-1][0])
-            w_bound[1] = max(w_bound[1], co_list[-1][0])
-            h_bound[0] = min(h_bound[0], co_list[-1][1])
-            h_bound[1] = max(h_bound[1], co_list[-1][1])
-        poly_list.append(co_list)
-
-    if scale and not scale_factor:
-        poly_W = w_bound[1] - w_bound[0]
-        poly_H = h_bound[1] - h_bound[0]
-        
-        if math.isclose(poly_W, 0) and math.isclose(poly_H, 0):
-            scale_factor = 1
-        elif math.isclose(poly_W, 0):
-            scale_factor = SCALE_CONSTANT / min(poly_H, SCALE_CONSTANT)
-        elif math.isclose(poly_H, 0):
-            scale_factor = SCALE_CONSTANT / min(poly_W, SCALE_CONSTANT)
-        else:
-            scale_factor = SCALE_CONSTANT / min(poly_W, poly_H, SCALE_CONSTANT)
-
-    if scale_factor:
-        for co_list in poly_list:
-            for co in co_list:
-                co[0] *= scale_factor
-                co[1] *= scale_factor
-
-    # Since Grease Pencil does not care whether the sequence of points is clockwise,
-    # Clipper may regard some strokes as negative polygons, which needs a fix 
-    if correct_orientation:
-        import pyclipper
-        for co_list in poly_list:
-            if not pyclipper.Orientation(co_list):
-                co_list.reverse()
-
-    return poly_list, scale_factor
-
