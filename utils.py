@@ -211,8 +211,9 @@ def get_transformation_mat(mode='VIEW', gp_obj=None, strokes=[], operator=None):
                'X-Y': np.array([[1,0,0],
                                 [0,1,0],
                                 [0,0,1]])}
-    view_matrix = bpy.context.space_data.region_3d.view_matrix.to_3x3()
-    view_matrix = np.array(view_matrix)
+    view_matrix = np.array(bpy.context.space_data.region_3d.view_matrix.to_3x3())
+    obj_rotation = np.array(gp_obj.matrix_world.to_3x3().normalized())
+    view_matrix = view_matrix @ obj_rotation
 
     # Use orthogonal planes
     if mode in presets:
@@ -226,13 +227,13 @@ def get_transformation_mat(mode='VIEW', gp_obj=None, strokes=[], operator=None):
             for stroke in strokes:
                 for point in stroke.points:
                     data.append(point.co)
-            if len(data) < 2:   # PCA cannot handle. Use view plane instead.
+            if len(data) < 2:                           # PCA cannot handle. Use view plane instead.
                 break
             
             mat, eigenvalues = pca(np.array(data))
             
             if eigenvalues[1] < 1e-6 and eigenvalues[2] < 1e-6:
-                break           # 1-dimension only. Use view plane instead
+                break                                   # 1-dimension only. Use view plane instead
             
             if eigenvalues[-1] > 1e-6 and operator:
                 operator.report({"INFO"}, "More than one 2D plane detected. The result may be inaccurate.")

@@ -25,9 +25,9 @@ bl_info = {
 
 from . import auto_load
 from .ui_viewport_tools import *
+import bpy.utils.previews
 
 auto_load.init()
-
 
 def register():
     auto_load.register()
@@ -36,8 +36,8 @@ def register():
                         items=[('X-Z', 'Front (X-Z)', ''),
                                 ('Y-Z', 'Side (Y-Z)', ''),
                                 ('X-Y', 'Top (X-Y)', ''),
-                                ('VIEW', 'View (Debug: DO NOT USE)', ''),
-                                ('AUTO', 'Auto (Debug: DO NOT USE)', '')],
+                                ('VIEW', 'View (Beta)', ''),
+                                ('AUTO', 'Auto (Beta)', '')],
                         default='X-Z',
                         description='The 2D (local) plane that most add-on operators are working on'
                         )

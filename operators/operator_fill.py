@@ -109,7 +109,7 @@ class SmartFillOperator(bpy.types.Operator):
             self.report({"ERROR"}, "Please install Scikit-Image in the Preferences panel.")
             return {'FINISHED'}
         
-        # Get and validate layers
+        # Get and validate input/output layers
         if (len(self.line_layer) < 1
             or (len(self.hint_layer) < 1 and not self.use_boundary_strokes)
             or len(self.fill_layer) < 1):
@@ -121,11 +121,11 @@ class SmartFillOperator(bpy.types.Operator):
         if fill_layer.lock:
             self.report({"WARNING"}, "The output layer is locked.")
             return {'FINISHED'}
-        if (self.line_layer == self.hint_layer 
-            or (self.hint_layer==self.fill_layer and not self.use_boundary_strokes)
-            or self.line_layer == self.fill_layer):
-            self.report({"INFO"}, "Please select different layers.")
+        if (self.line_layer == self.hint_layer or self.line_layer == self.fill_layer):
+            self.report({"INFO"}, "Please select a separate layer for line art only.")
             return {'FINISHED'}
+        if (self.fill_layer == self.hint_layer and not self.use_boundary_strokes):
+            self.clear_fill_layer = False
 
         bpy.ops.object.mode_set(mode='EDIT_GPENCIL')
         bpy.ops.gpencil.select_all(action='DESELECT')
@@ -186,7 +186,7 @@ class SmartFillOperator(bpy.types.Operator):
             
             # Extract colors/materials from hint strokes to label the triangle node graph
             # Label 0 is reserved for transparent regions
-            labels_info, label_map = [(None, None)], {}
+            labels_info, label_map = [(None, None, False)], {}
             for stroke in reversed(hint_frame.strokes):
                 if self.use_boundary_strokes and not stroke.is_nofill_stroke:
                     continue
@@ -243,6 +243,7 @@ class SmartFillOperator(bpy.types.Operator):
 
             # Generate new strokes from contours of the filled regions
             contours_co, contours_label = solver.get_contours()
+            generated_strokes = set()
             for i, contours in enumerate(contours_co):
                 label = contours_label[i]
                 if label < 1:
@@ -259,11 +260,13 @@ class SmartFillOperator(bpy.types.Operator):
                     for i,co in enumerate(c):
                         new_stroke.points[i].co = restore_3d_co(co, depth_lookup_tree.get_depth(co), inv_mat, scale_factor)
                     new_stroke.select = True
+                    generated_strokes.add(new_stroke)
 
             if self.clear_hint_layer:
                 for stroke in list(hint_frame.strokes):
                     if not self.use_boundary_strokes or stroke.is_nofill_stroke:
-                        hint_frame.strokes.remove(stroke)
+                        if stroke not in generated_strokes:
+                            hint_frame.strokes.remove(stroke)
 
         # Get the frames from each layer to process
         processed_frame_numbers = []

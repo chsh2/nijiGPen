@@ -17,7 +17,7 @@ def get_workspace_tool_icon(file_name):
     """
     script_file = os.path.realpath(__file__)
     return os.path.join(os.path.dirname(script_file), 'res/icons', file_name)
-
+    
 def get_library_blend_file():
     file_name = 'res/library.blend'
     script_file = os.path.realpath(__file__)

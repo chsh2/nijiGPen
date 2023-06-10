@@ -199,6 +199,8 @@ class NIJIGP_PT_edit_panel_line(bpy.types.Panel):
 
     def draw(self, context):
         layout = self.layout
+        scene = context.scene
+        
         layout.label(text="Line Cleanup by Fitting:")
         row = layout.row()
         row.operator("gpencil.nijigp_fit_selected", text="Single-Line", icon="MOD_SMOOTH")

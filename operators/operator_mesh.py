@@ -114,6 +114,11 @@ class MeshGenerationByNormal(bpy.types.Operator):
             default=2, min=0, soft_max=5,
             description='Generate denser mesh near the contour for better quality shading'
     )
+    use_native_triangulation: bpy.props.BoolProperty(
+            name='Use Native Method',
+            default=False,
+            description='Do not use the external library for triangulation. Some advanced features will be disabled'
+    )
     contour_trim: bpy.props.BoolProperty(
             name='Contour Trim',
             default=True,
@@ -171,7 +176,8 @@ class MeshGenerationByNormal(bpy.types.Operator):
         box2.label(text = "Mesh Style:")
         box2.prop(self, "mesh_style", text = "")   
         if self.mesh_style == 'TRI':
-            box2.prop(self, "contour_subdivision", text = "Contour Subdivision")
+            box2.prop(self, "use_native_triangulation")
+            box2.prop(self, "contour_subdivision")
         elif self.mesh_style == 'QUAD':
             box2.prop(self, "contour_trim", text = "Contour Trim")
         box2.prop(self, "resolution", text = "Resolution")
@@ -184,19 +190,19 @@ class MeshGenerationByNormal(bpy.types.Operator):
 
     def execute(self, context):
         import numpy as np
-        is_triangle_available = True
+
         try:
             import pyclipper
         except ImportError:
             self.report({"ERROR"}, "Please install PyClipper in the Preferences panel.")
             return {'FINISHED'}
         
-        if self.mesh_style == 'TRI':
+        if self.mesh_style == 'TRI' and not self.use_native_triangulation:
             try:
                 import triangle as tr
             except ImportError:
-                self.report({"WARNING"}, "Triangle package is not installed. Some options may be invalid.")
-                is_triangle_available = False
+                self.report({"WARNING"}, "Triangle package is not installed. Switch to the native method.")
+                self.use_native_triangulation = True
         
         # Load related resources
         current_gp_obj = context.object
@@ -237,7 +243,7 @@ class MeshGenerationByNormal(bpy.types.Operator):
         if len(poly_list) < 1:
             return {'FINISHED'}
 
-        # Holes should have an opposite direction, and they need a coordinate for triangle input
+        # Holes should have an opposite direction, and coordinate of an inside point is needed for triangle input
         mask_hole_points = []
         for mask_co_list in mask_poly_list:
             mask_co_list.reverse()
@@ -256,7 +262,7 @@ class MeshGenerationByNormal(bpy.types.Operator):
             vertex_color_layer = bm.verts.layers.color.new('Color')
             normal_map_layer = bm.verts.layers.float_vector.new('NormalMap')
             depth_layer = bm.verts.layers.float.new('Depth')
-            uv_layer = bm.loops.layers.uv.new()
+            uv_layer = bm.loops.layers.uv.new('UVMap')
 
             # Initialize the mask information
             local_mask_polys, local_mask_list, hole_points = [], [], []
@@ -350,14 +356,25 @@ class MeshGenerationByNormal(bpy.types.Operator):
                 verts= []
                 num_verts = 0
                 offset_size = -min((u_max-u_min),(v_max-v_min))/self.resolution
+                offset_values = [0]
 
                 # Preprocessing the polygon using Clipper
                 # The triangle library may crash in several cases, which should be avoided with every effort
                 # https://www.cs.cmu.edu/~quake/triangle.trouble.html
                 clipper = pyclipper.PyclipperOffset()
                 clipper.AddPaths([co_list]+local_mask_polys, join_type = pyclipper.JT_ROUND, end_type = pyclipper.ET_CLOSEDPOLYGON)
-                for k in range(self.contour_subdivision+1):
-                    poly_results = clipper.Execute(offset_size * k/max(1, self.contour_subdivision))
+                
+                for _ in range(self.contour_subdivision):
+                    new_offset = offset_values[-1] + offset_size / max(1, self.contour_subdivision)
+                    offset_values.append(new_offset)
+                # If using the native method for triangulation, do offset for more times to achieve the target resolution
+                if self.use_native_triangulation:
+                    for _ in range(self.resolution-1):
+                        new_offset = offset_values[-1] + offset_size
+                        offset_values.append(new_offset)
+                
+                for value in offset_values:
+                    poly_results = clipper.Execute(value)
                     for poly_result in poly_results:
                         for j,co in enumerate(poly_result):
                             verts.append(co)
@@ -368,7 +385,7 @@ class MeshGenerationByNormal(bpy.types.Operator):
                 if len(verts)<3:
                     return
                 tr_input = dict(vertices = verts, segments = np.array(segs))
-                if is_triangle_available:
+                if not self.use_native_triangulation:
                     if len(hole_points)>0:
                         tr_input['holes']=hole_points
                     area_limit = (u_max-u_min)*(v_max-v_min)/(self.resolution**2)
@@ -384,7 +401,16 @@ class MeshGenerationByNormal(bpy.types.Operator):
                 bm.verts.index_update()
                 for f in tr_output['triangles']:
                     v_list = (bm.verts[f[0]], bm.verts[f[1]], bm.verts[f[2]])
-                    bm.faces.new(v_list)    
+                    if self.use_native_triangulation:   # When using the native method, we need to manually remove faces inside holes
+                        face_center = ((tr_output['vertices'][f[0]][0]+tr_output['vertices'][f[1]][0]+tr_output['vertices'][f[2]][0]) / 3.0,
+                                       (tr_output['vertices'][f[0]][1]+tr_output['vertices'][f[1]][1]+tr_output['vertices'][f[2]][1]) / 3.0)
+                        for poly in local_mask_polys:
+                            if pyclipper.PointInPolygon(face_center, poly) != 0:
+                                break
+                        else:
+                            bm.faces.new(v_list)
+                    else:
+                        bm.faces.new(v_list)    
 
             # Normal and height calculation
             maxmin_dist = 0.
@@ -420,8 +446,8 @@ class MeshGenerationByNormal(bpy.types.Operator):
             for face in bm.faces:
                 for loop in face.loops:
                     co_2d = trans2d(loop.vert.co) * scale_factor
-                    loop[uv_layer].uv = ( (co_2d[0]*scale_factor-u_min)/(u_max-u_min),
-                                           1 -(co_2d[1]*scale_factor-v_min)/(v_max-v_min))
+                    loop[uv_layer].uv = ( (co_2d[0]-u_min)/(u_max-u_min),
+                                          (co_2d[1]-v_min)/(v_max-v_min))
 
             # Set vertex color from the stroke's both vertex and material fill colors
             fill_base_color = [1,1,1,1]
