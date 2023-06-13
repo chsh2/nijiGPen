@@ -435,7 +435,7 @@ class MeshGenerationByNormal(bpy.types.Operator):
                     norm = Vector([norm_u, np.sqrt(max(0,math.sin(self.max_vertical_angle)**2-norm_u**2-norm_v**2)) + math.cos(self.max_vertical_angle), norm_v])
                 # Scale vertical components
                 norm = Vector((norm.x * self.vertical_scale, norm.y, norm.z * self.vertical_scale)).normalized()
-                vert[normal_map_layer] = [ 0.5 * (norm.x + 1) , 0.5 * (norm.z + 1), 0.5 * (norm.y+1)]
+                vert[normal_map_layer] = [ 0.5 * (norm.x + 1) , 0.5 * (-norm.z + 1), 0.5 * (norm.y+1)]
                 if vert.is_boundary:
                     vert[depth_layer] = 0
                 else:

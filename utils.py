@@ -232,16 +232,23 @@ def get_transformation_mat(mode='VIEW', gp_obj=None, strokes=[], operator=None):
             
             mat, eigenvalues = pca(np.array(data))
             
+            # Cases that result has 1 or 3 dimensions
             if eigenvalues[1] < 1e-6 and eigenvalues[2] < 1e-6:
-                break                                   # 1-dimension only. Use view plane instead
-            
+                break
             if eigenvalues[-1] > 1e-6 and operator:
                 operator.report({"INFO"}, "More than one 2D plane detected. The result may be inaccurate.")
-                
+            
+            # Align the result with the current view
             if mat[:,2].dot(view_matrix[2,:]) < 0:  
-                mat[:,2] *= -1                          # Align depth axis with current view
+                mat[:,2] *= -1                          # 1. Make the depth axis facing the screen
             if np.cross(mat[:,0], mat[:,1]).dot(mat[:,2]) < 0:
-                mat[:,1] *= -1                          # Ensure the rule of calculating normals is consistent
+                mat[:,1] *= -1                          # 2. Ensure the rule of calculating normals is consistent
+            # 3. Rotate the first two axes to align the UV/tangent
+            target_up_axis = (np.linalg.pinv(view_matrix) @ np.array((0,1,0))).dot(mat)
+            delta = Vector((0,1)).angle_signed(target_up_axis[:2])
+            rotation = np.array(Matrix.Rotation(-delta,3,mat[:,2]))
+            mat = rotation @ mat
+            
             return mat, np.linalg.pinv(mat)
         
     # Use view plane

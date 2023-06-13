@@ -25,7 +25,6 @@ bl_info = {
 
 from . import auto_load
 from .ui_viewport_tools import *
-import bpy.utils.previews
 
 auto_load.init()
 
