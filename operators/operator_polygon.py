@@ -119,10 +119,10 @@ def overlapping_strokes(s1, s2, t_mat):
     N2 = len(s2.points)
     for i in range(N1):
         for j in range(N2):
-            p1 = np.array(s1.points[i].co).dot(t_mat)
-            p2 = np.array(s1.points[(i+1)%N1].co).dot(t_mat)
-            p3 = np.array(s2.points[j].co).dot(t_mat)
-            p4 = np.array(s2.points[(j+1)%N2].co).dot(t_mat)
+            p1 = t_mat @ s1.points[i].co
+            p2 = t_mat @ s1.points[(i+1)%N1].co
+            p3 = t_mat @ s2.points[j].co
+            p4 = t_mat @ s2.points[(j+1)%N2].co
             if geometry.intersect_line_line_2d(p1[:2],p2[:2],p3[:2],p4[:2]):
                 return True
     return False

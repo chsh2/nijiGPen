@@ -117,10 +117,10 @@ def stroke_bound_box_overlapping(s1, s2, t_mat):
         for x in (s.bound_box_min.x, s.bound_box_max.x):
             for y in (s.bound_box_min.y, s.bound_box_max.y):
                 for z in (s.bound_box_min.z, s.bound_box_max.z):
-                    bound_points[-1].append(np.array([x,y,z]))
+                    bound_points[-1].append(Vector([x,y,z]))
     for i in range(2):
         for j in range(8):
-            co_2d = bound_points[i][j].dot(t_mat)
+            co_2d = t_mat @ bound_points[i][j]
             bound_points[i][j] = co_2d
     # Check first two axes if strokes overlap on them
     bound_points = np.array(bound_points)
@@ -202,23 +202,23 @@ def get_transformation_mat(mode='VIEW', gp_obj=None, strokes=[], operator=None):
     The x and y values of transformed coordinates will be used for 2D operators.
     NumPy arrays are preferred compared with the Bpy Matrix class
     """
-    presets = {'X-Z': np.array([[1,0,0],
-                                [0,0,-1],
-                                [0,1,0]]),
-               'Y-Z': np.array([[0,0,1],
-                                [1,0,0],
-                                [0,1,0]]),
-               'X-Y': np.array([[1,0,0],
-                                [0,1,0],
-                                [0,0,1]])}
-    view_matrix = np.array(bpy.context.space_data.region_3d.view_matrix.to_3x3())
-    obj_rotation = np.array(gp_obj.matrix_world.to_3x3().normalized())
+    presets = {'X-Z': Matrix([[1,0,0],
+                              [0,0,1],
+                              [0,-1,0]]),
+               'Y-Z': Matrix([[0,1,0],
+                              [0,0,1],
+                              [1,0,0]]),
+               'X-Y': Matrix([[1,0,0],
+                              [0,1,0],
+                              [0,0,1]])}
+    view_matrix = bpy.context.space_data.region_3d.view_matrix.to_3x3()
+    obj_rotation = gp_obj.matrix_world.to_3x3().normalized()
     view_matrix = view_matrix @ obj_rotation
 
     # Use orthogonal planes
     if mode in presets:
         mat = presets[mode]
-        return mat, np.linalg.pinv(mat)
+        return mat, mat.inverted_safe()
     
     # Auto mode: use PCA combined with the view vector to determine
     for _ in range(1):
@@ -238,24 +238,25 @@ def get_transformation_mat(mode='VIEW', gp_obj=None, strokes=[], operator=None):
             if eigenvalues[-1] > 1e-6 and operator:
                 operator.report({"INFO"}, "More than one 2D plane detected. The result may be inaccurate.")
             
+            mat = Matrix(mat).transposed()
+
             # Align the result with the current view
-            if mat[:,2].dot(view_matrix[2,:]) < 0:  
-                mat[:,2] *= -1                          # 1. Make the depth axis facing the screen
-            if np.cross(mat[:,0], mat[:,1]).dot(mat[:,2]) < 0:
-                mat[:,1] *= -1                          # 2. Ensure the rule of calculating normals is consistent
+            if mat[2].dot(view_matrix[2]) < 0:  
+                mat[2] *= -1                          # 1. Make the depth axis facing the screen
+            if mat[0].cross(mat[1]).dot(mat[2]) < 0:
+                mat[1] *= -1                          # 2. Ensure the rule of calculating normals is consistent
             # 3. Rotate the first two axes to align the UV/tangent
-            target_up_axis = (np.linalg.pinv(view_matrix) @ np.array((0,1,0))).dot(mat)
+            target_up_axis = mat @ view_matrix.inverted_safe() @ Vector((0,1,0))
             delta = Vector((0,1)).angle_signed(target_up_axis[:2])
-            rotation = np.array(Matrix.Rotation(-delta,3,mat[:,2]))
-            mat = rotation @ mat
-            
-            return mat, np.linalg.pinv(mat)
+            rotation = Matrix.Rotation(delta,3,mat[2])
+            mat = mat @ rotation
+            return mat, mat.inverted_safe()
         
     # Use view plane
-    mat = np.transpose(view_matrix)
-    if np.cross(mat[:,0], mat[:,1]).dot(mat[:,2]) < 0:
-        mat[:,1] *= -1 
-    return mat, np.linalg.pinv(mat)
+    mat = view_matrix
+    if mat[0].cross(mat[1]).dot(mat[2]) < 0:
+        mat[1] *= -1 
+    return mat, mat.inverted_safe()
 
 def get_2d_co_from_strokes(stroke_list, t_mat, scale = False, correct_orientation = False, scale_factor=None):
     """
@@ -271,7 +272,7 @@ def get_2d_co_from_strokes(stroke_list, t_mat, scale = False, correct_orientatio
         co_list = []
         depth_list = []
         for point in stroke.points:
-            transformed_co = np.array(point.co).dot(t_mat)
+            transformed_co = t_mat @ point.co
             co_list.append([transformed_co[0],transformed_co[1]])
             depth_list.append(transformed_co[2])
             w_bound[0] = min(w_bound[0], co_list[-1][0])
@@ -339,8 +340,8 @@ class DepthLookupTree:
 
 def restore_3d_co(co, depth, inv_mat, scale_factor=1):
     """Perform inverse transformation on 2D coordinates"""
-    vec = np.array([co[0]/ scale_factor,
-                    co[1]/ scale_factor,
-                    depth]).dot(inv_mat)
+    vec = inv_mat @ Vector([co[0]/ scale_factor,
+                            co[1]/ scale_factor,
+                            depth])
     return vec
 #endregion

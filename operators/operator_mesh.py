@@ -19,7 +19,7 @@ def apply_mirror_in_depth(obj, inv_mat, loc = (0,0,0)):
     empty_object.location = loc
     empty_object.parent = obj
     empty_object.rotation_mode = 'QUATERNION'
-    empty_object.rotation_quaternion = Matrix(np.transpose(inv_mat)).to_quaternion()
+    empty_object.rotation_quaternion = inv_mat.to_quaternion()
     obj.modifiers["nijigp_Mirror"].mirror_object = empty_object
     
     # Clean-up
@@ -238,7 +238,7 @@ class MeshGenerationByNormal(bpy.types.Operator):
         mask_poly_list, mask_depth_list, _ = get_2d_co_from_strokes(mask_list, t_mat, 
                                                             scale=True, correct_orientation=True,
                                                             scale_factor=scale_factor)
-        trans2d = lambda co: Vector((np.array(co).dot(t_mat))[:2])
+        trans2d = lambda co: (t_mat @ co).xy
 
         if len(poly_list) < 1:
             return {'FINISHED'}
@@ -327,7 +327,7 @@ class MeshGenerationByNormal(bpy.types.Operator):
                                                 scale=(1, 1, 1))
                 grid_obj = bpy.context.object
                 grid_obj.rotation_mode = 'QUATERNION'
-                grid_obj.rotation_quaternion = Matrix(np.transpose(inv_mat)).to_quaternion() 
+                grid_obj.rotation_quaternion = inv_mat.to_quaternion() 
                 bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
                 grid_obj = bpy.context.object
                 grid_obj.parent = current_gp_obj
@@ -470,10 +470,10 @@ class MeshGenerationByNormal(bpy.types.Operator):
             for j,obj in enumerate(generated_objects):
                 for v in bm.verts:
                     ray_emitter = np.array(v.co)
-                    ray_direction = np.array([0,0,1]).dot(inv_mat)
+                    ray_direction = inv_mat @ Vector([0,0,1])
                     ray_emitter += ray_direction * MAX_DEPTH
                     res, loc, norm, idx = obj.ray_cast(ray_emitter, -ray_direction)
-                    ray_hitpoint = (np.array(loc)-np.array(v.co)).dot(t_mat)
+                    ray_hitpoint = t_mat @ (loc - v.co)
                     if res:
                         vertical_pos = max(vertical_pos, ray_hitpoint[2])
                         if self.transition and 'NormalMap' in obj.data.attributes:
@@ -513,7 +513,7 @@ class MeshGenerationByNormal(bpy.types.Operator):
             # Object generation
             new_object = bpy.data.objects.new(mesh_names[i], new_mesh)
             new_object['nijigp_mesh'] = 'planar' if self.mesh_type=='NORMAL' else '3d'
-            new_object.location = np.array([0,0,vertical_pos]).dot(inv_mat)
+            new_object.location = inv_mat @ Vector([0,0,vertical_pos])
             bpy.context.collection.objects.link(new_object)
             new_object.parent = current_gp_obj
             generated_objects.append(new_object)
@@ -534,7 +534,7 @@ class MeshGenerationByNormal(bpy.types.Operator):
             new_object.select_set(True)
             context.view_layer.objects.active = new_object
             bpy.ops.object.shade_smooth(use_auto_smooth=False)
-            mean_depth_offset = Vector(np.array((0, 0, mean_depth)).dot(inv_mat))
+            mean_depth_offset = inv_mat @ Vector((0, 0, mean_depth))
             if self.mesh_type=='MESH' and self.postprocess_double_sided:
                 apply_mirror_in_depth(new_object, inv_mat, applied_offset + mean_depth_offset)
          
@@ -903,10 +903,10 @@ class MeshGenerationByOffsetting(bpy.types.Operator):
             for j,obj in enumerate(generated_objects):
                 for v in bm.verts:
                     ray_emitter = np.array(v.co)
-                    ray_direction = np.array([0,0,1]).dot(inv_mat)
+                    ray_direction = inv_mat @ Vector([0,0,1])
                     ray_emitter += ray_direction * MAX_DEPTH
                     res, loc, norm, idx = obj.ray_cast(ray_emitter, -ray_direction)
-                    ray_hitpoint = (np.array(loc)-np.array(v.co)).dot(t_mat)
+                    ray_hitpoint = t_mat @ (loc-v.co)
                     if res:
                         vertical_pos = max(vertical_pos, ray_hitpoint[2])
                         if obj['nijigp_mesh'] == 'planar':
@@ -919,7 +919,7 @@ class MeshGenerationByOffsetting(bpy.types.Operator):
             # Object generation
             new_object = bpy.data.objects.new(mesh_names[i], new_mesh)
             new_object['nijigp_mesh'] = '3d'
-            new_object.location = np.array([0,0,vertical_pos]).dot(inv_mat)
+            new_object.location = inv_mat @ Vector([0,0,vertical_pos])
             bpy.context.collection.objects.link(new_object)
             new_object.parent = current_gp_obj
             generated_objects.append(new_object)
@@ -944,7 +944,7 @@ class MeshGenerationByOffsetting(bpy.types.Operator):
                     bpy.ops.mesh.faces_shade_smooth()
 
             # Post-processing: mirror
-            mean_depth_offset = Vector(np.array((0, 0, mean_depth)).dot(inv_mat))
+            mean_depth_offset = inv_mat @ Vector((0, 0, mean_depth))
             bpy.ops.object.mode_set(mode='OBJECT')
             if self.postprocess_double_sided:
                 apply_mirror_in_depth(new_object, inv_mat, applied_offset + mean_depth_offset)

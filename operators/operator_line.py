@@ -13,7 +13,7 @@ def stroke_to_kdtree(co_list):
     kdt.balance()
     return kdt
 
-def fit_2d_strokes(strokes, search_radius, smoothness_factor = 1, pressure_delta = 0, closed = False, operator = None, t_mat = []):
+def fit_2d_strokes(strokes, search_radius, smoothness_factor = 1, pressure_delta = 0, closed = False, operator = None, t_mat = [], inv_mat = []):
     '''
     Fit points from multiple strokes to a single curve, by executing the following operations:
         1. Delaunay triangulation
@@ -38,8 +38,6 @@ def fit_2d_strokes(strokes, search_radius, smoothness_factor = 1, pressure_delta
         t_mat, inv_mat = get_transformation_mat(mode=bpy.context.scene.nijigp_working_plane,
                                                 gp_obj=bpy.context.active_object,
                                                 strokes=strokes, operator=operator)
-    else:
-        inv_mat = np.linalg.pinv(t_mat)
     poly_list, depth_list, _ = get_2d_co_from_strokes(strokes, t_mat, scale=False)
     
     total_point_count = 0
@@ -769,7 +767,8 @@ class FitLastOperator(CommonFittingConfig, bpy.types.Operator):
                                                                         pressure_delta=self.pressure_variance*0.01, 
                                                                         closed=src_stroke.use_cyclic,
                                                                         operator=self,
-                                                                        t_mat = t_mat)
+                                                                        t_mat = t_mat,
+                                                                        inv_mat = inv_mat)
         # Orientation correction and trimming
         src_direction = Vector(src_co_list[-1]) - Vector(src_co_list[0])
         new_direction = Vector(new_co_list[-1]) - Vector(new_co_list[0])
@@ -903,7 +902,7 @@ class PinchSelectedOperator(bpy.types.Operator):
                                                 gp_obj=gp_obj, strokes=stroke_list, operator=self)
         poly_list, depth_list, _ = get_2d_co_from_strokes(stroke_list, t_mat, scale=False)
         depth_lookup_tree = DepthLookupTree(poly_list, depth_list)
-        trans2d = lambda co: Vector((np.array(co).dot(t_mat))[:2])
+        trans2d = lambda co: (t_mat @ co).xy
         
         # Detect and eliminate the gap between two end points
         point_processed = set()

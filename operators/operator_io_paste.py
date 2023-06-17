@@ -49,7 +49,7 @@ class PasteSVGOperator(bpy.types.Operator):
         current_gp_obj = context.object
         current_material_idx = context.object.active_material_index
         num_layers = len(context.object.data.layers)
-        t_mat, inv_mat = get_transformation_mat(mode=context.scene.nijigp_working_plane)
+        t_mat, inv_mat = get_transformation_mat(mode=context.scene.nijigp_working_plane, gp_obj=current_gp_obj)
 
         # Convert clipboard data to SVG file
         svg_str = context.window_manager.clipboard
@@ -101,7 +101,7 @@ class PasteSVGOperator(bpy.types.Operator):
         for i in range(len(context.object.data.layers) - num_layers):
             for stroke in context.object.data.layers[i].active_frame.strokes:
                 for point in stroke.points:
-                    point.co = np.array(point.co).dot(inv_mat)
+                    point.co = inv_mat @ point.co
         if context.scene.tool_settings.gpencil_stroke_placement_view3d == 'CURSOR':
             bpy.ops.transform.translate(value=context.scene.cursor.location)
 

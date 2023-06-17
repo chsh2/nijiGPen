@@ -289,7 +289,7 @@ class ImportLineImageOperator(bpy.types.Operator, ImportHelper):
 
                 for i,point in enumerate(frame_strokes[-1].points):
                     img_co = line[min(i*self.sample_length, len(line)-1)]
-                    point.co = (np.array((img_co[1]-img_W/2, -img_co[0]+img_H/2, 0))/scale_factor).dot(inv_mat)
+                    point.co = restore_3d_co((img_co[1]-img_W/2, -img_co[0]+img_H/2, 0), 0, inv_mat, scale_factor)
                     point.pressure = dist_mat[img_co]
                     if self.generate_strength:
                         point.strength = 1 - denoised_lumi_mat[img_co]
@@ -601,7 +601,7 @@ class ImportColorImageOperator(bpy.types.Operator, ImportHelper):
                                                 srgb_to_linear(color[2]),1]
                 stroke.points.add(len(path))
                 for i,point in enumerate(frame_strokes[-1].points):
-                    point.co = (np.array((path[i][1]-img_W/2, -path[i][0]+img_H/2, 0))/scale_factor).dot(inv_mat)
+                    point.co = restore_3d_co((path[i][1]-img_W/2, -path[i][0]+img_H/2, 0), 0, inv_mat, scale_factor)
                     point.strength = strength
                     if self.color_mode == 'VERTEX' and self.set_line_color:
                         point.vertex_color = [srgb_to_linear(color[0]),
