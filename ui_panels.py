@@ -15,6 +15,9 @@ class NIJIGP_PT_draw_panel_setting(bpy.types.Panel):
         row = layout.row()
         row.label(text="Working Plane:")
         row.prop(scene, "nijigp_working_plane", text='')
+        if scene.nijigp_working_plane == 'VIEW' or scene.nijigp_working_plane == 'AUTO':
+            row = layout.row()
+            row.prop(scene, "nijigp_working_plane_layer_transform", text='Use Transform of Active Layer')
 
 class NIJIGP_PT_edit_panel_setting(bpy.types.Panel):
     bl_idname = 'NIJIGP_PT_edit_panel_setting'
@@ -31,6 +34,9 @@ class NIJIGP_PT_edit_panel_setting(bpy.types.Panel):
         row = layout.row()
         row.label(text="Working Plane:")
         row.prop(scene, "nijigp_working_plane", text='')
+        if scene.nijigp_working_plane == 'VIEW' or scene.nijigp_working_plane == 'AUTO':
+            row = layout.row()
+            row.prop(scene, "nijigp_working_plane_layer_transform", text='Use Transform of Active Layer')
 
 class NIJIGP_PT_draw_panel_io(bpy.types.Panel):
     bl_idname = 'NIJIGP_PT_draw_panel_io'

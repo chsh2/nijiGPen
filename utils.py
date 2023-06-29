@@ -200,7 +200,6 @@ def get_transformation_mat(mode='VIEW', gp_obj=None, strokes=[], operator=None):
     """
     Get the transformation matrix and its inverse matrix given a 2D working plane.
     The x and y values of transformed coordinates will be used for 2D operators.
-    NumPy arrays are preferred compared with the Bpy Matrix class
     """
     presets = {'X-Z': Matrix([[1,0,0],
                               [0,0,1],
@@ -211,9 +210,14 @@ def get_transformation_mat(mode='VIEW', gp_obj=None, strokes=[], operator=None):
                'X-Y': Matrix([[1,0,0],
                               [0,1,0],
                               [0,0,1]])}
+    
     view_matrix = bpy.context.space_data.region_3d.view_matrix.to_3x3()
-    obj_rotation = gp_obj.matrix_world.to_3x3().normalized()
-    view_matrix = view_matrix @ obj_rotation
+    if gp_obj:
+        obj_rotation = gp_obj.matrix_world.to_3x3().normalized()
+        layer_rotation = gp_obj.data.layers.active.matrix_layer.to_3x3().normalized()
+        view_matrix = view_matrix @ obj_rotation
+        if bpy.context.scene.nijigp_working_plane_layer_transform:
+            view_matrix = view_matrix @ layer_rotation
 
     # Use orthogonal planes
     if mode in presets:

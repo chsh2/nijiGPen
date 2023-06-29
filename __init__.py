@@ -40,6 +40,10 @@ def register():
                         default='X-Z',
                         description='The 2D (local) plane that most add-on operators are working on'
                         )
+    bpy.types.Scene.nijigp_working_plane_layer_transform = bpy.props.BoolProperty(
+                        default=True, 
+                        description="Taking the active layer's transform into consideration when calculating the view angle"
+                        )
     bpy.types.Scene.nijigp_draw_bool_material_constraint = bpy.props.BoolProperty(
                         default=False, 
                         description="Boolean operations in Draw mode only apply to strokes with the same material"

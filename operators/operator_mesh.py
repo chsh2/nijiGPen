@@ -534,7 +534,10 @@ class MeshGenerationByNormal(bpy.types.Operator):
                 mb = new_object.matrix_basis
                 new_object.data.transform(mb)
                 applied_offset = Vector(new_object.location)
-                new_object.location = Vector((0, 0, 0)) 
+                gp_layer = current_gp_obj.data.layers[stroke_info[i][1]]
+                new_object.location = gp_layer.location
+                new_object.rotation_euler = gp_layer.rotation
+                new_object.scale = gp_layer.scale
                 
                 # Assign material
                 if mesh_material:
@@ -955,7 +958,10 @@ class MeshGenerationByOffsetting(bpy.types.Operator):
                 mb = new_object.matrix_basis
                 new_object.data.transform(mb)
                 applied_offset = Vector(new_object.location)
-                new_object.location = Vector((0, 0, 0))
+                gp_layer = current_gp_obj.data.layers[stroke_info[i][1]]
+                new_object.location = gp_layer.location
+                new_object.rotation_euler = gp_layer.rotation
+                new_object.scale = gp_layer.scale
 
                 # Assign material
                 if mesh_material:
