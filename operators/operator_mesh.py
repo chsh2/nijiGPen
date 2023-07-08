@@ -8,6 +8,32 @@ from mathutils import *
 
 MAX_DEPTH = 4096
 
+def get_mixed_color(gp_obj, stroke, point_idx = None):
+    """Get the displayed color by jointly considering the material and vertex colors"""
+    res = [0,0,0,0]
+    mat_gp = gp_obj.data.materials[stroke.material_index].grease_pencil
+    if not point_idx:
+        # Case of fill color
+        if gp_obj.data.materials[stroke.material_index].grease_pencil.show_fill:
+            for i in range(4):
+                res[i] = mat_gp.fill_color[i]
+        if hasattr(stroke,'vertex_color_fill'):
+            alpha = stroke.vertex_color_fill[3]
+            for i in range(3):
+                res[i] = linear_to_srgb(res[i] * (1-alpha) + alpha * stroke.vertex_color_fill[i])
+        return res
+    else:
+        # Case of line point color
+        point = stroke.points[point_idx]
+        if gp_obj.data.materials[stroke.material_index].grease_pencil.show_stroke:
+            for i in range(4):
+                res[i] = mat_gp.color[i]
+        if hasattr(point,'vertex_color'):
+            alpha = point.vertex_color[3]
+            for i in range(3):
+                res[i] = linear_to_srgb(res[i] * (1-alpha) + alpha * point.vertex_color[i])
+        return res
+
 def apply_mirror_in_depth(obj, inv_mat, loc = (0,0,0)):
     """Apply a Mirror modifier in the Object mode with given center and axis"""
     obj.modifiers.new(name="nijigp_Mirror", type='MIRROR')
@@ -25,6 +51,37 @@ def apply_mirror_in_depth(obj, inv_mat, loc = (0,0,0)):
     # Clean-up
     bpy.ops.object.modifier_apply("EXEC_DEFAULT", modifier = "nijigp_Mirror")
     bpy.data.objects.remove(empty_object)
+
+class CommonMeshConfig:
+    postprocess_double_sided: bpy.props.BoolProperty(
+            name='Double-Sided',
+            default=True,
+            description='Make the mesh symmetric to the working plane'
+    )
+    vertical_gap: bpy.props.FloatProperty(
+            name='Vertical Gap',
+            default=0.01, min=0,
+            unit='LENGTH',
+            description='Mininum vertical space between generated meshes'
+    )    
+    ignore_mode: bpy.props.EnumProperty(
+            name='Ignore',
+            items=[('NONE', 'None', ''),
+                    ('LINE', 'All Lines', ''),
+                    ('OPEN', 'All Open Lines', '')],
+            default='NONE',
+            description='Skip strokes without fill'
+    )
+    reuse_material: bpy.props.BoolProperty(
+            name='Reuse Materials',
+            default=True,
+            description='Do not create a new material if it exists'
+    )
+    keep_original: bpy.props.BoolProperty(
+            name='Keep Original',
+            default=True,
+            description='Do not delete the original stroke'
+    )
 
 class MeshManagement(bpy.types.Operator):
     """Manage mesh objects generated from the active GPencil object"""
@@ -58,7 +115,7 @@ class MeshManagement(bpy.types.Operator):
 
         return {'FINISHED'}
 
-class MeshGenerationByNormal(bpy.types.Operator):
+class MeshGenerationByNormal(CommonMeshConfig, bpy.types.Operator):
     """Generate a planar mesh with an interpolated normal map calculated from the selected strokes"""
     bl_idname = "gpencil.nijigp_mesh_generation_normal"
     bl_label = "Convert to Meshes by Normal Interpolation"
@@ -71,25 +128,6 @@ class MeshGenerationByNormal(bpy.types.Operator):
                     ('MESH', '3D Mesh', '')],
             default='NORMAL',
             description='Generate either a normal map or real 3D structure'
-    )
-    postprocess_double_sided: bpy.props.BoolProperty(
-            name='Double-Sided',
-            default=True,
-            description='Make the mesh symmetric to the working plane'
-    )
-    vertical_gap: bpy.props.FloatProperty(
-            name='Vertical Gap',
-            default=0.01, min=0,
-            unit='LENGTH',
-            description='Mininum vertical space between generated meshes'
-    )    
-    ignore_mode: bpy.props.EnumProperty(
-            name='Ignore',
-            items=[('NONE', 'None', ''),
-                    ('LINE', 'All Lines', ''),
-                    ('OPEN', 'All Open Lines', '')],
-            default='NONE',
-            description='Skip strokes without fill'
     )
     mesh_style: bpy.props.EnumProperty(
             name='Mesh Style',
@@ -145,16 +183,6 @@ class MeshGenerationByNormal(bpy.types.Operator):
         description='The material applied to generated mesh. Principled BSDF by default',
         default='Principled BSDF',
         search=lambda self, context, edit_text: get_material_list(self.mesh_type, bpy.context.engine)
-    )
-    reuse_material: bpy.props.BoolProperty(
-            name='Reuse Materials',
-            default=True,
-            description='Do not create a new material if it exists'
-    )
-    keep_original: bpy.props.BoolProperty(
-            name='Keep Original',
-            default=True,
-            description='Do not delete the original stroke'
     )
 
     def draw(self, context):
@@ -422,7 +450,7 @@ class MeshGenerationByNormal(bpy.types.Operator):
                         else:
                             bm.faces.new(v_list)    
 
-                # Normal and height calculation
+                # Attribute interpolation based on 2D distance
                 maxmin_dist = 0.
                 depth_offset = np.cos(self.max_vertical_angle) / np.sqrt(1 + 
                                                                 (self.vertical_scale**2 - 1) *
@@ -460,19 +488,9 @@ class MeshGenerationByNormal(bpy.types.Operator):
                                             (co_2d[1]-v_min)/(v_max-v_min))
 
                 # Set vertex color from the stroke's both vertex and material fill colors
-                fill_base_color = [1,1,1,1]
-                if current_gp_obj.data.materials[stroke_list[i].material_index].grease_pencil.show_fill:
-                    fill_base_color[0] = current_gp_obj.data.materials[stroke_list[i].material_index].grease_pencil.fill_color[0]
-                    fill_base_color[1] = current_gp_obj.data.materials[stroke_list[i].material_index].grease_pencil.fill_color[1]
-                    fill_base_color[2] = current_gp_obj.data.materials[stroke_list[i].material_index].grease_pencil.fill_color[2]
-                    fill_base_color[3] = current_gp_obj.data.materials[stroke_list[i].material_index].grease_pencil.fill_color[3]
-                if hasattr(stroke_list[i],'vertex_color_fill'):
-                    alpha = stroke_list[i].vertex_color_fill[3]
-                    fill_base_color[0] = fill_base_color[0] * (1-alpha) + alpha * stroke_list[i].vertex_color_fill[0]
-                    fill_base_color[1] = fill_base_color[1] * (1-alpha) + alpha * stroke_list[i].vertex_color_fill[1]
-                    fill_base_color[2] = fill_base_color[2] * (1-alpha) + alpha * stroke_list[i].vertex_color_fill[2]
+                fill_base_color = get_mixed_color(current_gp_obj, stroke_list[i])
                 for v in bm.verts:
-                    v[vertex_color_layer] = [linear_to_srgb(fill_base_color[0]), linear_to_srgb(fill_base_color[1]), linear_to_srgb(fill_base_color[2]), fill_base_color[3]]
+                    v[vertex_color_layer] = fill_base_color
                     v[vertex_start_frame_layer] = frame_range[0]
                     v[vertex_end_frame_layer] = frame_range[1]
 
@@ -577,27 +595,13 @@ class MeshGenerationByNormal(bpy.types.Operator):
         bpy.ops.object.mode_set(mode='OBJECT')  
         return {'FINISHED'}
 
-class MeshGenerationByOffsetting(bpy.types.Operator):
+class MeshGenerationByOffsetting(CommonMeshConfig, bpy.types.Operator):
     """Generate an embossed mesh by offsetting the selected strokes"""
     bl_idname = "gpencil.nijigp_mesh_generation_offset"
     bl_label = "Convert to Meshes by Offsetting"
     bl_category = 'View'
     bl_options = {'REGISTER', 'UNDO'}
 
-    vertical_gap: bpy.props.FloatProperty(
-            name='Vertical Gap',
-            default=0, min=0,
-            unit='LENGTH',
-            description='Mininum vertical space between generated meshes'
-    ) 
-    ignore_mode: bpy.props.EnumProperty(
-            name='Ignore',
-            items=[('NONE', 'None', ''),
-                    ('LINE', 'All Lines', ''),
-                    ('OPEN', 'All Open Lines', '')],
-            default='NONE',
-            description='Skip strokes without fill'
-    )
     offset_amount: bpy.props.FloatProperty(
             name='Offset',
             default=0.1, soft_min=0, unit='LENGTH',
@@ -630,16 +634,6 @@ class MeshGenerationByOffsetting(bpy.types.Operator):
                     ('ACUTE', 'Acute-Angle Optimized', '')],
             default='DEFAULT',
             description='Method of creating side faces'
-    )
-    keep_original: bpy.props.BoolProperty(
-            name='Keep Original',
-            default=True,
-            description='Do not delete the original stroke'
-    )
-    postprocess_double_sided: bpy.props.BoolProperty(
-            name='Double-Sided',
-            default=True,
-            description='Make the mesh symmetric to the working plane'
     )
     postprocess_shade_smooth: bpy.props.BoolProperty(
             name='Shade Smooth',
@@ -675,11 +669,6 @@ class MeshGenerationByOffsetting(bpy.types.Operator):
         description='The material applied to generated mesh. Principled BSDF by default',
         default='Principled BSDF',
         search=lambda self, context, edit_text: get_material_list('MESH', bpy.context.engine)
-    )
-    reuse_material: bpy.props.BoolProperty(
-            name='Reuse Materials',
-            default=True,
-            description='Do not create a new material if it exists'
     )
 
     def draw(self, context):
@@ -912,19 +901,9 @@ class MeshGenerationByOffsetting(bpy.types.Operator):
                     bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=self.merge_distance)
 
                 # Set vertex attributes
-                fill_base_color = [1,1,1,1]
-                if current_gp_obj.data.materials[stroke_list[i].material_index].grease_pencil.show_fill:
-                    fill_base_color[0] = current_gp_obj.data.materials[stroke_list[i].material_index].grease_pencil.fill_color[0]
-                    fill_base_color[1] = current_gp_obj.data.materials[stroke_list[i].material_index].grease_pencil.fill_color[1]
-                    fill_base_color[2] = current_gp_obj.data.materials[stroke_list[i].material_index].grease_pencil.fill_color[2]
-                    fill_base_color[3] = current_gp_obj.data.materials[stroke_list[i].material_index].grease_pencil.fill_color[3]
-                if hasattr(stroke_list[i],'vertex_color_fill'):
-                    alpha = stroke_list[i].vertex_color_fill[3]
-                    fill_base_color[0] = fill_base_color[0] * (1-alpha) + alpha * stroke_list[i].vertex_color_fill[0]
-                    fill_base_color[1] = fill_base_color[1] * (1-alpha) + alpha * stroke_list[i].vertex_color_fill[1]
-                    fill_base_color[2] = fill_base_color[2] * (1-alpha) + alpha * stroke_list[i].vertex_color_fill[2]
+                fill_base_color = get_mixed_color(current_gp_obj, stroke_list[i])
                 for v in bm.verts:
-                    v[vertex_color_layer] = [linear_to_srgb(fill_base_color[0]), linear_to_srgb(fill_base_color[1]), linear_to_srgb(fill_base_color[2]), fill_base_color[3]]
+                    v[vertex_color_layer] = fill_base_color
                     v[vertex_start_frame_layer] = frame_range[0]
                     v[vertex_end_frame_layer] = frame_range[1]
 

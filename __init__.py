@@ -35,9 +35,9 @@ def register():
                         items=[('X-Z', 'Front (X-Z)', ''),
                                 ('Y-Z', 'Side (Y-Z)', ''),
                                 ('X-Y', 'Top (X-Y)', ''),
-                                ('VIEW', 'View (Beta)', ''),
-                                ('AUTO', 'Auto (Beta)', '')],
-                        default='X-Z',
+                                ('VIEW', 'View', 'Use the current view as the 2D working plane'),
+                                ('AUTO', 'Auto', 'Calculate the 2D plane automatically based on input points and view angle')],
+                        default='AUTO',
                         description='The 2D (local) plane that most add-on operators are working on'
                         )
     bpy.types.Scene.nijigp_working_plane_layer_transform = bpy.props.BoolProperty(

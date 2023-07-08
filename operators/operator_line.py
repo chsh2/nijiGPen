@@ -28,7 +28,7 @@ def fit_2d_strokes(strokes, search_radius, smoothness_factor = 1, pressure_delta
     empty_result = None, None, None, None, None, None, None, None
     try:
         from scipy.interpolate import splprep, splev
-        from ..solvers.graph import get_mst_longest_path_from_triangles
+        from ..solvers.graph import TriangleMst
     except:
         if operator:
             operator.report({"ERROR"}, "Please install Scikit-Image in the Preferences panel.")
@@ -84,7 +84,9 @@ def fit_2d_strokes(strokes, search_radius, smoothness_factor = 1, pressure_delta
     # Triangulation and spanning tree conversion
     tr_output = {}
     tr_output['vertices'], _, tr_output['triangles'], _,_,_ = geometry.delaunay_2d_cdt(tr_input['vertices'], [], [], 0, 1e-9)
-    total_length, path_whole = get_mst_longest_path_from_triangles(tr_output)
+    mst_builder = TriangleMst()
+    mst_builder.build_mst(tr_output)
+    total_length, path_whole = mst_builder.get_longest_path()
     
     # The fitting method needs at least 4 points
     if len(path_whole)<4:
