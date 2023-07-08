@@ -262,13 +262,14 @@ def get_transformation_mat(mode='VIEW', gp_obj=None, strokes=[], operator=None):
         mat[1] *= -1 
     return mat, mat.inverted_safe()
 
-def get_2d_co_from_strokes(stroke_list, t_mat, scale = False, correct_orientation = False, scale_factor=None):
+def get_2d_co_from_strokes(stroke_list, t_mat, scale = False, correct_orientation = False, scale_factor=None, return_orientation = False):
     """
     Convert points from a list of strokes to 2D coordinates. Scale them to be compatible with Clipper.
     Return a 2D coordinate list, a z-depth list and the scale factor 
     """
     poly_list = []
     poly_depth_list = []
+    poly_inverted = []
     w_bound = [math.inf, -math.inf]
     h_bound = [math.inf, -math.inf]
 
@@ -285,6 +286,7 @@ def get_2d_co_from_strokes(stroke_list, t_mat, scale = False, correct_orientatio
             h_bound[1] = max(h_bound[1], co_list[-1][1])
         poly_list.append(co_list)
         poly_depth_list.append(depth_list)
+        poly_inverted.append(False)
 
     if scale and not scale_factor:
         poly_W = w_bound[1] - w_bound[0]
@@ -309,10 +311,13 @@ def get_2d_co_from_strokes(stroke_list, t_mat, scale = False, correct_orientatio
     # Clipper may regard some strokes as negative polygons, which needs a fix 
     if correct_orientation:
         import pyclipper
-        for co_list in poly_list:
+        for i,co_list in enumerate(poly_list):
             if not pyclipper.Orientation(co_list):
                 co_list.reverse()
+                poly_inverted[i] = True
 
+    if return_orientation:
+        return poly_list, poly_depth_list, poly_inverted, scale_factor
     return poly_list, poly_depth_list, scale_factor
 
 def xy0(vec, depth=0):

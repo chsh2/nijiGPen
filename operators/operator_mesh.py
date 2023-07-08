@@ -10,9 +10,9 @@ MAX_DEPTH = 4096
 
 def get_mixed_color(gp_obj, stroke, point_idx = None):
     """Get the displayed color by jointly considering the material and vertex colors"""
-    res = [0,0,0,0]
+    res = [0,0,0,1]
     mat_gp = gp_obj.data.materials[stroke.material_index].grease_pencil
-    if not point_idx:
+    if point_idx == None:
         # Case of fill color
         if gp_obj.data.materials[stroke.material_index].grease_pencil.show_fill:
             for i in range(4):
@@ -58,11 +58,16 @@ class CommonMeshConfig:
             default=True,
             description='Make the mesh symmetric to the working plane'
     )
+    stacked: bpy.props.BoolProperty(
+            name='Stacked',
+            default=True,
+            description='Resolve the collision with previously generated meshes and move the new mesh accordingly'
+    )
     vertical_gap: bpy.props.FloatProperty(
-            name='Vertical Gap',
+            name='Gap',
             default=0.01, min=0,
             unit='LENGTH',
-            description='Mininum vertical space between generated meshes'
+            description='Additional vertical space between generated meshes'
     )    
     ignore_mode: bpy.props.EnumProperty(
             name='Ignore',
@@ -76,6 +81,11 @@ class CommonMeshConfig:
             name='Reuse Materials',
             default=True,
             description='Do not create a new material if it exists'
+    )
+    stop_motion_animation: bpy.props.BoolProperty(
+            name='Stop-Motion Animation',
+            default=False,
+            description='Hide the mesh at the next keyframe'
     )
     keep_original: bpy.props.BoolProperty(
             name='Keep Original',
@@ -184,13 +194,22 @@ class MeshGenerationByNormal(CommonMeshConfig, bpy.types.Operator):
         default='Principled BSDF',
         search=lambda self, context, edit_text: get_material_list(self.mesh_type, bpy.context.engine)
     )
+    vertex_color_mode: bpy.props.EnumProperty(
+            name='Color',
+            items=[('LINE', 'Use Line Color', ''),
+                    ('FILL', 'Use Fill Color', '')],
+            default='FILL',
+            description='Source of vertex colors of the generated mesh'
+    )
 
     def draw(self, context):
         layout = self.layout
         layout.label(text = "Multi-Object Alignment:")
         box1 = layout.box()
         box1.prop(self, "mesh_type")
-        box1.prop(self, "vertical_gap", text = "Vertical Gap")
+        row = box1.row()
+        row.prop(self, "stacked")
+        row.prop(self, "vertical_gap")
         if self.mesh_type == 'NORMAL':
             row = box1.row()
             row.prop(self, "transition")
@@ -213,7 +232,9 @@ class MeshGenerationByNormal(CommonMeshConfig, bpy.types.Operator):
         box2.prop(self, "vertical_scale")
 
         layout.prop(self, "mesh_material", text='Material', icon='MATERIAL')
+        layout.prop(self, "vertex_color_mode")
         layout.prop(self, "reuse_material")
+        layout.prop(self, "stop_motion_animation")
         layout.prop(self, "keep_original", text = "Keep Original")
 
     def execute(self, context):
@@ -255,19 +276,19 @@ class MeshGenerationByNormal(CommonMeshConfig, bpy.types.Operator):
                             if self.ignore_mode == 'OPEN' and is_stroke_line(stroke, current_gp_obj) and not stroke.use_cyclic:
                                 continue
                             if is_stroke_hole(stroke, current_gp_obj):
-                                mask_info.append([stroke, layer_idx, j])
+                                mask_info.append([stroke, layer_idx, j, frame])
                                 mask_list.append(stroke)
                             else:
-                                stroke_info.append([stroke, layer_idx, j])
+                                stroke_info.append([stroke, layer_idx, j, frame])
                                 stroke_list.append(stroke)
                                 mesh_names.append('Planar_' + current_gp_obj.data.layers[layer_idx].info + '_' + str(j))
             t_mat, inv_mat = get_transformation_mat(mode=context.scene.nijigp_working_plane,
                                                     gp_obj=current_gp_obj, strokes=stroke_list, operator=self)
-            poly_list, depth_list, scale_factor = get_2d_co_from_strokes(stroke_list, t_mat, 
-                                                                        scale=True, correct_orientation=True)
-            mask_poly_list, mask_depth_list, _ = get_2d_co_from_strokes(mask_list, t_mat, 
+            poly_list, depth_list, poly_inverted, scale_factor = get_2d_co_from_strokes(stroke_list, t_mat, 
+                                                                        scale=True, correct_orientation=True, return_orientation=True)
+            mask_poly_list, mask_depth_list, mask_inverted, _ = get_2d_co_from_strokes(mask_list, t_mat, 
                                                                 scale=True, correct_orientation=True,
-                                                                scale_factor=scale_factor)
+                                                                scale_factor=scale_factor, return_orientation=True)
             trans2d = lambda co: (t_mat @ co).xy
 
             generated_objects = []
@@ -303,17 +324,20 @@ class MeshGenerationByNormal(CommonMeshConfig, bpy.types.Operator):
                 uv_layer = bm.loops.layers.uv.new('UVMap')
 
                 # Initialize the mask information
-                local_mask_polys, local_mask_list, hole_points = [], [], []
+                local_mask_polys, local_mask_list, local_mask_inverted, hole_points = [], [], [], []
                 for idx in mask_indices:
                     local_mask_polys.append(np.array(mask_poly_list[idx]))
                     local_mask_list.append(mask_list[idx])
+                    local_mask_inverted.append(mask_inverted[idx])
                     if mask_hole_points[idx]:
                         hole_points.append(mask_hole_points[idx])
 
-                # Calculate the normal vectors of the original stroke points
+                # Calculate the normal and color attributes of the original stroke points
                 # Map for fast lookup; arrays for inner-production of weighted sum
                 contour_normal_map = {}
                 contour_normal_array = []
+                contour_color_map = {}
+                contour_color_array = []
                 contour_co_array = []
 
                 for poly in [co_list]+local_mask_polys:
@@ -326,6 +350,19 @@ class MeshGenerationByNormal(CommonMeshConfig, bpy.types.Operator):
                         contour_normal_map[(int(co[0]),int(co[1]))] = norm
                 contour_normal_array = np.array(contour_normal_array)
                 contour_co_array = np.array(contour_co_array)
+
+                for j,co in enumerate(co_list):
+                    point_idx = j if not poly_inverted[i] else -j-1
+                    point_color = get_mixed_color(current_gp_obj, stroke_list[i], point_idx)
+                    contour_color_array.append(point_color)
+                    contour_color_map[(int(co[0]),int(co[1]))] = point_color
+                for mask_idx,poly in enumerate(local_mask_polys):
+                    for j,co in enumerate(poly):
+                        point_idx = j if not local_mask_inverted[mask_idx] else -j-1
+                        point_color = get_mixed_color(current_gp_obj, local_mask_list[mask_idx], point_idx)
+                        contour_color_array.append(point_color)
+                        contour_color_map[(int(co[0]),int(co[1]))] = point_color
+                contour_color_array = np.array(contour_color_array)
 
                 co_list = np.array(co_list)
                 u_min, u_max = np.min(co_list[:,0]), np.max(co_list[:,0])
@@ -451,6 +488,7 @@ class MeshGenerationByNormal(CommonMeshConfig, bpy.types.Operator):
                             bm.faces.new(v_list)    
 
                 # Attribute interpolation based on 2D distance
+                fill_color = get_mixed_color(current_gp_obj, stroke_list[i])
                 maxmin_dist = 0.
                 depth_offset = np.cos(self.max_vertical_angle) / np.sqrt(1 + 
                                                                 (self.vertical_scale**2 - 1) *
@@ -462,6 +500,7 @@ class MeshGenerationByNormal(CommonMeshConfig, bpy.types.Operator):
                     # Contour vertex case
                     if co_key in contour_normal_map:
                         norm = contour_normal_map[co_key]
+                        vert_color = contour_color_map[co_key]
                     # Inner vertex case
                     else:
                         dist_sq = (contour_co_array[:,0]-co_2d[0])**2 + (contour_co_array[:,1]-co_2d[1])**2
@@ -471,9 +510,13 @@ class MeshGenerationByNormal(CommonMeshConfig, bpy.types.Operator):
                         norm_u = np.dot(contour_normal_array[:,0], weights)
                         norm_v = np.dot(contour_normal_array[:,2], weights)
                         norm = Vector([norm_u, np.sqrt(max(0,math.sin(self.max_vertical_angle)**2-norm_u**2-norm_v**2)) + math.cos(self.max_vertical_angle), norm_v])
+                        vert_color = weights @ contour_color_array
                     # Scale vertical components
                     norm = Vector((norm.x * self.vertical_scale, norm.y, norm.z * self.vertical_scale)).normalized()
                     vert[normal_map_layer] = [ 0.5 * (norm.x + 1) , 0.5 * (-norm.z + 1), 0.5 * (norm.y+1)]
+                    vert[vertex_color_layer] = vert_color if self.vertex_color_mode == 'LINE' else fill_color
+                    vert[vertex_start_frame_layer] = frame_range[0]
+                    vert[vertex_end_frame_layer] = frame_range[1]
                     if vert.is_boundary:
                         vert[depth_layer] = 0
                     else:
@@ -487,49 +530,44 @@ class MeshGenerationByNormal(CommonMeshConfig, bpy.types.Operator):
                         loop[uv_layer].uv = ( (co_2d[0]-u_min)/(u_max-u_min),
                                             (co_2d[1]-v_min)/(v_max-v_min))
 
-                # Set vertex color from the stroke's both vertex and material fill colors
-                fill_base_color = get_mixed_color(current_gp_obj, stroke_list[i])
-                for v in bm.verts:
-                    v[vertex_color_layer] = fill_base_color
-                    v[vertex_start_frame_layer] = frame_range[0]
-                    v[vertex_end_frame_layer] = frame_range[1]
 
                 # Determine the depth coordinate by ray-casting to every mesh generated earlier
                 vertical_pos = 0
-                ray_receiver = {}
-                for j,obj in enumerate(generated_objects):
-                    for v in bm.verts:
-                        ray_emitter = np.array(v.co)
-                        ray_direction = inv_mat @ Vector([0,0,1])
-                        ray_emitter += ray_direction * MAX_DEPTH
-                        res, loc, norm, idx = obj.ray_cast(ray_emitter, -ray_direction)
-                        ray_hitpoint = t_mat @ (loc - v.co)
-                        if res:
-                            vertical_pos = max(vertical_pos, ray_hitpoint[2])
-                            if self.transition and 'NormalMap' in obj.data.attributes:
-                                if v not in ray_receiver or ray_receiver[v][2]<ray_hitpoint[2]:
-                                    ray_receiver[v] = (obj, idx, ray_hitpoint[2])
-                vertical_pos += self.vertical_gap
+                if self.stacked:
+                    ray_receiver = {}
+                    for j,obj in enumerate(generated_objects):
+                        for v in bm.verts:
+                            ray_emitter = np.array(v.co)
+                            ray_direction = inv_mat @ Vector([0,0,1])
+                            ray_emitter += ray_direction * MAX_DEPTH
+                            res, loc, norm, idx = obj.ray_cast(ray_emitter, -ray_direction)
+                            ray_hitpoint = t_mat @ (loc - v.co)
+                            if res:
+                                vertical_pos = max(vertical_pos, ray_hitpoint[2])
+                                if self.transition and 'NormalMap' in obj.data.attributes:
+                                    if v not in ray_receiver or ray_receiver[v][2]<ray_hitpoint[2]:
+                                        ray_receiver[v] = (obj, idx, ray_hitpoint[2])
+                    vertical_pos += self.vertical_gap
 
-                # Adjust transparency and normal vector values if transition is enabled
-                if self.mesh_type == 'NORMAL' and self.transition and not stroke_list[i].use_cyclic:
-                    for v in bm.verts:
-                        if v in ray_receiver:
-                            # Get the normal vector of the mesh below the current one
-                            receiver_obj = ray_receiver[v][0]
-                            receiver_face = receiver_obj.data.polygons[ray_receiver[v][1]]
-                            receiver_norm = Vector((0,0,0))
-                            for vid in receiver_face.vertices:
-                                receiver_norm += receiver_obj.data.attributes['NormalMap'].data[vid].vector
-                            receiver_norm /= len(receiver_face.vertices)
+                    # Adjust transparency and normal vector values if transition is enabled
+                    if self.mesh_type == 'NORMAL' and self.transition and not stroke_list[i].use_cyclic:
+                        for v in bm.verts:
+                            if v in ray_receiver:
+                                # Get the normal vector of the mesh below the current one
+                                receiver_obj = ray_receiver[v][0]
+                                receiver_face = receiver_obj.data.polygons[ray_receiver[v][1]]
+                                receiver_norm = Vector((0,0,0))
+                                for vid in receiver_face.vertices:
+                                    receiver_norm += receiver_obj.data.attributes['NormalMap'].data[vid].vector
+                                receiver_norm /= len(receiver_face.vertices)
 
-                            # Change values based on the vertex's distance to the open edge
-                            nearest_point, portion = geometry.intersect_point_line(v.co, stroke_list[i].points[0].co, stroke_list[i].points[-1].co)
-                            nearest_point = stroke_list[i].points[0].co if portion<0 else stroke_list[i].points[-1].co if portion > 1 else nearest_point
-                            dist = (v.co - nearest_point).length
-                            weight = smoothstep(dist/self.transition_length)
-                            v[normal_map_layer] = weight * v[normal_map_layer] + (1-weight) *receiver_norm
-                            v[vertex_color_layer][3] = weight
+                                # Change values based on the vertex's distance to the open edge
+                                nearest_point, portion = geometry.intersect_point_line(v.co, stroke_list[i].points[0].co, stroke_list[i].points[-1].co)
+                                nearest_point = stroke_list[i].points[0].co if portion<0 else stroke_list[i].points[-1].co if portion > 1 else nearest_point
+                                dist = (v.co - nearest_point).length
+                                weight = smoothstep(dist/self.transition_length)
+                                v[normal_map_layer] = weight * v[normal_map_layer] + (1-weight) *receiver_norm
+                                v[vertex_color_layer][3] = weight
 
                 # Update vertices locations and make a new BVHTree
                 depth_scale = maxmin_dist * self.vertical_scale * np.sign(self.max_vertical_angle)
@@ -570,6 +608,9 @@ class MeshGenerationByNormal(CommonMeshConfig, bpy.types.Operator):
                 mean_depth_offset = inv_mat @ Vector((0, 0, mean_depth))
                 if self.mesh_type=='MESH' and self.postprocess_double_sided:
                     apply_mirror_in_depth(new_object, inv_mat, applied_offset + mean_depth_offset)
+                if self.stop_motion_animation:
+                    new_object.modifiers.new(name="nijigp_GeoNodes", type='NODES')
+                    new_object.modifiers["nijigp_GeoNodes"].node_group = append_geometry_nodes(context, 'NijiGP Stop Motion')
             
             for i,co_list in enumerate(poly_list):
                 # Identify the holes that should be considered: same layer, arranged beyond and inside
@@ -583,9 +624,8 @@ class MeshGenerationByNormal(CommonMeshConfig, bpy.types.Operator):
 
             # Delete old strokes
             if not self.keep_original:
-                for info in stroke_info:
-                    layer_index = info[1]
-                    current_gp_obj.data.layers[layer_index].active_frame.strokes.remove(info[0])
+                for info in (stroke_info + mask_info):
+                    info[3].strokes.remove(info[0])
 
             bpy.ops.object.select_all(action='DESELECT')
             current_gp_obj.select_set(True)
@@ -675,7 +715,9 @@ class MeshGenerationByOffsetting(CommonMeshConfig, bpy.types.Operator):
         layout = self.layout
         layout.label(text = "Multi-Object Alignment:")
         box1 = layout.box()
-        box1.prop(self, "vertical_gap", text = "Vertical Gap")
+        row = box1.row()
+        row.prop(self, "stacked")
+        row.prop(self, "vertical_gap")
         box1.prop(self, "ignore_mode")
         layout.label(text = "Geometry Options:")
         box2 = layout.box()
@@ -699,15 +741,16 @@ class MeshGenerationByOffsetting(CommonMeshConfig, bpy.types.Operator):
         row.prop(self, "postprocess_merge", text='Merge By')
         row.prop(self, "merge_distance", text='Distance')
         row = box3.row()
-        row.prop(self, "postprocess_remesh", text='Remesh')
-        row.prop(self, "remesh_voxel_size", text='Voxel Size')
+        if not self.stop_motion_animation:
+            row.prop(self, "postprocess_remesh", text='Remesh')
+            row.prop(self, "remesh_voxel_size", text='Voxel Size')
 
         layout.prop(self, "mesh_material", text='Material', icon='MATERIAL')
         layout.prop(self, "reuse_material")
+        layout.prop(self, "stop_motion_animation")
         layout.prop(self, "keep_original", text = "Keep Original")
 
     def execute(self, context):
-
         # Import and configure Clipper
         try:
             import pyclipper
@@ -745,7 +788,7 @@ class MeshGenerationByOffsetting(CommonMeshConfig, bpy.types.Operator):
                                 continue
                             if self.ignore_mode == 'OPEN' and is_stroke_line(stroke, current_gp_obj) and not stroke.use_cyclic:
                                 continue
-                            stroke_info.append([stroke, layer_idx, j])
+                            stroke_info.append([stroke, layer_idx, j, frame])
                             stroke_list.append(stroke)
                             mesh_names.append('Offset_' + current_gp_obj.data.layers[layer_idx].info + '_' + str(j))
             t_mat, inv_mat = get_transformation_mat(mode=context.scene.nijigp_working_plane,
@@ -901,26 +944,27 @@ class MeshGenerationByOffsetting(CommonMeshConfig, bpy.types.Operator):
                     bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=self.merge_distance)
 
                 # Set vertex attributes
-                fill_base_color = get_mixed_color(current_gp_obj, stroke_list[i])
+                fill_color = get_mixed_color(current_gp_obj, stroke_list[i])
                 for v in bm.verts:
-                    v[vertex_color_layer] = fill_base_color
+                    v[vertex_color_layer] = fill_color
                     v[vertex_start_frame_layer] = frame_range[0]
                     v[vertex_end_frame_layer] = frame_range[1]
 
                 # Determine the depth coordinate by ray-casting to every mesh generated earlier
                 vertical_pos = 0
-                for j,obj in enumerate(generated_objects):
-                    for v in bm.verts:
-                        ray_emitter = np.array(v.co)
-                        ray_direction = inv_mat @ Vector([0,0,1])
-                        ray_emitter += ray_direction * MAX_DEPTH
-                        res, loc, norm, idx = obj.ray_cast(ray_emitter, -ray_direction)
-                        ray_hitpoint = t_mat @ (loc-v.co)
-                        if res:
-                            vertical_pos = max(vertical_pos, ray_hitpoint[2])
-                            if obj['nijigp_mesh'] == 'planar':
-                                break
-                vertical_pos += self.vertical_gap
+                if self.stacked:
+                    for j,obj in enumerate(generated_objects):
+                        for v in bm.verts:
+                            ray_emitter = np.array(v.co)
+                            ray_direction = inv_mat @ Vector([0,0,1])
+                            ray_emitter += ray_direction * MAX_DEPTH
+                            res, loc, norm, idx = obj.ray_cast(ray_emitter, -ray_direction)
+                            ray_hitpoint = t_mat @ (loc-v.co)
+                            if res:
+                                vertical_pos = max(vertical_pos, ray_hitpoint[2])
+                                if obj['nijigp_mesh'] == 'planar':
+                                    break
+                    vertical_pos += self.vertical_gap
 
                 bm.to_mesh(new_mesh)
                 bm.free()
@@ -970,14 +1014,17 @@ class MeshGenerationByOffsetting(CommonMeshConfig, bpy.types.Operator):
 
                 new_object.data.use_auto_smooth = self.postprocess_shade_smooth
 
+                if self.stop_motion_animation and not self.postprocess_remesh:
+                    new_object.modifiers.new(name="nijigp_GeoNodes", type='NODES')
+                    new_object.modifiers["nijigp_GeoNodes"].node_group = append_geometry_nodes(context, 'NijiGP Stop Motion')
+
             for i,co_list in enumerate(poly_list):
                 process_single_stroke(i, co_list)
 
             # Delete old strokes
             if not self.keep_original:
                 for info in stroke_info:
-                    layer_index = info[1]
-                    current_gp_obj.data.layers[layer_index].active_frame.strokes.remove(info[0])
+                    info[3].strokes.remove(info[0])
             context.view_layer.objects.active = current_gp_obj
             bpy.ops.object.mode_set(mode='EDIT_GPENCIL')
             

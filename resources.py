@@ -83,3 +83,20 @@ def append_material(context, mesh_type, material_name, reuse = True, operator = 
             operator.report({"WARNING"}, "Material not found. Please select the material again.")
         return
 
+def append_geometry_nodes(context, node_tree_name='NijiGP Stop Motion'):
+    if node_tree_name in bpy.data.node_groups:
+        return bpy.data.node_groups[node_tree_name]
+    
+    mode = context.mode
+    bpy.ops.object.mode_set(mode='OBJECT')
+
+    file_path = get_library_blend_file()
+    inner_path = 'NodeTree'
+    bpy.ops.wm.append(
+        filepath=os.path.join(file_path, inner_path, node_tree_name),
+        directory=os.path.join(file_path, inner_path),
+        filename=node_tree_name
+    )
+
+    bpy.ops.object.mode_set(mode=mode)
+    return bpy.data.node_groups[node_tree_name]
