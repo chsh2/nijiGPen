@@ -8,6 +8,20 @@ from mathutils import *
 
 MAX_DEPTH = 4096
 
+def merge_poly_points(poly, min_dist):
+    """Remove points of a 2D polygon that are too close to each other"""
+    if len(poly) < 1:
+        return []
+    new_poly = [poly[0]]
+    for i in range(1,len(poly)):
+        dist = Vector(poly[i]) - Vector(new_poly[-1])
+        if dist.length > min_dist:
+            new_poly.append(poly[i])
+    dist = Vector(poly[0]) - Vector(new_poly[-1])
+    if dist.length <= min_dist:
+        new_poly = new_poly[1:]
+    return new_poly
+
 def get_mixed_color(gp_obj, stroke, point_idx = None):
     """Get the displayed color by jointly considering the material and vertex colors"""
     res = [0,0,0,1]
@@ -64,11 +78,16 @@ class CommonMeshConfig:
             description='Resolve the collision with previously generated meshes and move the new mesh accordingly'
     )
     vertical_gap: bpy.props.FloatProperty(
-            name='Gap',
+            name='Min Gap',
             default=0.01, min=0,
             unit='LENGTH',
             description='Additional vertical space between generated meshes'
-    )    
+    )   
+    overlap_tolerance: bpy.props.IntProperty(
+            name='Overlap Tolerance',
+            description='The maximum percentage of vertices allowed to overlap with other meshes',
+            default=15, max=100, min=0, subtype='PERCENTAGE'
+    ) 
     ignore_mode: bpy.props.EnumProperty(
             name='Ignore',
             items=[('NONE', 'None', ''),
@@ -177,6 +196,11 @@ class MeshGenerationByNormal(CommonMeshConfig, bpy.types.Operator):
             default=1, soft_max=5, soft_min=-5,
             description='Scale the vertical component of generated normal vectors. Negative values result in concave shapes'
     )
+    closed_double_sided: bpy.props.BoolProperty(
+            name='Closed Mesh',
+            default=False,
+            description='Leave no seams when mirroring the mesh'
+    )
     excluded_group: bpy.props.StringProperty(
         name='Vertex Group',
         description='Points in this group will be regarded floating',
@@ -186,13 +210,23 @@ class MeshGenerationByNormal(CommonMeshConfig, bpy.types.Operator):
     fade_out: bpy.props.BoolProperty(
             name='Fade Out',
             default=False,
-            description='Making the hanging parts transparent'
+            description='Making the open area transparent'
     )
     transition_length: bpy.props.FloatProperty(
             name='Transition Length',
             default=0.1, min=0.001,
             unit='LENGTH'
     ) 
+    advanced_solver: bpy.props.BoolProperty(
+            name='Advanced Solver',
+            default=False,
+            description='Calculate more precise depth values through L-BFGS-B optimization, while being slower and relying on SciPy'
+    )
+    solver_max_iter: bpy.props.IntProperty(
+            name='Iteration',
+            default=100, min=10, soft_max=300,
+            description='Maximum number of iterations of running the optimization algorithm'
+    )
     mesh_material: bpy.props.StringProperty(
         name='Material',
         description='The material applied to generated mesh. Principled BSDF by default',
@@ -214,9 +248,19 @@ class MeshGenerationByNormal(CommonMeshConfig, bpy.types.Operator):
         box1.prop(self, "mesh_type")
         row = box1.row()
         row.prop(self, "stacked")
-        row.prop(self, "vertical_gap")
+        if self.stacked:
+            row.prop(self, "vertical_gap")
+            if self.mesh_type == 'MESH':
+                box1.prop(self, "overlap_tolerance")
         if self.mesh_type == 'MESH':
-            box1.prop(self, "postprocess_double_sided")
+            row = box1.row()
+            row.prop(self, "postprocess_double_sided")
+            if self.postprocess_double_sided:
+                row.prop(self, "closed_double_sided")
+            row = box1.row()
+            row.prop(self, "advanced_solver")
+            if self.advanced_solver:
+                row.prop(self, "solver_max_iter")
         box1.prop(self, "ignore_mode")
 
         layout.label(text = "Geometry Options:")
@@ -232,10 +276,9 @@ class MeshGenerationByNormal(CommonMeshConfig, bpy.types.Operator):
         box2.prop(self, "max_vertical_angle")
         box2.prop(self, "vertical_scale")
         
-        box2.label(text = "Hanging Parts:")
         row = box2.row()
-        row.label(text = 'Vertex Group:')
-        row.prop(self, "excluded_group", text='')
+        row.label(text = 'Open Area Group:')
+        row.prop(self, "excluded_group", text='', icon='GROUP_VERTEX')
         if len(self.excluded_group)>0:
             row = box2.row()
             row.prop(self, "fade_out")
@@ -260,8 +303,15 @@ class MeshGenerationByNormal(CommonMeshConfig, bpy.types.Operator):
             try:
                 import triangle as tr
             except ImportError:
-                self.report({"WARNING"}, "Triangle package is not installed. Switch to the native method.")
+                self.report({"INFO"}, "Triangle package is not installed. Switch to the native method.")
                 self.use_native_triangulation = True
+        
+        if self.mesh_type == 'MESH' and self.advanced_solver:
+            try:
+                from ..solvers.optimizer import MeshDepthSolver
+            except ImportError:
+                self.report({"WARNING"}, "SciPy is not installed. Advanced solver is disabled.")
+                self.advanced_solver = False
         
         # Get input information & resources
         current_gp_obj = context.object
@@ -361,8 +411,8 @@ class MeshGenerationByNormal(CommonMeshConfig, bpy.types.Operator):
                             pass    # TODO: Is there a better method that does not lead to exceptions?
                     if not is_floating:
                         _co = co_list[j-1]
-                        norm = Vector([co[1]-_co[1], 0, co[0]-_co[0]]).normalized()
-                        norm = norm * math.sin(self.max_vertical_angle) + Vector((0, math.cos(self.max_vertical_angle), 0))
+                        norm = Vector([co[1]-_co[1], -co[0]+_co[0], 0]).normalized()
+                        norm = norm * math.sin(self.max_vertical_angle) + Vector((0, 0, math.cos(self.max_vertical_angle)))
                         contour_co_array.append(co)
                         contour_normal_array.append(norm)
                         contour_normal_map[(int(co[0]),int(co[1]))] = norm
@@ -378,7 +428,7 @@ class MeshGenerationByNormal(CommonMeshConfig, bpy.types.Operator):
                 # Same process but for masks
                 for mask_idx,poly in enumerate(local_mask_polys):
                     for j,co in enumerate(poly):
-                        point_idx = j if not local_mask_inverted[mask_idx] else len(poly)-j-1
+                        point_idx = j if local_mask_inverted[mask_idx] else len(poly)-j-1
                         is_floating = False
                         if excluded_group_idx>=0:
                             try:
@@ -388,8 +438,8 @@ class MeshGenerationByNormal(CommonMeshConfig, bpy.types.Operator):
                                 pass
                         if not is_floating:
                             _co = poly[j-1]
-                            norm = Vector([co[1]-_co[1], 0, co[0]-_co[0]]).normalized()
-                            norm = norm * math.sin(self.max_vertical_angle) + Vector((0, math.cos(self.max_vertical_angle), 0))
+                            norm = Vector([co[1]-_co[1], -co[0]+_co[0], 0]).normalized()
+                            norm = norm * math.sin(self.max_vertical_angle) + Vector((0, 0, math.cos(self.max_vertical_angle)))
                             contour_co_array.append(co)
                             contour_normal_array.append(norm)
                             contour_normal_map[(int(co[0]),int(co[1]))] = norm
@@ -470,6 +520,8 @@ class MeshGenerationByNormal(CommonMeshConfig, bpy.types.Operator):
                             if vert.is_boundary and len(vert.link_edges)==2:
                                 to_trim.append(vert)
                         bmesh.ops.dissolve_verts(bm, verts=to_trim)
+                    bm.verts.ensure_lookup_table()
+                    bm.verts.index_update()
 
                 # Method 2: use Delaunay triangulation
                 elif self.mesh_style=='TRI':
@@ -497,6 +549,8 @@ class MeshGenerationByNormal(CommonMeshConfig, bpy.types.Operator):
                     for value in offset_values:
                         poly_results = clipper.Execute(value)
                         for poly_result in poly_results:
+                            if value < 0:
+                                poly_result = merge_poly_points(poly_result, -offset_size * 0.25)
                             for j,co in enumerate(poly_result):
                                 verts.append(co)
                                 segs.append( [j + num_verts, (j+1)%len(poly_result) + num_verts] )
@@ -555,25 +609,30 @@ class MeshGenerationByNormal(CommonMeshConfig, bpy.types.Operator):
                         weights /= np.sum(weights)
                         maxmin_dist = max( np.min(dist_sq), maxmin_dist)
                         norm_u = np.dot(contour_normal_array[:,0], weights)
-                        norm_v = np.dot(contour_normal_array[:,2], weights)
-                        norm = Vector([norm_u, np.sqrt(max(0,math.sin(self.max_vertical_angle)**2-norm_u**2-norm_v**2)) + math.cos(self.max_vertical_angle), norm_v])
+                        norm_v = np.dot(contour_normal_array[:,1], weights)
+                        norm = Vector([norm_u, norm_v, np.sqrt(max(0,math.sin(self.max_vertical_angle)**2-norm_u**2-norm_v**2)) + math.cos(self.max_vertical_angle)])
                         vert_color = weights @ contour_color_array
                     # Scale vertical components
-                    norm = Vector((norm.x * self.vertical_scale, norm.y, norm.z * self.vertical_scale)).normalized()
-                    vert[normal_map_layer] = [ 0.5 * (norm.x + 1) , 0.5 * (-norm.z + 1), 0.5 * (norm.y+1)]
+                    norm = Vector((norm.x * self.vertical_scale, norm.y * self.vertical_scale, norm.z)).normalized()
+                    vert[normal_map_layer] = [ 0.5 * (norm.x + 1) , 0.5 * (norm.y + 1), 0.5 * (norm.z+1)]
                     vert[vertex_color_layer] = vert_color if self.vertex_color_mode == 'LINE' else fill_color
                     vert[vertex_start_frame_layer] = frame_range[0]
                     vert[vertex_end_frame_layer] = frame_range[1]
-                    if vert.is_boundary:
+                    if vert.is_boundary and self.postprocess_double_sided and self.closed_double_sided:
                         vert[depth_layer] = 0
                     else:
-                        vert[depth_layer] = norm.y - depth_offset
+                        vert[depth_layer] = norm.z - depth_offset
                     # Fading effect
                     if self.fade_out:
                         co_excluded, _, dist = kdt_excluded.find(xy0(co_key))
                         if co_excluded:
                             vert[vertex_color_layer][3] *= smoothstep(dist/scale_factor/self.transition_length)
                 maxmin_dist = np.sqrt(maxmin_dist) / scale_factor
+                
+                # Normalize the depth
+                depth_scale = maxmin_dist * self.vertical_scale * np.sign(self.max_vertical_angle)
+                for vert in bm.verts:
+                    vert[depth_layer] *= depth_scale
 
                 # UV projection, required for correct tangent direction
                 for face in bm.faces:
@@ -583,36 +642,46 @@ class MeshGenerationByNormal(CommonMeshConfig, bpy.types.Operator):
                                             (co_2d[1]-v_min)/(v_max-v_min))
 
                 # 2D operations finished; Transform coordinates for 3D operations
-                for vert in bm.verts:
+                bm3d = bm.copy()
+                for vert in bm3d.verts:
                     vert.co = restore_3d_co(vert.co.xy, mean_depth, inv_mat, scale_factor)
 
                 # Determine the depth coordinate by ray-casting to every mesh generated earlier
                 ray_direction = inv_mat @ Vector([0,0,1])
                 vertical_pos = 0
+                hit_points = []
                 if self.stacked:
-                    #ray_receiver = {}
-                    for j,obj in enumerate(generated_objects):
-                        for v in bm.verts:
+                    percentile = 100 if self.mesh_type == 'NORMAL' else 100 - self.overlap_tolerance
+                    for v in bm3d.verts:
+                        max_hit = 0
+                        for j,obj in enumerate(generated_objects):
                             ray_emitter = np.array(v.co)
                             ray_emitter += ray_direction * MAX_DEPTH
                             res, loc, norm, idx = obj.ray_cast(ray_emitter, -ray_direction)
                             ray_hitpoint = t_mat @ (loc - v.co)
                             if res:
-                                vertical_pos = max(vertical_pos, ray_hitpoint[2])
-                    #            if self.transition and 'NormalMap' in obj.data.attributes:
-                    #                if v not in ray_receiver or ray_receiver[v][2]<ray_hitpoint[2]:
-                    #                    ray_receiver[v] = (obj, idx, ray_hitpoint[2])
+                                max_hit = max(max_hit, ray_hitpoint[2])
+                        hit_points.append(max_hit)
+                    vertical_pos = np.percentile(hit_points, percentile)
                     vertical_pos += self.vertical_gap
+
+                # Calling the advanced solver: must use the 2D data again
+                if self.mesh_type == 'MESH' and self.advanced_solver:
+                    solver = MeshDepthSolver()
+                    solver.initialize_from_bmesh(bm, scale_factor, contour_normal_map)
+                    solver.solve(self.solver_max_iter)
+                    solver.write_back(bm)
 
                 # Convert attribute to depth value
                 depth_scale = maxmin_dist * self.vertical_scale * np.sign(self.max_vertical_angle)
-                for j,v in enumerate(bm.verts):
+                for j,v in enumerate(bm3d.verts):
                     if self.mesh_type == 'MESH':
-                        v.co += float(mean_depth+v[depth_layer]*depth_scale) * ray_direction
-                bm.to_mesh(new_mesh)
-                bm.free()
+                        v.co += float(bm.verts[j][depth_layer]) * ray_direction
 
                 # Object generation
+                bm3d.to_mesh(new_mesh)
+                bm3d.free()
+                bm.free()
                 new_object = bpy.data.objects.new(mesh_names[i], new_mesh)
                 new_object['nijigp_mesh'] = 'planar' if self.mesh_type=='NORMAL' else '3d'
                 new_object.location = vertical_pos * ray_direction
@@ -752,7 +821,9 @@ class MeshGenerationByOffsetting(CommonMeshConfig, bpy.types.Operator):
         box1 = layout.box()
         row = box1.row()
         row.prop(self, "stacked")
-        row.prop(self, "vertical_gap")
+        if self.stacked:
+            row.prop(self, "vertical_gap")
+            box1.prop(self, "overlap_tolerance")
         box1.prop(self, "ignore_mode")
         layout.label(text = "Geometry Options:")
         box2 = layout.box()
@@ -860,17 +931,9 @@ class MeshGenerationByOffsetting(CommonMeshConfig, bpy.types.Operator):
                             if not self.postprocess_merge or not self.extrude_method=='ACUTE':
                                 true_poly = poly
                             else:
-                                for k,point in enumerate(poly):
-                                    if k==0:
-                                        true_poly.append(point)
-                                        continue
-                                    p0 = Vector(point)
-                                    p1 = Vector(true_poly[-1])
-                                    if (p0-p1).length > self.merge_distance * scale_factor:
-                                        true_poly.append(point)
+                                true_poly = merge_poly_points(poly, self.merge_distance * scale_factor)
                                 if len(true_poly)<3:
                                     true_poly = poly
-
                             num_vert = len(true_poly)
                             new_idx_list.append( (vert_counter, vert_counter + num_vert) )
                             vert_counter += num_vert
@@ -988,19 +1051,22 @@ class MeshGenerationByOffsetting(CommonMeshConfig, bpy.types.Operator):
                     v[vertex_end_frame_layer] = frame_range[1]
 
                 # Determine the depth coordinate by ray-casting to every mesh generated earlier
+                ray_direction = inv_mat @ Vector([0,0,1])
                 vertical_pos = 0
+                hit_points = []
                 if self.stacked:
-                    for j,obj in enumerate(generated_objects):
-                        for v in bm.verts:
+                    percentile = 100 - self.overlap_tolerance
+                    for v in bm.verts:
+                        max_hit = 0
+                        for j,obj in enumerate(generated_objects):
                             ray_emitter = np.array(v.co)
-                            ray_direction = inv_mat @ Vector([0,0,1])
                             ray_emitter += ray_direction * MAX_DEPTH
                             res, loc, norm, idx = obj.ray_cast(ray_emitter, -ray_direction)
                             ray_hitpoint = t_mat @ (loc-v.co)
                             if res:
-                                vertical_pos = max(vertical_pos, ray_hitpoint[2])
-                                if obj['nijigp_mesh'] == 'planar':
-                                    break
+                                max_hit = max(max_hit, ray_hitpoint[2])
+                        hit_points.append(max_hit)
+                    vertical_pos = np.percentile(hit_points, percentile)
                     vertical_pos += self.vertical_gap
 
                 bm.to_mesh(new_mesh)
