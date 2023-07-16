@@ -35,9 +35,9 @@ class MeshDepthSolver:
             v1 = edge.verts[1]
             # Frequently used constants that do not change in each iteration
             self.graph_coef[(v0.index, v1.index)] = ((v0.co.x - v1.co.x) * (v0[normal_map_layer].x * 2 - 1) 
-                                                     + (v0.co.y - v1.co.y) * (v0[normal_map_layer].y * 2 - 1)) / scale_factor
+                                                    + (v0.co.y - v1.co.y) * (v0[normal_map_layer].y * 2 - 1)) / scale_factor
             self.graph_coef[(v1.index, v0.index)] = ((v1.co.x - v0.co.x) * (v1[normal_map_layer].x * 2 - 1) 
-                                                     + (v1.co.y - v0.co.y) * (v1[normal_map_layer].y * 2 - 1)) / scale_factor
+                                                    + (v1.co.y - v0.co.y) * (v1[normal_map_layer].y * 2 - 1)) / scale_factor
 
     def solve(self, max_iter: int):
         def cost(z):

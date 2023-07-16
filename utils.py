@@ -107,21 +107,21 @@ def get_an_inside_co(poly):
         delta /= 2
     return None
 
+def get_full_bound_box(s):
+    """Bpy provides two bound box points for each stroke, but we need all 8 if transformed"""
+    bound_points = []
+    for x in (s.bound_box_min.x, s.bound_box_max.x):
+        for y in (s.bound_box_min.y, s.bound_box_max.y):
+            for z in (s.bound_box_min.z, s.bound_box_max.z):
+                bound_points.append(Vector([x,y,z]))
+    return bound_points
+
 def stroke_bound_box_overlapping(s1, s2, t_mat):
     """Judge if bound boxes of two strokes overlap in any given 2D plane"""
-    
-    # Bpy provides two bound box points for each stroke, however we need all 8 points
-    bound_points = []
-    for s in (s1,s2):
-        bound_points.append([])
-        for x in (s.bound_box_min.x, s.bound_box_max.x):
-            for y in (s.bound_box_min.y, s.bound_box_max.y):
-                for z in (s.bound_box_min.z, s.bound_box_max.z):
-                    bound_points[-1].append(Vector([x,y,z]))
+    bound_points = [get_full_bound_box(s1), get_full_bound_box(s2)]
     for i in range(2):
         for j in range(8):
-            co_2d = t_mat @ bound_points[i][j]
-            bound_points[i][j] = co_2d
+            bound_points[i][j] = t_mat @ bound_points[i][j]
     # Check first two axes if strokes overlap on them
     bound_points = np.array(bound_points)
     for i in range(2):

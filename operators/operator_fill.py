@@ -140,13 +140,12 @@ class SmartFillOperator(bpy.types.Operator):
             # Get points and bound box of line frame
             margin_sizes = (0.1, 0.3, 0.5)
             corners = [None, None, None, None]
-            stroke_list = []
-            for stroke in line_frame.strokes:
-                stroke_list.append(stroke)
+            stroke_list = [stroke for stroke in line_frame.strokes]
             t_mat, inv_mat = get_transformation_mat(mode=context.scene.nijigp_working_plane,
                                                     gp_obj=gp_obj, strokes=stroke_list, operator=self)
             for stroke in line_frame.strokes:
-                for co in (stroke.bound_box_min, stroke.bound_box_max):
+                bound_points = get_full_bound_box(stroke)
+                for co in bound_points:
                     co_2d = t_mat @ co
                     u, v = co_2d[0], co_2d[1]
                     corners[0] = u if (not corners[0] or u<corners[0]) else corners[0]
@@ -207,7 +206,7 @@ class SmartFillOperator(bpy.types.Operator):
                         if c_key not in label_map:
                             label_map[c_key] = len(labels_info)
                             labels_info.append([color, material_idx, use_vertex_color])
-                        hint_points_co.append(np.array(t_mat @ point.co) * scale_factor)
+                        hint_points_co.append((np.array(t_mat @ point.co) * scale_factor)[:2])
                         hint_points_label.append(label_map[c_key])
                 solver.set_labels_from_points(hint_points_co, hint_points_label)
             solver.propagate_labels()
