@@ -28,9 +28,9 @@ def generate_stroke_from_2d(new_co_list, inv_mat,
     for i,co_list in enumerate(poly_list):
         for j,co in enumerate(co_list):
             kdtree_indices.append( (i,j) )
-            # Ignore the 3rd dimension
             kdt.insert( xy0(co), len(kdtree_indices)-1 )
     kdt.balance()
+    depth_lookup_tree = DepthLookupTree(poly_list, depth_list)
 
     # Search every new generated point in the KDTree
     for co in new_co_list:
@@ -74,8 +74,7 @@ def generate_stroke_from_2d(new_co_list, inv_mat,
     new_stroke.points.add(N)
     for i in range(N):
         new_i = (i + index_offset) % N
-        depth = depth_list[ref_stroke_index_list[new_i]][ref_point_index_list[new_i]]
-        new_stroke.points[i].co = restore_3d_co(new_co_list[new_i], depth, inv_mat, scale_factor)
+        new_stroke.points[i].co = restore_3d_co(new_co_list[new_i], depth_lookup_tree.get_depth(new_co_list[new_i]), inv_mat, scale_factor)
     # Copy stroke properties
     copy_stroke_attributes(new_stroke, [src_stroke],
                            copy_hardness=True, copy_linewidth=True,
