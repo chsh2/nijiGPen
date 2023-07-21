@@ -104,7 +104,7 @@ def fit_2d_strokes(strokes, search_radius, smoothness_factor = 1, pressure_delta
     inherited_pressure_raw = np.zeros(len(path_whole))
     inherited_strength_raw = np.zeros(len(path_whole))
     inherited_depth_raw = np.zeros(len(path_whole))
-    inherited_color = np.zeros((len(path_whole), 3))
+    inherited_color = np.zeros((len(path_whole), 4))
     inherited_uv_rotation = np.zeros(len(path_whole))
 
     # Apply offsets in the normal direction if there are points in the neighborhood
@@ -126,7 +126,7 @@ def fit_2d_strokes(strokes, search_radius, smoothness_factor = 1, pressure_delta
             inherited_pressure_raw[i] += kdt_point_list[neighbor[1]].pressure
             inherited_strength_raw[i] += kdt_point_list[neighbor[1]].strength
             inherited_depth_raw[i] += kdt_depth_list[neighbor[1]]
-            inherited_color[i] += np.array(kdt_point_list[neighbor[1]].vertex_color)[:3] * kdt_point_list[neighbor[1]].vertex_color[3]
+            inherited_color[i] += np.array(kdt_point_list[neighbor[1]].vertex_color)
             inherited_uv_rotation[i] += kdt_point_list[neighbor[1]].uv_rotation
 
         sum_normal_offset /= len(neighbors)
@@ -391,10 +391,7 @@ class FitSelectedOperator(CommonFittingConfig, bpy.types.Operator):
             point.pressure = pressure_list[i] if 'PRESSURE' in self.inherited_attributes else 1
             point.strength = strength_list[i] if 'STRENGTH' in self.inherited_attributes else 1
             point.uv_rotation = uv_list[i] if 'UV' in self.inherited_attributes else 0
-            point.vertex_color[3] = 1 if 'COLOR' in self.inherited_attributes else 0
-            point.vertex_color[0] = color_list[i][0] if 'COLOR' in self.inherited_attributes else 0
-            point.vertex_color[1] = color_list[i][1] if 'COLOR' in self.inherited_attributes else 0
-            point.vertex_color[2] = color_list[i][2] if 'COLOR' in self.inherited_attributes else 0
+            point.vertex_color = color_list[i] if 'COLOR' in self.inherited_attributes else (0,0,0,0)
             point.pressure *= (1 + min(pressure_accumulation[i], self.max_delta_pressure*0.01) )
         bpy.ops.gpencil.select_all(action='DESELECT')
         new_stroke.use_cyclic = self.closed
