@@ -94,5 +94,6 @@ https://www.bilibili.com/video/bv1tg411C77g
 - Liu, Chenxi, Enrique Rosales, and Alla Sheffer. "Strokeaggregator: Consolidating raw sketches into artist-intended curve drawings." ACM Transactions on Graphics (TOG) 37, no. 4 (2018): 1-15.
 - Dvorožňák, Marek, Daniel Sýkora, Cassidy Curtis, Brian Curless, Olga Sorkine-Hornung, and David Salesin. "Monster mash: a single-view approach to casual 3D modeling and animation." ACM Transactions on Graphics (TOG) 39, no. 6 (2020): 1-12.
 - Johnston, Scott F. "Lumo: illumination for cel animation." In Proceedings of the 2nd international symposium on Non-photorealistic animation and rendering, pp. 45-ff. 2002.
+- Hudon, Matis, Sebastian Lutz, Rafael Pagés, and Aljosa Smolic. "Augmenting hand-drawn art with global illumination effects through surface inflation." In Proceedings of the 16th ACM SIGGRAPH European Conference on Visual Media Production, pp. 1-9. 2019.
 - Sýkora, Daniel, John Dingliana, and Steven Collins. "Lazybrush: Flexible painting tool for hand‐drawn cartoons." In Computer Graphics Forum, vol. 28, no. 2, pp. 599-608. Oxford, UK: Blackwell Publishing Ltd, 2009.
 - Parakkat, Amal Dev, Pooran Memari, and Marie‐Paule Cani. "Delaunay Painting: Perceptual Image Colouring from Raster Contours with Gaps." In Computer Graphics Forum, vol. 41, no. 6, pp. 166-181. 2022.
