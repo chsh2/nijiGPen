@@ -254,7 +254,6 @@ class OffsetSelectedOperator(bpy.types.Operator):
     bl_category = 'View'
     bl_options = {'REGISTER', 'UNDO'}
 
-    # Define properties
     offset_amount: bpy.props.FloatProperty(
             name='Offset',
             default=0, unit='LENGTH',
@@ -454,7 +453,6 @@ class BoolSelectedOperator(bpy.types.Operator):
     bl_category = 'View'
     bl_options = {'REGISTER', 'UNDO'}
 
-    # Define properties
     operation_type: bpy.props.EnumProperty(
             name='Operation',
             items=[('UNION', 'Union', ''),
@@ -650,7 +648,6 @@ class BoolLastOperator(bpy.types.Operator):
     bl_category = 'View'
     bl_options = {'REGISTER', 'UNDO'}
 
-    # Define properties
     operation_type: bpy.props.EnumProperty(
             name='Operation',
             items=[('UNION', 'Union', ''),
@@ -660,7 +657,6 @@ class BoolLastOperator(bpy.types.Operator):
             default='UNION',
             description='Type of the Boolean operation'
     )
-
     clip_mode: bpy.props.EnumProperty(
             name='Boolean Using',
             items=[('FILL', 'Fill', ''),

@@ -132,7 +132,6 @@ class NijiGPAddonPreferences(bpy.types.AddonPreferences):
         description='Location storing temporary files. Use the default temporary folder when empty',
         default=''
     )
-
     shortcut_button_enabled: bpy.props.BoolProperty(
         name='Enable Shortcut Buttons',
         description='Add a group of buttons at the bottom of the 3D view that brings better touchscreen control',
@@ -228,7 +227,7 @@ class NijiGPAddonPreferences(bpy.types.AddonPreferences):
             row = box2.row()
             row.prop(self, 'shortcut_button_size')
             row.prop(self, 'shortcut_button_spacing')
-            box2.prop(self, 'shortcut_button_location')
-            
+            row = box2.row()
+            row.prop(self, 'shortcut_button_location')
             
         layout.prop(self, 'cache_folder')

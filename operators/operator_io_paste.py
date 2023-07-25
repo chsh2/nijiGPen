@@ -12,7 +12,6 @@ class PasteSVGOperator(bpy.types.Operator):
     bl_category = 'View'
     bl_options = {'REGISTER', 'UNDO'}
 
-    # Define properties
     svg_name: bpy.props.StringProperty(
             name='Name',
             default='',
