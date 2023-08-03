@@ -407,8 +407,8 @@ class FitSelectedOperator(CommonFittingConfig, bpy.types.Operator):
     
 class SelectSimilarOperator(bpy.types.Operator):
     """Find similar strokes with the selected ones that may belong to the same part of the drawing"""
-    bl_idname = "gpencil.nijigp_select_similar"
-    bl_label = "Select Similar"
+    bl_idname = "gpencil.nijigp_cluster_select"
+    bl_label = "Cluster Select"
     bl_category = 'View'
     bl_options = {'REGISTER', 'UNDO'}  
 

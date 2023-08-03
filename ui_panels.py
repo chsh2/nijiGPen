@@ -212,7 +212,7 @@ class NIJIGP_PT_edit_panel_line(bpy.types.Panel):
         row.operator("gpencil.nijigp_cluster_and_fit", text="Multi-Line", icon="CURVES")
         layout.label(text="Line Utilities:")
         row = layout.row()
-        row.operator("gpencil.nijigp_select_similar", text="Select Similar", icon="SELECT_SET")
+        row.operator("gpencil.nijigp_cluster_select", text="Cluster Select", icon="SELECT_SET")
         row = layout.row()
         row.operator("gpencil.nijigp_pinch", text="Pinch", icon="HANDLE_VECTOR")
         row.operator("gpencil.nijigp_taper_selected", text="Taper", icon="GP_ONLY_SELECTED")
