@@ -189,6 +189,7 @@ class HoleProcessingOperator(bpy.types.Operator):
             # Case 3: create a new material
             dst_mat: bpy.types.Material = src_mat.copy()
             dst_mat.name = dst_mat_name
+            dst_mat['original_material_index'] = stroke.material_index
             dst_mat.grease_pencil.fill_color = (0,0,0,1)
             dst_mat.grease_pencil.use_fill_holdout = True
             gp_obj.data.materials.append(dst_mat)
@@ -775,3 +776,237 @@ class BoolLastOperator(bpy.types.Operator):
 
         bpy.ops.object.mode_set(mode='PAINT_GPENCIL')
         return {'FINISHED'}
+    
+class SweepSelectedOperator(bpy.types.Operator):
+    """Sweep selected shapes along a path"""
+    bl_idname = "gpencil.nijigp_sweep_selected"
+    bl_label = "Sweep Selected"
+    bl_category = 'View'
+    bl_options = {'REGISTER', 'UNDO'}
+
+    multiframe_falloff: bpy.props.FloatProperty(
+            name='Multiframe Falloff',
+            default=0, min=0, max=1,
+            description='The ratio of sweep length falloff per frame in the multiframe editing mode',
+    )
+    path_type: bpy.props.EnumProperty(
+            name='Path Type',
+            items=[('STROKE', 'Last Selected Stroke', ''),
+                    ('VEC', 'Vector', '')],
+            default='VEC'
+    )
+    path_vector: bpy.props.FloatVectorProperty(
+            name='Path Vector',
+            default=(0.0, -0.1), size=2, soft_min=-5, soft_max=5, unit='LENGTH',
+            description='2D vector of the sweeping path'
+    )
+    style: bpy.props.EnumProperty(
+            name='Style',
+            items=[('EXTRUDE', 'Extrude', ''),
+                    ('OUTER', 'Outer Shadow', ''),
+                    ('INNER', 'Inner Shadow', '')],
+            default='EXTRUDE'
+    )
+    invert_holdout: bpy.props.BoolProperty(
+            name='Process Holdout Separately',
+            default=True,
+            description='When generating outer shadow, use inner shadow instead for shapes with their fill holdout; when generating inner shadow, ignore such shapes'
+    )
+    keep_original: bpy.props.BoolProperty(
+            name='Keep Original',
+            default=True,
+            description='Do not delete the original stroke'
+    )
+    change_line_color: bpy.props.FloatVectorProperty(
+            name = "Change Line Color",
+            subtype = "COLOR",
+            default = (1.0,.0,.0,1.0),
+            min = 0.0, max = 1.0, size = 4,
+            description='Change the vertex color after sweeping',
+            )
+    line_color_factor: bpy.props.FloatProperty(
+            name='Line Color Factor',
+            default=0, min=0, max=1
+    )
+    change_fill_color: bpy.props.FloatVectorProperty(
+            name = "Change Fill Color",
+            subtype = "COLOR",
+            default = (.0,.0,1.0,1.0),
+            min = 0.0, max = 1.0, size = 4,
+            description='Change the stroke fill color after sweeping',
+    )
+    fill_color_factor: bpy.props.FloatProperty(
+            name='Fill Color Factor',
+            default=0, min=0, max=1
+    )
+
+    def draw(self, context):
+        layout = self.layout
+        layout.label(text = "Geometry Options:")
+        box1 = layout.box()
+        box1.prop(self, "style")
+        box1.prop(self, "path_type")
+        if self.path_type == 'VEC':
+            box1.prop(self, "path_vector")
+        if context.object.data.use_multiedit:
+            box1.prop(self, "multiframe_falloff")
+        box1.prop(self, "invert_holdout")
+        box1.prop(self, "keep_original")
+
+        layout.label(text = "Post-Processing Options:")
+        box2 = layout.box()
+        box2.prop(self, "change_line_color", text = "Change Line Color")
+        box2.prop(self, "line_color_factor", text = "Line Color Factor")
+        box2.prop(self, "change_fill_color", text = "Change Fill Color")
+        box2.prop(self, "fill_color_factor", text = "Fill Color Factor")
+
+
+    def execute(self, context):
+        MIN_AREA = 4                # Eliminate too small shapes which may be errors of Boolean operations
+        CONSTANT_SWEEP_DIST = 64    # A large enough constant, for inner shadow style only
+
+        # Import and configure Clipper
+        try:
+            import pyclipper
+        except ImportError:
+            self.report({"ERROR"}, "Please install PyClipper in the Preferences panel.")
+            return {'FINISHED'}
+        clipper = pyclipper.Pyclipper()
+        clipper.PreserveCollinear = True
+     
+        # Get a list of layers / frames to process
+        current_gp_obj = context.object
+        frames_to_process = get_input_frames(current_gp_obj,
+                                             multiframe = current_gp_obj.data.use_multiedit,
+                                             return_map = True)
+
+        select_map = save_stroke_selection(current_gp_obj)
+        generated_strokes = []
+        for frame_number, layer_frame_map in frames_to_process.items():
+            load_stroke_selection(current_gp_obj, select_map)
+            stroke_info = []
+            stroke_list = []
+            select_seq_map = {}
+
+            # Convert selected strokes to 2D polygon point lists
+            for i,item in layer_frame_map.items():
+                frame = item[0]
+                layer = current_gp_obj.data.layers[i]
+                if hasattr(frame, "strokes"):
+                    for j,stroke in enumerate(frame.strokes):
+                        if stroke.select and not is_stroke_locked(stroke, current_gp_obj):
+                            stroke_info.append([stroke, i, j, frame])
+                            stroke_list.append(stroke)
+                            select_seq_map[len(stroke_list) - 1] = select_map[layer][frame][stroke]
+                            
+            t_mat, inv_mat = get_transformation_mat(mode=context.scene.nijigp_working_plane,
+                                                    gp_obj=current_gp_obj, 
+                                                    strokes=stroke_list, operator=self)
+            poly_list, depth_list, scale_factor = get_2d_co_from_strokes(stroke_list, t_mat,
+                                                                         scale=True,
+                                                                         correct_orientation = False)
+
+            if len(stroke_info) < 1:
+                continue
+
+            # Multi-frame falloff factor
+            falloff_factor = 1
+            if current_gp_obj.data.use_multiedit:
+                frame_gap = abs(context.scene.frame_current - frame_number) 
+                falloff_factor = max(0, 1 - frame_gap * self.multiframe_falloff)
+
+            # Get the sweep path
+            path = {}
+            path_is_closed = False
+            if self.path_type == 'VEC':
+                # For inner shadow, offset the starting point
+                path['INNER'] = [(self.path_vector[0]*scale_factor*falloff_factor, 
+                                    self.path_vector[1]*scale_factor*falloff_factor)]
+                end_direction = Vector(self.path_vector).normalized()
+                path['INNER'].append((path['INNER'][0][0]+end_direction[0]*CONSTANT_SWEEP_DIST*scale_factor, 
+                                        path['INNER'][0][1]+end_direction[1]*CONSTANT_SWEEP_DIST*scale_factor))
+                # For outer shadow, starting from the origin
+                path['OUTER'] = [(0,0), 
+                                (self.path_vector[0]*scale_factor*falloff_factor, 
+                                self.path_vector[1]*scale_factor*falloff_factor)]
+            else:
+                # Find the last selected stroke and get its information
+                path_idx = max(range(len(stroke_list)), key=lambda k: select_seq_map[k])
+                path_is_closed = stroke_list[path_idx].use_cyclic
+                if len(poly_list[path_idx]) < 2:
+                    continue
+                starting_point = poly_list[path_idx][0]
+                
+                end_point = max(1, falloff_factor*(len(poly_list[path_idx])-1))
+                path['INNER'] = [(poly_list[path_idx][end_point][0]-starting_point[0],
+                                poly_list[path_idx][end_point][1]-starting_point[1])]
+                end_direction = (Vector(poly_list[path_idx][end_point]) - Vector(poly_list[path_idx][end_point-1])).normalized()
+                path['INNER'].append((path['INNER'][0][0]+end_direction[0]*CONSTANT_SWEEP_DIST*scale_factor, 
+                                    path['INNER'][0][1]+end_direction[1]*CONSTANT_SWEEP_DIST*scale_factor))
+                path['OUTER'] = []
+                for co in poly_list[path_idx]:
+                    path['OUTER'].append((co[0] - starting_point[0], co[1] - starting_point[1]))
+                    if len(path['OUTER'])>1 and len(path['OUTER'])>len(poly_list[path_idx])*falloff_factor:
+                        break
+            path['EXTRUDE'] = path['OUTER']
+
+            # Process each stroke
+            for j,co_list in enumerate(poly_list):
+                if self.path_type != 'VEC' and j == path_idx:
+                    continue
+                
+                new_material_index = None
+                style = str(self.style)
+                if self.invert_holdout and is_stroke_hole(stroke_list[j], current_gp_obj):
+                    # When generating inner shadow, ignore holdout. Otherwise, invert the shadow direction
+                    if style == 'INNER':
+                        continue
+                    else:
+                        style = 'INNER'
+                        holdout_material = current_gp_obj.material_slots[stroke_list[j].material_index].material
+                        if 'original_material_index' in holdout_material:
+                            new_material_index = holdout_material['original_material_index']
+                poly_results = pyclipper.MinkowskiSum(co_list, path[style], path_is_closed)
+
+                # Trim the result using Boolean operations
+                clipper.Clear()
+                op = pyclipper.CT_UNION if style == 'EXTRUDE' else pyclipper.CT_DIFFERENCE
+                role0 = pyclipper.PT_CLIP if style != 'INNER' else pyclipper.PT_SUBJECT
+                role1 = pyclipper.PT_SUBJECT if style != 'INNER' else pyclipper.PT_CLIP
+                for result in poly_results:
+                    clipper.AddPath(result, role1, True)
+                clipper.AddPath(co_list, role0, True)
+                poly_results = clipper.Execute(op, pyclipper.PFT_NONZERO, pyclipper.PFT_NONZERO)
+
+                for result in poly_results:
+                    if pyclipper.Area(result) < MIN_AREA:
+                        continue
+                    new_stroke, new_index, new_layer_index = generate_stroke_from_2d(result, inv_mat, [poly_list[j]], [depth_list[j]],
+                                                                                        [stroke_info[j]], current_gp_obj, scale_factor,    
+                                                                                        rearrange = True, 
+                                                                                        arrange_offset = (style!='INNER'))
+                    generated_strokes.append(new_stroke)
+                    new_stroke.use_cyclic = True
+                    if new_material_index != None:
+                        new_stroke.material_index = new_material_index
+                        
+                    # Update the stroke index
+                    for info in stroke_info:
+                        if new_index <= info[2] and new_layer_index == info[1]:
+                            info[2] += 1      
+
+                if not self.keep_original:
+                    stroke_info[j][3].strokes.remove(stroke_list[j])            
+
+        # Post-processing: change colors
+        for stroke in generated_strokes:
+            for i in range(4):
+                stroke.vertex_color_fill[i] = stroke.vertex_color_fill[i] * (1 - self.fill_color_factor) + self.change_fill_color[i] * self.fill_color_factor
+            for point in stroke.points:
+                for i in range(4):
+                    point.vertex_color[i] = point.vertex_color[i] * (1 - self.line_color_factor) + self.change_line_color[i] * self.line_color_factor
+            stroke.select = True
+        refresh_strokes(current_gp_obj, list(frames_to_process.keys()))
+
+        return {'FINISHED'}
+    
