@@ -745,20 +745,22 @@ class BoolLastOperator(bpy.types.Operator):
             if clip_stroke.end_cap_mode == 'FLAT':
                 et = pyclipper.ET_OPENBUTT
             clipper_offset.AddPath(poly_list[0], join_type = jt, end_type = et)
-            poly_list[0] = clipper_offset.Execute(clip_stroke.line_width / LINE_WIDTH_FACTOR * scale_factor)[0]
+            clip_poly = clipper_offset.Execute(clip_stroke.line_width / LINE_WIDTH_FACTOR * scale_factor)[0]
+        else:
+            clip_poly = poly_list[0]
 
         # Operate on the last stroke with any other stroke one by one
         for j in range(1, len(stroke_list)):
             clipper.Clear()
             clipper.AddPath(poly_list[j], pyclipper.PT_SUBJECT, True)
-            clipper.AddPath(poly_list[0], pyclipper.PT_CLIP, True)
+            clipper.AddPath(clip_poly, pyclipper.PT_CLIP, True)
             poly_results = clipper.Execute(op, pyclipper.PFT_NONZERO, pyclipper.PFT_NONZERO)
 
             if len(poly_results) > 0:
                 for result in poly_results:
                     new_stroke, new_index, _ = generate_stroke_from_2d(result, inv_mat, 
-                                                                       [poly_list[j], poly_list[0]],
-                                                                       [depth_list[j], depth_list[0]],
+                                                                       [poly_list[j]] if self.clip_mode == 'LINE' else [poly_list[j], poly_list[0]],
+                                                                       [depth_list[j]] if self.clip_mode == 'LINE' else [depth_list[j], depth_list[0]],
                                                                         [stroke_info[j], stroke_info[0]], current_gp_obj, scale_factor,    
                                                                         rearrange = True, ref_stroke_mask = {1})
                     if self.operation_type == 'INTERSECTION':
