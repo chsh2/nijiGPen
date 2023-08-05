@@ -5,6 +5,78 @@ from mathutils import *
 from .utils import *
 from .resources import *
 
+class SweepModalOperator(bpy.types.Operator):
+    """Executing sweep with the path vector determined by mouse position"""
+    bl_idname = "gpencil.nijigp_sweep_selected_modal"
+    bl_label = "Sweep Selected (Modal)"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    starting_mouse_pos: bpy.props.IntVectorProperty(size=2)
+    multiframe_falloff: bpy.props.FloatProperty(
+            name='Multiframe Falloff',
+            default=0, min=0, max=1,
+            description='The ratio of offset length falloff per frame in the multiframe editing mode',
+    )
+    style: bpy.props.EnumProperty(
+            name='Style',
+            items=[('EXTRUDE', 'Extrude', ''),
+                    ('OUTER', 'Outer Shadow', ''),
+                    ('INNER', 'Inner Shadow', '')],
+            default='EXTRUDE'
+    )
+    tint_color: bpy.props.FloatVectorProperty(
+            name = "Tint Vertex Color",
+            subtype = "COLOR",
+            default = (1.0,.0,.0,1.0),
+            min = 0.0, max = 1.0, size = 4,
+            description='Change the vertex color after sweeping',
+            )
+    tint_color_factor: bpy.props.FloatProperty(
+            name='Tint Factor',
+            default=0, min=0, max=1
+    )    
+    tint_mode: bpy.props.EnumProperty(
+            name='Mode',
+            items=[('BOTH', 'Stroke & Fill', ''),
+                    ('FILL', 'Fill', ''),
+                    ('LINE', 'Stroke', '')],
+            default='FILL'
+    )    
+
+    def modal(self, context, event):
+        if event.type == 'MOUSEMOVE':
+            delta = [2 * (event.mouse_x - self.starting_mouse_pos[0]) / LINE_WIDTH_FACTOR,
+                     2 * (event.mouse_y - self.starting_mouse_pos[1]) / LINE_WIDTH_FACTOR]
+            bpy.ops.ed.undo()
+            bpy.ops.ed.undo_push()
+            context.area.header_text_set('Path Vector: {:f} m, {:f} m'.format(delta[0], delta[1]))
+            bpy.ops.gpencil.nijigp_sweep_selected(multiframe_falloff=self.multiframe_falloff,
+                                                  path_type='VEC', path_vector=delta, style=self.style,
+                                                  change_line_color=self.tint_color, change_fill_color=self.tint_color,
+                                                  line_color_factor=self.tint_color_factor if self.tint_mode!='FILL' else 0,
+                                                  fill_color_factor=self.tint_color_factor if self.tint_mode!='LINE' else 0)
+
+        elif event.type == 'LEFTMOUSE':
+            context.area.header_text_set(None)
+            return {'FINISHED'}
+        
+        elif event.type in {'RIGHTMOUSE', 'ESC'}:
+            context.area.header_text_set(None)
+            bpy.ops.ed.undo()
+            return {'CANCELLED'}
+
+        return {'RUNNING_MODAL'}
+
+    def invoke(self, context, event):
+        if context.object:
+            self.starting_mouse_pos = [event.mouse_x, event.mouse_y]
+            context.window_manager.modal_handler_add(self)
+            bpy.ops.ed.undo_push()
+            return {'RUNNING_MODAL'}
+        else:
+            self.report({'WARNING'}, "No active object, could not finish")
+            return {'CANCELLED'}
+
 class OffsetModalOperator(bpy.types.Operator):
     """Executing offset with the value determined by mouse position"""
     bl_idname = "gpencil.nijigp_offset_selected_modal"
@@ -12,11 +84,6 @@ class OffsetModalOperator(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO'}
 
     starting_mouse_x: bpy.props.IntProperty()
-    offset_amount: bpy.props.FloatProperty(
-            name='Offset',
-            default=0, unit='LENGTH',
-            description='Offset length'
-    )
     multiframe_falloff: bpy.props.FloatProperty(
             name='Multiframe Falloff',
             default=0, min=0, max=1,
@@ -242,6 +309,34 @@ class OffsetTool(bpy.types.WorkSpaceTool):
         layout.prop(props, "corner_shape")
         layout.prop(props, "multiframe_falloff")
 
+class SweepTool(bpy.types.WorkSpaceTool):
+    bl_space_type = 'VIEW_3D'
+    bl_context_mode = 'EDIT_GPENCIL'
+
+    bl_idname = "nijigp.sweep_tool"
+    bl_label = "2D Sweep"
+    bl_description = (
+        "Sweep the shape of selected strokes in the direction of mouse dragging. "
+        "Holding CTRL for inner shadow mode, or holding SHIFT for outer shadow mode"
+    )
+    bl_icon = get_workspace_tool_icon('ops.nijigp.sweep_tool')
+    bl_widget = None
+    bl_keymap = (
+        ("gpencil.nijigp_sweep_selected_modal", {"type": 'LEFTMOUSE', "value": 'PRESS'},
+         {"properties": []}),
+        ("gpencil.nijigp_sweep_selected_modal", {"type": 'LEFTMOUSE', "value": 'PRESS', "ctrl": True},
+         {"properties": [("style", 'INNER')]}),
+        ("gpencil.nijigp_sweep_selected_modal", {"type": 'LEFTMOUSE', "value": 'PRESS', "shift": True},
+         {"properties": [("style", 'OUTER')]}),
+    )
+
+    def draw_settings(context, layout, tool):
+        props = tool.operator_properties("gpencil.nijigp_sweep_selected_modal")
+        layout.prop(props, "multiframe_falloff")
+        layout.prop(props, "tint_color")
+        layout.prop(props, "tint_color_factor")
+        layout.prop(props, "tint_mode")
+
 class ViewportShortcuts(bpy.types.GizmoGroup):
     bl_idname = "nijigp_viewport_shortcuts"
     bl_label = "NijiGPen Viewport Shortcuts"
@@ -324,7 +419,9 @@ class RefreshGizmoOperator(bpy.types.Operator):
         return {'FINISHED'}
 
 def register_viewport_tools():
-    bpy.utils.register_tool(OffsetTool, after={"builtin.transform_fill"}, separator=True)
+    bpy.utils.register_tool(OffsetTool, after={"builtin.transform_fill"}, separator=True, group=True)
+    bpy.utils.register_tool(SweepTool, after={OffsetTool.bl_idname})
 
 def unregister_viewport_tools():
     bpy.utils.unregister_tool(OffsetTool)
+    bpy.utils.unregister_tool(SweepTool)
