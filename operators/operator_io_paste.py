@@ -96,11 +96,11 @@ class PasteSVGOperator(bpy.types.Operator):
 
         # Transform the figure to the working 2D plane
         # Default plane is X-Z for imported SVG. Convert it to X-Y first
-        bpy.ops.transform.rotate(value=math.pi/2, orient_axis='X', orient_type='LOCAL')
+        z_to_y_mat = Matrix([(1,0,0), (0,0,1), (0,1,0)])
         for i in range(len(context.object.data.layers) - num_layers):
             for stroke in context.object.data.layers[i].active_frame.strokes:
                 for point in stroke.points:
-                    point.co = inv_mat @ point.co
+                    point.co = inv_mat @ z_to_y_mat @ point.co
         if context.scene.tool_settings.gpencil_stroke_placement_view3d == 'CURSOR':
             bpy.ops.transform.translate(value=context.scene.cursor.location)
 
