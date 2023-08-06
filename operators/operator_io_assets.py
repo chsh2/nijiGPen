@@ -37,7 +37,8 @@ class ImportBrushOperator(bpy.types.Operator, ImportHelper):
     icon_save_path: bpy.props.EnumProperty(
             name='Icon Folder',
             items=[('PROJECT', 'Folder of Blend File', ''),
-                    ('BRUSH', 'Folder of Brush File', '')],
+                    ('BRUSH', 'Folder of Brush File', ''),
+                    ('TMP', 'Temporary Folder', '')],
             default='BRUSH'
     )
     alpha_clip: bpy.props.BoolProperty(
@@ -92,8 +93,10 @@ class ImportBrushOperator(bpy.types.Operator, ImportHelper):
         if self.texture_usage == 'BRUSH':
             if self.icon_save_path=='PROJECT' and len(bpy.path.abspath('//'))>0:
                 icon_dir = bpy.path.abspath('//')
-            else:
+            elif self.icon_save_path=='BRUSH':
                 icon_dir = self.directory
+            else:
+                icon_dir = get_cache_folder()
             icon_dir =   os.path.join(icon_dir, 'gp_brush_icons')
             if not os.path.exists(icon_dir):
                 os.makedirs(icon_dir)
