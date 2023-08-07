@@ -53,6 +53,11 @@ def register():
                         description="Boolean operations in Draw mode only apply to strokes showing fills"
                         )
     register_viewport_tools()
+    
+    custom_lib_path = bpy.context.preferences.addons[__package__].preferences.custom_lib_path
+    if len(custom_lib_path) > 0:
+        import sys
+        sys.path.append(custom_lib_path)
 
 def unregister():
     auto_load.unregister()

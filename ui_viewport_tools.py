@@ -410,7 +410,7 @@ class ViewportShortcuts(bpy.types.GizmoGroup):
                 self.gizmo_list.append(None)
 
 class RefreshGizmoOperator(bpy.types.Operator):
-    bl_idname = "gpencil.refresh_gizmo"
+    bl_idname = "gpencil.nijigp_refresh_gizmo"
     bl_label = "Refresh Viewport Shortcuts"
 
     def execute(self, context):

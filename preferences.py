@@ -1,23 +1,70 @@
 import bpy
-import os
+import sys
+
+def log_append(str):
+    bpy.context.preferences.addons[__package__].preferences.captured_logs.append(str)
+
+def run_command(commands = [], output_log = True, return_full_result = False):
+    from subprocess import Popen, PIPE
+    texts = []
+    with Popen(commands, stdout=PIPE, shell=False) as p:
+        while p.poll() is None:
+            text = p.stdout.readline().decode("utf-8")
+            if len(text) > 0:
+                texts.append(text)
+                print(text)
+                if output_log:
+                    log_append(text)
+        return texts if return_full_result else p.returncode
 
 def modify_package(command, option, name):
     """
     Install or remove a Python package through pip
     """    
-    import subprocess
-    import sys
     python_exe = sys.executable
 
-    res = subprocess.call([python_exe, '-m', 'ensurepip', '--upgrade'])
+    res = run_command([python_exe, '-m', 'ensurepip', '--upgrade'])
     if res > 0:
         return False
-    res = subprocess.call([python_exe, '-m', 'pip', command, option, name])
+    res = run_command([python_exe, '-m', 'pip', command, option, name])
     if res > 0:
         return False
-    bpy.ops.nijigp.check_dependencies()
+    bpy.ops.nijigp.check_dependencies(output_log=False)
     return True
+
+class ClearLogs(bpy.types.Operator):
+    """
+    Clear the captured logs from the Preferences panel
+    """
+    bl_idname = "nijigp.clear_logs"
+    bl_label = "Clear Logs"
+    bl_description = ("Clear the captured logs from the Preferences panel")
+    bl_options = {"REGISTER", "INTERNAL"} 
     
+    def execute(self, context):
+        bpy.context.preferences.addons[__package__].preferences.captured_logs.clear()
+        return {"FINISHED"}
+
+class ApplyCustomLibPath(bpy.types.Operator):
+    """
+    Add the custom site-package path to the package search path
+    """
+    bl_idname = "nijigp.apply_custom_lib_path"
+    bl_label = "Apply Custom Package Path"
+    bl_description = ("Add the custom site-package path to the package search path")
+    bl_options = {"REGISTER", "INTERNAL"} 
+    
+    output_log: bpy.props.BoolProperty(default = True)
+    
+    def execute(self, context):
+        custom_lib_path = bpy.context.preferences.addons[__package__].preferences.custom_lib_path
+        if len(custom_lib_path) > 0 and custom_lib_path not in sys.path:
+            sys.path.append(custom_lib_path)
+        if self.output_log:
+            log_append("[NijiGPen Info] Package Search Paths Updated:")
+            for path in sys.path:
+                log_append(path)
+        return {"FINISHED"}
 
 class DetectDependencies(bpy.types.Operator):
     """
@@ -28,110 +75,128 @@ class DetectDependencies(bpy.types.Operator):
     bl_description = ("Check if required Python packages are installed")
     bl_options = {"REGISTER", "INTERNAL"}
 
+    output_log: bpy.props.BoolProperty(default = True)
+
     def execute(self, context):
         preferences = context.preferences.addons[__package__].preferences
         preferences.package_pyclipper = True
         preferences.package_triangle = True
         preferences.package_skimage = True
+        
         try:
             import pyclipper
+            if self.output_log:
+                log_append("[NijiGPen Info] Package PyClipper:")
+                log_append("  Version: "+str(pyclipper.__version__))
+                log_append("  Location: "+str(pyclipper.__file__))
         except:
             preferences.package_pyclipper = False
+        
         try:
-            import triangle
-        except:
-            preferences.package_triangle = False
-        try:
-            import skimage
+            import scipy
+            if self.output_log:
+                log_append("[NijiGPen Info] Package SciPy:")
+                log_append("  Version: "+str(scipy.__version__))
+                log_append("  Location: "+str(scipy.__file__))
         except:
             preferences.package_skimage = False
+        
+        try:
+            import skimage
+            if self.output_log:
+                log_append("[NijiGPen Info] Package Scikit-Image:")
+                log_append("  Version: "+str(skimage.__version__))
+                log_append("  Location: "+str(skimage.__file__))
+        except:
+            preferences.package_skimage = False
+        
+        try:
+            import triangle
+            if self.output_log:
+                log_append("[NijiGPen Info] Package Triangle:")
+                log_append("  Version: "+str(triangle.__version__))
+                log_append("  Location: "+str(triangle.__file__))
+        except:
+            preferences.package_triangle = False
         return {"FINISHED"}
 
-class InstallPyClipper(bpy.types.Operator):
-    bl_idname = "nijigp.dependencies_pyclipper_install"
+class InstallDependency(bpy.types.Operator):
+    bl_idname = "nijigp.dependencies_install"
     bl_label = "Install"
     bl_description = ("Manage packages through pip")
     bl_options = {"REGISTER", "INTERNAL"}
 
+    package_name: bpy.props.StringProperty()
     def execute(self, context):
-        res = modify_package('install','--no-input','pyclipper')
+        res = modify_package('install','--no-input', self.package_name)
         if res:
             self.report({"INFO"}, "Python package installed successfully.")
+            log_append("[NijiGPen Info] Python package installed successfully.")
+            
+            # Check if the custom site-package path needs to be updated
+            installed_package_info = run_command([sys.executable, '-m', 'pip', 'show', self.package_name], output_log=False, return_full_result=True)
+            custom_lib_path = bpy.context.preferences.addons[__package__].preferences.custom_lib_path
+            for str in installed_package_info:
+                if str.startswith("Location:"):
+                    site_packages_path = str[9:].strip()
+                    if site_packages_path not in sys.path:
+                        bpy.context.preferences.addons[__package__].preferences.custom_lib_path = site_packages_path
+                        bpy.ops.nijigp.apply_custom_lib_path(output_log=False)
+                        log_append("[NijiGPen Info] Package Search Path Updated Automatically.")
+                        return {"FINISHED"}
+                        
         else:
             self.report({"ERROR"}, "Cannot install the required package.")
+            log_append("[NijiGPen Error] Cannot install the required package.")
+            
         return {"FINISHED"}
 
-class InstallTriangle(bpy.types.Operator):
-    bl_idname = "nijigp.dependencies_triangle_install"
-    bl_label = "Install"
-    bl_description = ("Manage packages through pip")
-    bl_options = {"REGISTER", "INTERNAL"}
-
-    def execute(self, context):
-        res = modify_package('install','--no-input','triangle')
-        if res:
-            self.report({"INFO"}, "Python package installed successfully.")
-        else:
-            self.report({"ERROR"}, "Cannot install the required package.")
-        return {"FINISHED"}
-
-class InstallSkimage(bpy.types.Operator):
-    bl_idname = "nijigp.dependencies_skimage_install"
-    bl_label = "Install"
-    bl_description = ("Manage packages through pip")
-    bl_options = {"REGISTER", "INTERNAL"}
-
-    def execute(self, context):
-        res = modify_package('install','--no-input','scikit-image')
-        if res:
-            self.report({"INFO"}, "Python package installed successfully.")
-        else:
-            self.report({"ERROR"}, "Cannot install the required package.")
-        return {"FINISHED"}
-
-class RemovePyClipper(bpy.types.Operator):
-    bl_idname = "nijigp.dependencies_pyclipper_remove"
+class RemoveDependency(bpy.types.Operator):
+    bl_idname = "nijigp.dependencies_remove"
     bl_label = "Remove"
     bl_description = ("Manage packages through pip")
     bl_options = {"REGISTER", "INTERNAL"}
 
+    package_name: bpy.props.StringProperty()
     def execute(self, context):
-        res = modify_package('uninstall','-y','pyclipper')
-        self.report({"INFO"}, "Blender needs to be restarted.")
+        res = modify_package('uninstall','-y', self.package_name)
+        self.report({"INFO"}, "Please restart Blender to apply the changes.")
+        log_append("[NijiGPen Info] Please restart Blender to apply the changes.")
         return {"FINISHED"}
-
-class RemoveTriangle(bpy.types.Operator):
-    bl_idname = "nijigp.dependencies_triangle_remove"
-    bl_label = "Remove"
-    bl_description = ("Manage packages through pip")
-    bl_options = {"REGISTER", "INTERNAL"}
-
-    def execute(self, context):
-        res = modify_package('uninstall','-y','triangle')
-        self.report({"INFO"}, "Blender needs to be restarted.")
-        return {"FINISHED"}
-
-class RemoveSkimage(bpy.types.Operator):
-    bl_idname = "nijigp.dependencies_skimage_remove"
-    bl_label = "Remove"
-    bl_description = ("Manage packages through pip")
-    bl_options = {"REGISTER", "INTERNAL"}
-
-    def execute(self, context):
-        res = modify_package('uninstall','-y','scikit-image')
-        self.report({"INFO"}, "Blender needs to be restarted.")
-        return {"FINISHED"}
-
 
 class NijiGPAddonPreferences(bpy.types.AddonPreferences):
     bl_idname = __package__
 
+    custom_lib_path: bpy.props.StringProperty(
+        name='Custom Site-Packages Path',
+        subtype='DIR_PATH',
+        description='An additional directory that the add-on will try to load packages from',
+        default=''
+    )
     cache_folder: bpy.props.StringProperty(
         name='Cache Folder',
         subtype='DIR_PATH',
         description='Location storing temporary files. Use the default temporary folder when empty',
         default=''
     )
+    package_pyclipper: bpy.props.BoolProperty(
+        name='PyClipper Installed',
+        default=False
+    )
+    package_triangle: bpy.props.BoolProperty(
+        name='Triangle Installed',
+        default=False
+    )
+    package_skimage: bpy.props.BoolProperty(
+        name='Scikit-Image Installed',
+        default=False
+    )
+    show_full_logs: bpy.props.BoolProperty(
+        name='Show Full Logs',
+        default=False
+    )
+    captured_logs = []
+    
     shortcut_button_enabled: bpy.props.BoolProperty(
         name='Enable Shortcut Buttons',
         description='Add a group of buttons at the bottom of the 3D view that brings better touchscreen control',
@@ -160,74 +225,90 @@ class NijiGPAddonPreferences(bpy.types.AddonPreferences):
         description='The position of the shortcut buttons. Zero means buttons in the center. Positive/negative values means buttons in the right/left',
         default=(0,0), soft_min=-2000, soft_max=2000, size=2
     )
-    package_pyclipper: bpy.props.BoolProperty(
-        name='PyClipper Installed',
-        default=False
-    )
-    package_triangle: bpy.props.BoolProperty(
-        name='Triangle Installed',
-        default=False
-    )
-    package_skimage: bpy.props.BoolProperty(
-        name='Scikit-Image Installed',
-        default=False
-    )
 
     def draw(self, context):
         layout = self.layout
         wiki_url = "https://github.com/chsh2/nijiGPen/wiki/Dependency-Installation"
 
         # Dependency manager
-        box1 = layout.box()
-        row = box1.row()
-        row.label(text = "Dependency Management")
+        row = layout.row()
+        row.label(text="Dependency Management", icon="PREFERENCES")
         row.separator()
         row.operator("wm.url_open", text="Help", icon="HELP").url = wiki_url
-        row.operator("nijigp.check_dependencies", text="Check", icon="FILE_REFRESH")
+        box1 = layout.box()
+        
+        # Custom package path
+        row = box1.row()
+        row.label(text='Custom Package Path:', icon='DECORATE_KEYFRAME')
+        row.separator()
+        row.operator("nijigp.apply_custom_lib_path", text='Apply', icon="FILE_REFRESH")
+        column = box1.box().column(align=True)
+        column.prop(self, "custom_lib_path", text='Site-Packages')
 
-        table_key = ['Package', 'Type', 'Status', 'Actions','']
-        packages = [{'name': 'PyClipper', 'type': 'Essential', 
+        # Summary table
+        row = box1.row()
+        row.label(text='Summary:', icon='DECORATE_KEYFRAME')
+        row.separator()
+        row.operator("nijigp.check_dependencies", text="Check", icon="FILE_REFRESH")
+        table_key = ['[Package]', '[Status]', '[Actions]','']
+        packages = [{'name': 'PyClipper',
                         'signal': self.package_pyclipper, 
-                        'operator1':"nijigp.dependencies_pyclipper_install", 
-                        'operator2':"nijigp.dependencies_pyclipper_remove"},
-                    {'name': 'Scikit-Image', 'type': 'Optional', 
+                        'package':"pyclipper"},
+                    {'name': 'Skimage & SciPy', 
                         'signal': self.package_skimage, 
-                        'operator1':"nijigp.dependencies_skimage_install", 
-                        'operator2':"nijigp.dependencies_skimage_remove"},
-                    {'name': 'Triangle', 'type': 'Optional', 
+                        'package':"scikit-image"},
+                    {'name': 'Triangle',
                         'signal': self.package_triangle, 
-                        'operator1':"nijigp.dependencies_triangle_install", 
-                        'operator2':"nijigp.dependencies_triangle_remove"},]
-        column = box1.column()
+                        'package':"triangle"},]
+        column = box1.box().column(align=True)
         row = column.row()
         for key in table_key:
             row.label(text=key)
         for p in packages:
             row = column.row()
             row.label(text=p['name'])
-            row.label(text=p['type'])
             if p['signal']:
                 row.label(text='OK')
             else:
                 row.label(text='Not Installed')
-            row.operator(p['operator1'])
-            row.operator(p['operator2'])
+            row.operator("nijigp.dependencies_install").package_name = p['package']
+            row.operator("nijigp.dependencies_remove").package_name = p['package']
+
+        # Show captured logs
+        row = box1.row()
+        row.label(text='Logs:', icon='DECORATE_KEYFRAME')
+        row.separator()
+        row.prop(self, 'show_full_logs')
+        row.operator("nijigp.clear_logs", text='Clear', icon='TRASH')
+        column = box1.box().column(align=True)
+        oldest_log = 0 if self.show_full_logs else max(0,len(self.captured_logs)-5)
+        if oldest_log > 0:
+            column.label(text="...")
+        for i in range(oldest_log, len(self.captured_logs)):
+            column.label(text=self.captured_logs[i])
 
         # UI setting
-        box2 = layout.box()
-        row = box2.row()
-        row.label(text='UI Setting')
+        layout.separator(factor=2)
+        row = layout.row()
+        row.label(text='UI Management', icon='PREFERENCES')
         row.separator()
-        row.operator("gpencil.refresh_gizmo", text='Apply')
+        row.operator("gpencil.nijigp_refresh_gizmo", text='Apply', icon="FILE_REFRESH")
+        box2 = layout.box()
         row = box2.row()
         row.prop(self, 'shortcut_button_enabled')
         row.separator()
         row.prop(self, 'shortcut_button_style', text='')
         if self.shortcut_button_enabled:
             row = box2.row()
-            row.prop(self, 'shortcut_button_size')
-            row.prop(self, 'shortcut_button_spacing')
+            row.label(text='Button Display:')
+            row.separator()
+            row.prop(self, 'shortcut_button_size', text='Size')
+            row.prop(self, 'shortcut_button_spacing', text='Spacing')
             row = box2.row()
             row.prop(self, 'shortcut_button_location')
-            
-        layout.prop(self, 'cache_folder')
+
+        layout.separator(factor=2)
+        row = layout.row()
+        row.label(text='Cache Folder', icon='PREFERENCES')
+        row.separator()            
+        row.prop(self, 'cache_folder', text='')
