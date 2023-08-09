@@ -1,5 +1,37 @@
 import bpy
 
+# Panels that appear in more than one mode
+def draw_global_setting(panel, context):
+    layout = panel.layout
+    scene = context.scene
+    row = layout.row()
+    row.label(text="Working Plane:")
+    row.prop(scene, "nijigp_working_plane", text='')
+    if scene.nijigp_working_plane == 'VIEW' or scene.nijigp_working_plane == 'AUTO':
+        row = layout.row()
+        row.prop(scene, "nijigp_working_plane_layer_transform", text='Use Transform of Active Layer')
+
+def draw_io(panel, context):
+    layout = panel.layout
+
+    layout.label(text="Paste from Clipboard:")
+    row = layout.row()
+    row.operator("gpencil.nijigp_paste_svg", text="SVG", icon="PASTEDOWN")
+    row.operator("gpencil.nijigp_paste_xml_palette", text="XML/Hex", icon="COLOR")
+
+    layout.label(text="Image Vectorization:")
+    row = layout.row()
+    row.operator("gpencil.nijigp_import_lineart", text="Line Art", icon="LINE_DATA")
+    row.operator("gpencil.nijigp_import_color_image", text="Flat Color", icon="IMAGE")
+
+    layout.label(text="Asset Import:")
+    row = layout.row()
+    row.operator("gpencil.nijigp_import_brush", text="ABR/GBR Brushes", icon="BRUSH_DATA")
+    
+    layout.label(text="Image Export:")
+    row = layout.row()
+    row.operator("gpencil.nijigp_multilayer_render", text="Multi-Layer PSD Render", icon="RENDERLAYERS")
+
 class NIJIGP_PT_draw_panel_setting(bpy.types.Panel):
     bl_idname = 'NIJIGP_PT_draw_panel_setting'
     bl_label = "Global Setting"
@@ -10,14 +42,7 @@ class NIJIGP_PT_draw_panel_setting(bpy.types.Panel):
     bl_order = 0
 
     def draw(self, context):
-        layout = self.layout
-        scene = context.scene
-        row = layout.row()
-        row.label(text="Working Plane:")
-        row.prop(scene, "nijigp_working_plane", text='')
-        if scene.nijigp_working_plane == 'VIEW' or scene.nijigp_working_plane == 'AUTO':
-            row = layout.row()
-            row.prop(scene, "nijigp_working_plane_layer_transform", text='Use Transform of Active Layer')
+        draw_global_setting(self, context)
 
 class NIJIGP_PT_edit_panel_setting(bpy.types.Panel):
     bl_idname = 'NIJIGP_PT_edit_panel_setting'
@@ -29,14 +54,19 @@ class NIJIGP_PT_edit_panel_setting(bpy.types.Panel):
     bl_order = 0
 
     def draw(self, context):
-        layout = self.layout
-        scene = context.scene
-        row = layout.row()
-        row.label(text="Working Plane:")
-        row.prop(scene, "nijigp_working_plane", text='')
-        if scene.nijigp_working_plane == 'VIEW' or scene.nijigp_working_plane == 'AUTO':
-            row = layout.row()
-            row.prop(scene, "nijigp_working_plane_layer_transform", text='Use Transform of Active Layer')
+         draw_global_setting(self, context)
+
+class NIJIGP_PT_weight_panel_setting(bpy.types.Panel):
+    bl_idname = 'NIJIGP_PT_weight_panel_setting'
+    bl_label = "Global Setting"
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "NijiGP"
+    bl_context = "greasepencil_weight"
+    bl_order = 0
+
+    def draw(self, context):
+        draw_global_setting(self, context)
 
 class NIJIGP_PT_draw_panel_io(bpy.types.Panel):
     bl_idname = 'NIJIGP_PT_draw_panel_io'
@@ -48,25 +78,7 @@ class NIJIGP_PT_draw_panel_io(bpy.types.Panel):
     bl_order = 4
 
     def draw(self, context):
-        layout = self.layout
-
-        layout.label(text="Paste from Clipboard:")
-        row = layout.row()
-        row.operator("gpencil.nijigp_paste_svg", text="SVG", icon="PASTEDOWN")
-        row.operator("gpencil.nijigp_paste_xml_palette", text="XML/Hex", icon="COLOR")
-
-        layout.label(text="Image Vectorization:")
-        row = layout.row()
-        row.operator("gpencil.nijigp_import_lineart", text="Line Art", icon="LINE_DATA")
-        row.operator("gpencil.nijigp_import_color_image", text="Flat Color", icon="IMAGE")
-
-        layout.label(text="Asset Import:")
-        row = layout.row()
-        row.operator("gpencil.nijigp_import_brush", text="ABR/GBR Brushes", icon="BRUSH_DATA")
-        
-        layout.label(text="Image Export:")
-        row = layout.row()
-        row.operator("gpencil.nijigp_multilayer_render", text="Multi-Layer PSD Render", icon="RENDERLAYERS")
+        draw_io(self, context)
          
 class NIJIGP_PT_edit_panel_io(bpy.types.Panel):
     bl_idname = 'NIJIGP_PT_edit_panel_io'
@@ -78,25 +90,7 @@ class NIJIGP_PT_edit_panel_io(bpy.types.Panel):
     bl_order = 4
 
     def draw(self, context):
-        layout = self.layout
-        
-        layout.label(text="Paste from Clipboard:")
-        row = layout.row()
-        row.operator("gpencil.nijigp_paste_svg", text="SVG", icon="PASTEDOWN")
-        row.operator("gpencil.nijigp_paste_xml_palette", text="XML/Hex", icon="COLOR")
-
-        layout.label(text="Image Vectorization:")
-        row = layout.row()
-        row.operator("gpencil.nijigp_import_lineart", text="Line Art", icon="LINE_DATA")
-        row.operator("gpencil.nijigp_import_color_image", text="Flat Color", icon="IMAGE")
-        
-        layout.label(text="Asset Import:")
-        row = layout.row()
-        row.operator("gpencil.nijigp_import_brush", text="ABR/GBR Brushes", icon="BRUSH_DATA")
-        
-        layout.label(text="Image Export:")
-        row = layout.row()
-        row.operator("gpencil.nijigp_multilayer_render", text="Multi-Layer PSD Render", icon="RENDERLAYERS")
+        draw_io(self, context)
 
 class NIJIGP_PT_draw_panel_polygon(bpy.types.Panel):
     bl_idname = 'NIJIGP_PT_draw_panel_polygon'
@@ -234,3 +228,18 @@ class NIJIGP_PT_draw_panel_line(bpy.types.Panel):
         row.operator("gpencil.nijigp_fit_last", icon='MOD_SMOOTH')
         row = layout.row()
         row.operator("gpencil.nijigp_smart_fill", icon='SHADING_SOLID')
+
+class NIJIGP_PT_weight_panel_rig(bpy.types.Panel):
+    bl_idname = 'NIJIGP_PT_weight_panel_rig'
+    bl_label = "Rig Operators"
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "NijiGP"
+    bl_context = "greasepencil_weight"
+    bl_order = 1
+
+    def draw(self, context):
+        layout = self.layout
+
+        row = layout.row()
+        row.operator("gpencil.nijigp_bake_rigging_animation", icon='KEYFRAME')
