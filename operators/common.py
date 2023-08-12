@@ -20,30 +20,32 @@ def load_stroke_selection(gp_obj, select_map):
     """
     for layer in gp_obj.data.layers:
         for frame in layer.frames:
-            for stroke in frame.strokes:
-                if stroke in select_map[layer][frame]:
-                    stroke.select = (select_map[layer][frame][stroke] > 0)
-                else:
-                    stroke.select = False
+            if frame in select_map[layer]:
+                for stroke in frame.strokes:
+                    if stroke in select_map[layer][frame]:
+                        stroke.select = (select_map[layer][frame][stroke] > 0)
+                    else:
+                        stroke.select = False
 
-def get_input_frames(gp_obj, multiframe=False, return_map=False):
+def get_input_frames(gp_obj, multiframe=False, return_map=False, layers = None):
     """
     Get either active frames or all selected frames depending on the edit mode.
     Return either a list of frames, or a detailed map with the following format:
         {frame_number: {layer_index: [frame, (start_frame_num, end_frame_num)]}}
     """
+    layers_to_process = gp_obj.data.layers if layers == None else layers
     frames_to_process = []
     frame_number_layer_map = {}
     
     layer_active_frames_number = []
-    for i,layer in enumerate(gp_obj.data.layers):
+    for i,layer in enumerate(layers_to_process):
         if layer.active_frame:
             layer_active_frames_number.append(layer.active_frame.frame_number)
         else:
             layer_active_frames_number.append(None)            
 
     # Process every selected frame
-    for i,layer in enumerate(gp_obj.data.layers):
+    for i,layer in enumerate(layers_to_process):
         if not is_layer_locked(layer):
             for j,frame in enumerate(layer.frames):
                 f_num = frame.frame_number
@@ -79,19 +81,16 @@ def get_input_strokes(gp_obj, frame: bpy.types.GPencilFrame, select_all = False)
 def refresh_strokes(gp_obj, frame_numbers):
     """
     When generating new strokes via scripting, sometimes the strokes do not have correct bound boxes and are not displayed correctly.
-    This function performs a zero-value translation to all strokes to force refreshing the data
+    This function recalculates the geometry data
     """
     current_mode = bpy.context.mode
     current_frame = bpy.context.scene.frame_current
-    select_map = save_stroke_selection(gp_obj)
 
     bpy.ops.object.mode_set(mode='EDIT_GPENCIL')
     for f in frame_numbers:
         bpy.context.scene.frame_current = f
-        bpy.ops.gpencil.select_all(action='SELECT')
-        bpy.ops.transform.translate()
+        bpy.ops.gpencil.recalc_geometry()
     
-    load_stroke_selection(gp_obj, select_map)
     bpy.ops.object.mode_set(mode=current_mode)
     bpy.context.scene.frame_current = current_frame
 
@@ -147,3 +146,15 @@ def copy_stroke_attributes(dst: bpy.types.GPencilStroke, srcs,
         for i in range(4):
             dst.vertex_color_fill[i] = color_fill[i] / n
     
+def get_generated_meshes(gp_obj):
+    """Get a list of meshes generated from the given object"""
+    generated_objects = set()
+    for obj in gp_obj.children:
+        if 'nijigp_mesh' in obj:
+            generated_objects.add(obj)
+    for obj in bpy.context.scene.objects:
+        if ('nijigp_mesh' in obj and 
+            'nijigp_parent' in obj and
+            obj['nijigp_parent'] == gp_obj):
+            generated_objects.add(obj)
+    return list(generated_objects)

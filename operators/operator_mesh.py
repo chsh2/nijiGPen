@@ -356,10 +356,7 @@ class MeshGenerationByNormal(CommonMeshConfig, bpy.types.Operator):
                                                                 scale_factor=scale_factor, return_orientation=True)
             trans2d = lambda co: (t_mat @ co).xy
 
-            generated_objects = []
-            for obj in current_gp_obj.children:
-                if 'nijigp_mesh' in obj:
-                    generated_objects.append(obj)
+            generated_objects = get_generated_meshes(current_gp_obj)
 
             if len(poly_list) < 1:
                 return {'FINISHED'}
@@ -684,6 +681,7 @@ class MeshGenerationByNormal(CommonMeshConfig, bpy.types.Operator):
                 bm.free()
                 new_object = bpy.data.objects.new(mesh_names[i], new_mesh)
                 new_object['nijigp_mesh'] = 'planar' if self.mesh_type=='NORMAL' else '3d'
+                new_object['nijigp_parent'] = current_gp_obj
                 new_object.location = vertical_pos * ray_direction
                 bpy.context.collection.objects.link(new_object)
                 new_object.parent = current_gp_obj
@@ -903,10 +901,7 @@ class MeshGenerationByOffsetting(CommonMeshConfig, bpy.types.Operator):
                                                     gp_obj=current_gp_obj, strokes=stroke_list, operator=self)
             poly_list, depth_list, scale_factor = get_2d_co_from_strokes(stroke_list, t_mat, scale=True)
             
-            generated_objects = []
-            for obj in current_gp_obj.children:
-                if 'nijigp_mesh' in obj:
-                    generated_objects.append(obj)
+            generated_objects = get_generated_meshes(current_gp_obj)
             
             def process_single_stroke(i, co_list):
                 '''
@@ -1075,6 +1070,7 @@ class MeshGenerationByOffsetting(CommonMeshConfig, bpy.types.Operator):
                 # Object generation
                 new_object = bpy.data.objects.new(mesh_names[i], new_mesh)
                 new_object['nijigp_mesh'] = '3d'
+                new_object['nijigp_parent'] = current_gp_obj
                 new_object.location = inv_mat @ Vector([0,0,vertical_pos])
                 bpy.context.collection.objects.link(new_object)
                 new_object.parent = current_gp_obj
