@@ -15,6 +15,7 @@ def run_command(commands = [], output_log = True, return_full_result = False):
                 print(text)
                 if output_log:
                     log_append(text)
+                    bpy.context.region.tag_redraw()
         return texts if return_full_result else p.returncode
 
 def modify_package(command, option, name):
@@ -193,7 +194,7 @@ class NijiGPAddonPreferences(bpy.types.AddonPreferences):
     )
     show_full_logs: bpy.props.BoolProperty(
         name='Show Full Logs',
-        default=False
+        default=True
     )
     captured_logs = []
     

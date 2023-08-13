@@ -31,7 +31,7 @@ def fit_2d_strokes(strokes, search_radius, smoothness_factor = 1, pressure_delta
         from ..solvers.graph import TriangleMst
     except:
         if operator:
-            operator.report({"ERROR"}, "Please install Scikit-Image in the Preferences panel.")
+            operator.report({"ERROR"}, "Please install Scipy in the Preferences panel.")
         return empty_result
 
     if len(t_mat)<1:
