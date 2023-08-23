@@ -1,81 +1,28 @@
-# NijiGPen
+# NijiGPen: Blender Grease Pencil Add-on
 
-[[English]](README.md) [[中文]](README_zh.md)
+[[📖 Documentation](https://chsh2.github.io/nijigp/)] | [[🎥 YouTube Demos](https://www.youtube.com/playlist?list=PLEgTVZ2uBvPMM0sGzzQTyoV0or8_PTs6t)]
 
 NijiGPen is a [Blender](https://www.blender.org/) add-on that brings new features to Grease Pencil for creating 2D graphic design and illustrations. It provides with the following functions:
 
-- 2D polygon operations (Boolean and Offset)
+- 2D algorithms for vector shapes and strokes (e.g., Boolean and Offset)
 - Refinement and cleanup of hand-drawn 2D strokes
 - Conversion from 2D shapes to 3D meshes
 - Data exchange with other painting/designing tools
 
 Please note that the development of this add-on is still in an early stage. Bugs may exist and UI/operators may change frequently.
 
-## Requirements
-
-Blender 3.3 or later
-
-(At the current stage, the add-on focuses on stable verions only. It is not guaranteed that all functions can work normally in alpha or beta verions of Blender.)
-
 ## Installation
 
-Different from most add-ons, NijiGPen heavily relies on third-party Python packages. Therefore, the installation process has an extra step.
+Requirement: Blender 3.3 or later
 
-1. Download the archive file from the Release page.
+Please follow the steps in [this page](https://chsh2.github.io/nijigp/docs/get_started/installation/) to finish the installation.
 
-2. In Blender, open [Edit]->[Preferences]->[Add-ons] and click the Install button to load the archive.
+This add-on requires **third-party Python packages**. Please check [these details](https://chsh2.github.io/nijigp/docs/get_started/installation/dependency/) if you have any questions during installation.
 
-3. **Enable the NijiGPen add-on, and a new panel "Dependency Management" will appear. Click "Check" to check if packages are installed, and click "Install" button for those missing. This step requires the Internet connection.**
+## Features
 
-<img src="https://user-images.githubusercontent.com/110356534/229329621-ccfd0407-af1d-442d-b2f7-05ba7dc54ade.png" width=50% height=50%>
-
-It is recommended to use this add-on with the portable version of Blender, or Blender installed in a non-system folder through the official installer. Otherwise, additional actions may be required. Please refer to the [Wiki page](https://github.com/chsh2/nijiGPen/wiki/Dependency-Installation) for more information.
-
-## Upgrade
-**Blender Upgrade:** After upgrading Blender to a new version, the Installation Step 3 (Dependency Management) should be executed again.
-
-**Add-on Upgrade:** If you want to replace the installed add-on with a newer version, it is recommended to remove the old version first and perform each installation step again.
-
-## Usage
-
-In **Draw** and **Edit** modes of a Grease Pencil object, a label titled “NijiGP” will appear in the sidebar of 3D Viewport window. Most of this add-on’s operators can be found here.
-
-In **Draw**, **Edit** and **Sculpt** modes of a Grease Pencil object, a group of shortcut buttons will appear at the bottom of the viewport. This feature can be disabled in Preferences setting.
-
-Some of the operations are demonstrated in the following videos:
-
-https://www.youtube.com/playlist?list=PLEgTVZ2uBvPMM0sGzzQTyoV0or8_PTs6t
-
-https://www.bilibili.com/video/bv1tg411C77g
-
-## List of Functions
-
-NijiGPen provides with the following functions:
-
-- 2D Polygon Algorithms
-    - Boolean Operation: Union, Difference and Intersection
-    - Offset/Inset Operation on either fill, outline or corners of a stroke
-- 2D Line Algorithms
-    - Sketch Cleanup: fit multiple strokes into a single smooth one
-    - Smart Fill: fill the line art based on strokes with hint colors
-- 3D Mesh Generation
-    - Different types of meshes can be converted from 2D strokes: triangle or grid, 3D depth or normal maps
-    - A series of stylized shaders
-- Import
-    - Paste SVG Shapes: extend the built-in SVG module with clipboard reading and hole detection
-    - Paste XML Palette: convert XML codes from services such as Adobe Color to a Blender palette
-    - Raster Image Tracing: line art and multi-color support
-    - ABR/GBR Brushes: extract textures of GIMP/Adobe Photoshop brushes
-- Export
-    - Render PSD: keep layer structure and blending modes
-- UI
-    - A group of shortcut buttons for better touchscreen control
-
-New functions may be added in future releases.
-
-## Limitations
-
-Please refer to the [Wiki page](https://github.com/chsh2/nijiGPen/wiki/Known-Issues).
+![intro1](https://github.com/chsh2/nijiGPen/assets/110356534/82e82ae5-611e-48c1-8ba7-d75a319dde71)
+![intro2](https://github.com/chsh2/nijiGPen/assets/110356534/336eeab5-93dd-468a-9c23-8ead9ad741d3)
 
 ## Credits
 
