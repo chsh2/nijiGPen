@@ -241,6 +241,9 @@ class MeshGenerationByNormal(CommonMeshConfig, bpy.types.Operator):
             description='Source of vertex colors of the generated mesh'
     )
 
+    def invoke(self, context, event):
+        return context.window_manager.invoke_props_dialog(self, width=300)
+
     def draw(self, context):
         layout = self.layout
         layout.label(text = "Multi-Object Alignment:")

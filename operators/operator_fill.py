@@ -68,6 +68,9 @@ class SmartFillOperator(bpy.types.Operator):
         search=lambda self, context, edit_text: [material.name for material in context.object.data.materials if material]
     )
 
+    def invoke(self, context, event):
+        return context.window_manager.invoke_props_dialog(self, width=300)
+
     def draw(self, context):
         layout = self.layout
         layout.label(text = "Input/Output Layers:")

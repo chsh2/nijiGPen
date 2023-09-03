@@ -1,6 +1,6 @@
 # NijiGPen: Blender Grease Pencil Add-on
 
-[[📖 Documentation](https://chsh2.github.io/nijigp/)] | [[🎥 YouTube Demos](https://www.youtube.com/playlist?list=PLEgTVZ2uBvPMM0sGzzQTyoV0or8_PTs6t)]
+[[ 📖 Documentation ](https://chsh2.github.io/nijigp/)] | [[ 🎥 YouTube Demos ](https://www.youtube.com/playlist?list=PLEgTVZ2uBvPMM0sGzzQTyoV0or8_PTs6t)]
 
 NijiGPen is a [Blender](https://www.blender.org/) add-on that brings new features to Grease Pencil for creating 2D graphic design and illustrations. It provides with the following functions:
 
