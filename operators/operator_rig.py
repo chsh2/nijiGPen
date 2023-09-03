@@ -27,13 +27,33 @@ class VertexGroupClearOperator(bpy.types.Operator):
     bl_idname = "gpencil.nijigp_vertex_group_clear"
     bl_label = "Clear All Groups"
     bl_options = {'REGISTER', 'UNDO'}
-    
+
+    remove_modifiers: bpy.props.BoolProperty(
+        name='Remove Related Modifiers',
+        default=False,
+        description='Remove all armature modifiers and modifiers taking vertex groups as input'
+    )  
+
+    def draw(self, context):
+        self.layout.prop(self, "remove_modifiers")
+
     def execute(self, context):
+        # The option all=True removes only groups but not weights. Therefore, use a loop here.
         num_groups = len(context.object.vertex_groups)
         context.object.vertex_groups.active_index = 0
         for _ in range(num_groups):
-            # The option all=True removes only groups but not weights. Therefore, this new operator is needed
             bpy.ops.object.vertex_group_remove(all=False)
+        # Check each modifier
+        if self.remove_modifiers:
+            mods_to_remove = []
+            for mod in context.object.grease_pencil_modifiers:
+                if mod.type == 'GP_ARMATURE':
+                    mods_to_remove.append(mod)
+                elif hasattr(mod, 'vertex_group') and len(mod.vertex_group) > 0:
+                    mods_to_remove.append(mod)
+            for mod in mods_to_remove:
+                context.object.grease_pencil_modifiers.remove(mod)
+
         return {'FINISHED'}
 
 class PinRigOperator(bpy.types.Operator):
@@ -55,10 +75,25 @@ class PinRigOperator(bpy.types.Operator):
                ('ALL', 'All Layers', ''),],
         default='ALL',
     ) 
+    rig_hints: bpy.props.BoolProperty(
+        name='Rig Hints',
+        default=False,
+        description='Hint strokes are not rigged by default'
+    )  
+    rig_all: bpy.props.BoolProperty(
+        name='Ensure Non-Zero Weights',
+        default=True,
+        description='Make sure that every target stroke is assigned at least one weight, even if it is far from any hint'
+    ) 
+    exclusive_binding: bpy.props.BoolProperty(
+        name='Bind Single Bone to Stroke',
+        default=False,
+        description='Assign at most one weight group to all points of a specific stroke to avoid distortion'
+    ) 
     falloff_multiplier: bpy.props.FloatProperty(
         name='Falloff Distance',
         description='Weights of points decrease when they get farther from the bone. Larger value may lead to smoother rigging',
-        default=1, min=0.1, max=5,
+        default=1, min=0.01, max=5,
     ) 
     bone_style: bpy.props.EnumProperty(            
         name='Bone Style',
@@ -145,13 +180,15 @@ class PinRigOperator(bpy.types.Operator):
             point_info = []
             co_list = []
             point_weight_groups = []
+            stroke_weight_scores = []
             
             # Build data structures for geometry lookup: KDTree, MST
-            for stroke in strokes:
+            for i,stroke in enumerate(strokes):
                 for j,point in enumerate(stroke.points):
-                    point_info.append((stroke,point,j))
+                    point_info.append((stroke,point,j,i))
                     co_list.append((t_mat @ point.co).xy)
-                    point_weight_groups.append([])    
+                    point_weight_groups.append({})  
+                    stroke_weight_scores.append({})  
             kdt = kdtree.KDTree(len(point_info))
             for i,info in enumerate(point_info):
                 kdt.insert(info[1].co, i)
@@ -196,26 +233,60 @@ class PinRigOperator(bpy.types.Operator):
                     weight = smoothstep(1 - dist_map[p_idx] / search_dist )
                     if weight > 1e-3:
                         for orig_idx in tr_output['orig_verts'][p_idx]:
-                            point_info[orig_idx][0].points.weight_set(vertex_group_index=gp_group_indices[i], 
-                                                            point_index=point_info[orig_idx][2], 
-                                                            weight=weight)
-                            point_weight_groups[orig_idx].append(gp_group_indices[i])
-
-            # Lastly, process points without any weight assigned by copying from the point nearby
+                            point_weight_groups[orig_idx][gp_group_indices[i]] = weight
+                            # Count the weight of this bone at the stroke level
+                            stroke_idx = point_info[orig_idx][3]
+                            if i not in stroke_weight_scores[stroke_idx]:
+                                stroke_weight_scores[stroke_idx][i] = 0
+                            stroke_weight_scores[stroke_idx][i] += weight
+            # Process points without any weight assigned by copying from the point nearby
+            new_point_weight_groups = {}
             for p_idx,groups in enumerate(point_weight_groups):
                 if len(groups) == 0:
-                    _, src_idx, _ = kdt.find(point_info[p_idx][1].co, filter=lambda i: len(point_weight_groups[i])>0)
+                    tmp_group = {}
+                    if self.rig_all:
+                        _, src_idx, _ = kdt.find(point_info[p_idx][1].co, filter=lambda i: len(point_weight_groups[i])>0)
+                    else:   # Limit the search range inside the same stroke
+                        _, src_idx, _ = kdt.find(point_info[p_idx][1].co, 
+                                                 filter=lambda i: len(point_weight_groups[i])>0 and point_info[p_idx][3]==point_info[i][3])
                     if src_idx:
                         for group_idx in point_weight_groups[src_idx]:
-                            weight = point_info[src_idx][0].points.weight_get(vertex_group_index=group_idx, 
-                                                                            point_index=point_info[src_idx][2])
-                            point_info[p_idx][0].points.weight_set(vertex_group_index=group_idx, 
-                                                            point_index=point_info[p_idx][2], 
-                                                            weight=weight)
+                            weight = point_weight_groups[src_idx][group_idx]
+                            tmp_group[group_idx] = weight
+
+                            stroke_idx = point_info[p_idx][3]
+                            if group_idx not in stroke_weight_scores[stroke_idx]:
+                                stroke_weight_scores[stroke_idx][group_idx] = 0
+                            stroke_weight_scores[stroke_idx][group_idx] += weight
+
+                        new_point_weight_groups[p_idx] = tmp_group
+            for p_idx in new_point_weight_groups:
+                point_weight_groups[p_idx] = new_point_weight_groups[p_idx]
+                            
+            # Find the most important bone for each stroke and remove all other weights
+            if self.exclusive_binding:
+                stroke_weight_group = []
+                for i,stroke in enumerate(strokes):
+                    if len(stroke_weight_scores[i]) > 0:
+                        stroke_weight_group.append(max(stroke_weight_scores[i], key=stroke_weight_scores[i].get))
+                    else:
+                        stroke_weight_group.append(None)
+            # Set the final weights in Blender
+            for p_idx,info in enumerate(point_info):
+                stroke, stroke_idx = info[0], info[3]
+                if self.exclusive_binding and stroke_weight_group[stroke_idx] != None:
+                    point_weight_groups[p_idx] = {stroke_weight_group[stroke_idx]: 1.0}
+                for i in point_weight_groups[p_idx]:
+                    stroke.points.weight_set(vertex_group_index=i, 
+                                                    point_index=info[2], 
+                                                    weight=point_weight_groups[p_idx][i])
+
         # Get target layers and frames
         bpy.ops.object.mode_set(mode='OBJECT')
         target_layers = get_output_layers(gp_obj, self.target_mode)
         target_layers = [gp_obj.data.layers[i] for i in target_layers]
+        if not self.rig_hints and gp_obj.data.layers[self.hint_layer] in target_layers:
+            target_layers.remove(gp_obj.data.layers[self.hint_layer])
         frames_to_process = get_input_frames(gp_obj,
                                              multiframe = gp_obj.data.use_multiedit,
                                              layers = target_layers,
@@ -247,13 +318,18 @@ class PinRigOperator(bpy.types.Operator):
         box1 = layout.box()
         box1.prop(self, "hint_layer", icon='OUTLINER_DATA_GP_LAYER')
         box1.prop(self, "target_mode")
-        layout.label(text='Bone Setting:')
+        box1.prop(self, 'rig_hints')
+        layout.label(text='Weight Calculation:')
         box2 = layout.box()
+        box2.prop(self, 'rig_all')
+        box2.prop(self, "exclusive_binding")
         box2.prop(self, "falloff_multiplier")
-        box2.prop(self, "bone_style")
-        box2.prop(self, "bone_scale")
-        box2.prop(self, "bone_rotate")
-        box2.prop(self, "bone_set_parent")
+        layout.label(text='Bone Setting:')
+        box3 = layout.box()
+        box3.prop(self, "bone_style")
+        box3.prop(self, "bone_scale")
+        box3.prop(self, "bone_rotate")
+        box3.prop(self, "bone_set_parent")
 
 class TransferWeightOperator(bpy.types.Operator):
     """Transfer bone weights from meshes to Grease Pencil strokes by looking for the nearest vertex"""
