@@ -668,7 +668,7 @@ class MeshGenerationByNormal(CommonMeshConfig, bpy.types.Operator):
                 # Calling the advanced solver: must use the 2D data again
                 if self.mesh_type == 'MESH' and self.advanced_solver:
                     solver = MeshDepthSolver()
-                    solver.initialize_from_bmesh(bm, scale_factor, contour_normal_map)
+                    solver.initialize_from_bmesh(bm, scale_factor, contour_normal_map, depth_scale < 0)
                     solver.solve(self.solver_max_iter)
                     solver.write_back(bm)
 

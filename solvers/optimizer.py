@@ -12,7 +12,7 @@ class MeshDepthSolver:
     norm_z: np.array   # Z value of vertex normal
     graph_coef: map     # edge map recording vertex connectivity
 
-    def initialize_from_bmesh(self, bm: bmesh.types.BMesh, scale_factor, boundary_map):
+    def initialize_from_bmesh(self, bm: bmesh.types.BMesh, scale_factor, boundary_map, is_depth_negative):
         self.N = len(bm.verts)
         self.z0 = np.zeros(self.N)
         self.norm_z = np.zeros(self.N)
@@ -25,10 +25,12 @@ class MeshDepthSolver:
         for i,vert in enumerate(bm.verts):
             self.z0[i] = vert[depth_layer]
             self.norm_z[i] = vert[normal_map_layer].z * 2 - 1
-            ub = None
             if (int(vert.co.x), int(vert.co.y)) in boundary_map:
-                ub = 0
-            self.bounds.append((0,ub))
+                self.bounds.append((0,0))
+            elif is_depth_negative:
+                self.bounds.append((None,0))
+            else:
+                self.bounds.append((0,None))
             
         for i,edge in enumerate(bm.edges):
             v0 = edge.verts[0]
@@ -62,5 +64,5 @@ class MeshDepthSolver:
     def write_back(self, bm: bmesh.types.BMesh):
         depth_layer = bm.verts.layers.float.get('Depth')
         for i,vert in enumerate(bm.verts):
-            if vert[depth_layer] > 0:
+            if not np.isclose(vert[depth_layer], 0):
                 vert[depth_layer] = self.z0[i]

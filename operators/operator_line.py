@@ -519,6 +519,9 @@ class ClusterAndFitOperator(CommonFittingConfig, bpy.types.Operator):
             description='The maximum number of clusters'
     )
 
+    def invoke(self, context, event):
+        return context.window_manager.invoke_props_dialog(self, width=300)
+    
     def draw(self, context):
         layout = self.layout
 
