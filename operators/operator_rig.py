@@ -67,7 +67,13 @@ class PinRigOperator(bpy.types.Operator):
         description='Each stroke in this layer will be converted to a bone/pin',
         default='',
         search=lambda self, context, edit_text: [layer.info for layer in context.object.data.layers]
-    )    
+    ) 
+    hint_shape: bpy.props.EnumProperty(            
+        name='Hint Shape',
+        items=[ ('STICK', 'Stick', 'Draw a straight line indicating the bone shape'),
+               ('LASSO', 'Lasso', 'Draw a circle to select points where weights should be assigned'),],
+        default='STICK',
+    )   
     target_mode: bpy.props.EnumProperty(            
         name='Target Layers',
         items=[ ('LAYER', 'Active Layer', ''),
@@ -93,7 +99,7 @@ class PinRigOperator(bpy.types.Operator):
     falloff_multiplier: bpy.props.FloatProperty(
         name='Falloff Distance',
         description='Weights of points decrease when they get farther from the bone. Larger value may lead to smoother rigging',
-        default=1, min=0.01, max=5,
+        default=0.1, min=0.01, max=5,
     ) 
     bone_style: bpy.props.EnumProperty(            
         name='Bone Style',
@@ -114,13 +120,42 @@ class PinRigOperator(bpy.types.Operator):
         default=False,
         description='Determine the parent relation between bones according to the drawing sequence and locations of hint strokes'
     )  
-    
+
+    def invoke(self, context, event):
+        return context.window_manager.invoke_props_dialog(self, width=300)
+
+    def draw(self, context):
+        layout = self.layout
+        layout.label(text='Input Setting:')
+        box1 = layout.box()
+        box1.prop(self, "hint_layer", icon='OUTLINER_DATA_GP_LAYER')
+        box1.prop(self, "hint_shape")
+        box1.prop(self, "target_mode")
+        box1.prop(self, 'rig_hints')
+        layout.label(text='Weight Calculation:')
+        box2 = layout.box()
+        box2.prop(self, 'rig_all')
+        box2.prop(self, "exclusive_binding")
+        box2.prop(self, "falloff_multiplier")
+        layout.label(text='Bone Setting:')
+        box3 = layout.box()
+        box3.prop(self, "bone_style")
+        box3.prop(self, "bone_scale")
+        box3.prop(self, "bone_rotate")
+        box3.prop(self, "bone_set_parent")  
+          
     def execute(self, context):
         gp_obj: bpy.types.Object = context.object
         try:
             from ..solvers.graph import TriangleMst
         except:
             self.report({"ERROR"}, "Please install Scipy in the Preferences panel.")
+        if self.hint_shape == 'LASSO':
+            try:
+                import pyclipper
+            except:
+                self.report({"WARNING"}, "The lasso mode is available only when PyClipper is installed.")
+                self.hint_shape = 'STICK'
         if len(self.hint_layer) < 1 or self.hint_layer not in gp_obj.data.layers:
             return {'FINISHED'}
         
@@ -142,11 +177,20 @@ class PinRigOperator(bpy.types.Operator):
         bone_radiuses =[]
         for i in range(num_pins):
             hint_stroke = hint_frame.strokes[i]
-            tail_pos:Vector = hint_stroke.points[0].co
-            head_pos:Vector = hint_stroke.points[-1].co
-            pin_radius = (tail_pos - head_pos).length / 2.0
-            pin_direction = (tail_pos - head_pos).normalized()
-            pin_center = (tail_pos + head_pos) / 2
+            if self.hint_shape == 'STICK':
+                tail_pos:Vector = hint_stroke.points[0].co
+                head_pos:Vector = hint_stroke.points[-1].co
+                pin_radius = (tail_pos - head_pos).length / 2.0
+                pin_direction = (tail_pos - head_pos).normalized()
+                pin_center = (tail_pos + head_pos) / 2
+            elif self.hint_shape == 'LASSO':
+                tail_pos = hint_stroke.points[0].co
+                pin_center = Vector((0,0,0))
+                for point in hint_stroke.points:
+                    pin_center += point.co
+                pin_center /= len(hint_stroke.points)
+                pin_radius = (tail_pos - pin_center).length
+                pin_direction = (tail_pos - pin_center).normalized()
             bone_centers.append(pin_center)
             bone_radiuses.append(pin_radius)
 
@@ -165,6 +209,9 @@ class PinRigOperator(bpy.types.Operator):
                     if not min_dist or (pin_center - bone_centers[j]).length < min_dist:
                         min_dist = (pin_center - bone_centers[j]).length
                         bone.parent = bones[j]
+        if self.hint_shape == 'LASSO':
+            lasso_polys, _, scale_factor = get_2d_co_from_strokes(hint_frame.strokes, t_mat, scale=True)
+
         # Set vertex groups
         gp_group_indices = []
         for i in range(num_pins):
@@ -205,16 +252,24 @@ class PinRigOperator(bpy.types.Operator):
             
             # Process bones one by one
             for i in range(num_pins):
-                # First, get all points inside this bone's radius
+                # First, get all points inside this hint's range
                 search_dist = self.falloff_multiplier * bone_radiuses[i]
                 search_queue = []
                 search_queue_pointer = 0
                 dist_map = {}
-                res = kdt.find_range(co=bone_centers[i], radius=bone_radiuses[i])
-                for _,p_idx,_ in res:
-                    search_queue.append(updated_idx_map[p_idx])
-                    dist_map[updated_idx_map[p_idx]] = 0
-                # Then, propagate the weight along the spanning tree
+                # Use the radius to determine the range 
+                if self.hint_shape == 'STICK':
+                    res = kdt.find_range(co=bone_centers[i], radius=bone_radiuses[i])
+                    for _,p_idx,_ in res:
+                        search_queue.append(updated_idx_map[p_idx])
+                        dist_map[updated_idx_map[p_idx]] = 0
+                # Or check each point precisely
+                elif self.hint_shape == 'LASSO':
+                    for p_idx,info in enumerate(point_info):
+                        if pyclipper.PointInPolygon(co_list[p_idx] * scale_factor, lasso_polys[i]) == 1:
+                            search_queue.append(updated_idx_map[p_idx])
+                            dist_map[updated_idx_map[p_idx]] = 0
+                # Then, propagate the weight along the spanning tree until exceeding the falloff distance
                 while search_queue_pointer < len(search_queue):
                     p_idx = search_queue[search_queue_pointer]
                     search_queue_pointer += 1
@@ -309,28 +364,6 @@ class PinRigOperator(bpy.types.Operator):
         bpy.ops.object.mode_set(mode='WEIGHT_GPENCIL')
         return {'FINISHED'}
 
-    def invoke(self, context, event):
-        return context.window_manager.invoke_props_dialog(self, width=300)
-
-    def draw(self, context):
-        layout = self.layout
-        layout.label(text='Input Setting:')
-        box1 = layout.box()
-        box1.prop(self, "hint_layer", icon='OUTLINER_DATA_GP_LAYER')
-        box1.prop(self, "target_mode")
-        box1.prop(self, 'rig_hints')
-        layout.label(text='Weight Calculation:')
-        box2 = layout.box()
-        box2.prop(self, 'rig_all')
-        box2.prop(self, "exclusive_binding")
-        box2.prop(self, "falloff_multiplier")
-        layout.label(text='Bone Setting:')
-        box3 = layout.box()
-        box3.prop(self, "bone_style")
-        box3.prop(self, "bone_scale")
-        box3.prop(self, "bone_rotate")
-        box3.prop(self, "bone_set_parent")
-
 class TransferWeightOperator(bpy.types.Operator):
     """Transfer bone weights from meshes to Grease Pencil strokes by looking for the nearest vertex"""
     bl_idname = "gpencil.nijigp_rig_by_transfer_weights"
@@ -383,6 +416,22 @@ class TransferWeightOperator(bpy.types.Operator):
         default=True,
         description='Set necessary parent relationships after transferring the weights'
     )
+
+    def invoke(self, context, event):
+        return context.window_manager.invoke_props_dialog(self, width=500)
+
+    def draw(self, context):
+        layout = self.layout
+        layout.prop(self, "source_arm", icon='ARMATURE_DATA')
+        layout.prop(self, "source_type")
+        if self.source_type == 'OBJ':
+            layout.prop(self, "source_obj", icon='OBJECT_DATA')
+        elif self.source_type == 'COLL':
+            layout.prop(self, "source_coll", icon='OUTLINER_COLLECTION')
+        layout.prop(self, "weights_exist")
+        layout.prop(self, "mapping_type")
+        layout.prop(self, "target_mode")
+        layout.prop(self, "adjust_parenting")
 
     def execute(self, context):
         bpy.ops.object.mode_set(mode='OBJECT')
@@ -479,22 +528,6 @@ class TransferWeightOperator(bpy.types.Operator):
         bpy.ops.object.mode_set(mode='WEIGHT_GPENCIL')
         return {'FINISHED'}
 
-    def invoke(self, context, event):
-        return context.window_manager.invoke_props_dialog(self, width=500)
-
-    def draw(self, context):
-        layout = self.layout
-        layout.prop(self, "source_arm", icon='ARMATURE_DATA')
-        layout.prop(self, "source_type")
-        if self.source_type == 'OBJ':
-            layout.prop(self, "source_obj", icon='OBJECT_DATA')
-        elif self.source_type == 'COLL':
-            layout.prop(self, "source_coll", icon='OUTLINER_COLLECTION')
-        layout.prop(self, "weights_exist")
-        layout.prop(self, "mapping_type")
-        layout.prop(self, "target_mode")
-        layout.prop(self, "adjust_parenting")
-
 class BakeRiggingOperator(bpy.types.Operator):
     """Apply deformation caused by armature modifiers on each frame. Create new keyframes when necessary"""
     bl_idname = "gpencil.nijigp_bake_rigging_animation"
@@ -525,6 +558,19 @@ class BakeRiggingOperator(bpy.types.Operator):
         default=False,
         description='Clear the parents of the active Grease Pencil object'
     )
+
+    def invoke(self, context, event):
+        self.start_frame = bpy.context.scene.frame_start
+        self.end_frame = bpy.context.scene.frame_end
+        return context.window_manager.invoke_props_dialog(self)
+
+    def draw(self, context):
+        layout = self.layout
+        layout.prop(self, "start_frame")
+        layout.prop(self, "end_frame")
+        layout.prop(self, "frame_step")
+        layout.prop(self, "target_mode")
+        layout.prop(self, "clear_parents")
 
     def execute(self, context):
         gp_obj = context.object
@@ -623,16 +669,3 @@ class BakeRiggingOperator(bpy.types.Operator):
             bpy.ops.object.parent_clear(type='CLEAR')
         bpy.ops.object.mode_set(mode='EDIT_GPENCIL')
         return {'FINISHED'}
-
-    def invoke(self, context, event):
-        self.start_frame = bpy.context.scene.frame_start
-        self.end_frame = bpy.context.scene.frame_end
-        return context.window_manager.invoke_props_dialog(self)
-
-    def draw(self, context):
-        layout = self.layout
-        layout.prop(self, "start_frame")
-        layout.prop(self, "end_frame")
-        layout.prop(self, "frame_step")
-        layout.prop(self, "target_mode")
-        layout.prop(self, "clear_parents")
