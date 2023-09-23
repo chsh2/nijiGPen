@@ -206,8 +206,8 @@ class PinRigOperator(bpy.types.Operator):
                 bone.use_connect = False
                 min_dist = None
                 for j in range(i):
-                    if not min_dist or (pin_center - bone_centers[j]).length < min_dist:
-                        min_dist = (pin_center - bone_centers[j]).length
+                    if not min_dist or (arm_data.edit_bones[i].head - arm_data.edit_bones[j].tail).length < min_dist:
+                        min_dist = (arm_data.edit_bones[i].head - arm_data.edit_bones[j].tail).length
                         bone.parent = bones[j]
         if self.hint_shape == 'LASSO':
             lasso_polys, _, scale_factor = get_2d_co_from_strokes(hint_frame.strokes, t_mat, scale=True)
