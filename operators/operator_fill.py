@@ -134,6 +134,8 @@ class SmartFillOperator(bpy.types.Operator):
         bpy.ops.gpencil.select_all(action='DESELECT')
 
         def fill_single_frame(line_frame, hint_frame, fill_frame):
+            if len(line_frame.strokes) < 1:
+                return
             resolution = self.precision
             if self.clear_fill_layer:
                 for stroke in list(fill_frame.strokes):

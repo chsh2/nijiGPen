@@ -364,6 +364,76 @@ class PinRigOperator(bpy.types.Operator):
         bpy.ops.object.mode_set(mode='WEIGHT_GPENCIL')
         return {'FINISHED'}
 
+class MeshFromArmOperator(bpy.types.Operator):
+    """Use smart fill to generate a temporary mesh for later rigging operations"""
+    bl_idname = "gpencil.nijigp_mesh_from_bones"
+    bl_label = "Generate Meshes From Armature"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    source_arm: bpy.props.StringProperty(
+        name='Armature',
+        description='The armature that meshes and Grease Pencil strokes are or will be attached to',
+        default='',
+        search=lambda self, context, edit_text: [obj.name for obj in bpy.context.scene.objects if obj.type=='ARMATURE']
+    ) 
+    resolution: bpy.props.IntProperty(
+        name='Resolution',
+        description='The resolution to generate hint strokes from bones and generate triangle faces',
+        default=10, min=3, max=20,
+    ) 
+
+    def draw(self, context):
+        layout = self.layout
+        layout.prop(self, "source_arm", icon='ARMATURE_DATA')
+        layout.prop(self, "resolution")
+
+    def execute(self, context):
+        if self.source_arm not in bpy.context.scene.objects:
+            return {'FINISHED'}
+        gp_obj: bpy.types.Object = context.object
+        current_mode = context.mode
+        gp_obj_inv_mat = gp_obj.matrix_world.inverted_safe()
+        t_mat, _ = get_transformation_mat(mode=context.scene.nijigp_working_plane,
+                                                gp_obj=gp_obj, operator=self)
+        arm = bpy.context.scene.objects[self.source_arm]    
+
+        # Generate temporary layers for fills and hints
+        fill_layer = gp_obj.data.layers.new("tmp_fill", set_active=False)
+        fill_frame = fill_layer.frames.new(context.scene.frame_current, active=True)
+        hint_layer = gp_obj.data.layers.new("tmp_hint", set_active=False)
+        hint_frame = hint_layer.frames.new(context.scene.frame_current, active=True)
+
+        # Convert bones to hint strokes
+        arm_trans = gp_obj_inv_mat @ arm.matrix_world
+        for bone in arm.data.bones:
+            head:Vector = arm_trans @ bone.head_local
+            tail:Vector = arm_trans @ bone.tail_local
+            stroke = hint_frame.strokes.new()
+            stroke.points.add(self.resolution)
+            for i in range(self.resolution):
+                factor = i / (self.resolution - 1.0)
+                stroke.points[i].co = head * (1 - factor) + tail * factor
+        bpy.ops.object.mode_set(mode='EDIT_GPENCIL')
+        bpy.ops.gpencil.select_all(action='SELECT')
+        bpy.ops.gpencil.recalc_geometry()
+
+        # Generate fills and meshes using other operators
+        bpy.ops.gpencil.nijigp_smart_fill(line_layer = gp_obj.data.layers.active.info,
+                                          hint_layer = hint_layer.info,
+                                          fill_layer = fill_layer.info,
+                                          precision = 0.05,
+                                          material_mode = 'HINT')
+        bpy.ops.gpencil.select_all(action='DESELECT')
+        for stroke in fill_frame.strokes:
+            stroke.select = True
+        bpy.ops.gpencil.nijigp_mesh_generation_normal(use_native_triangulation = True,
+                                                      resolution = self.resolution * 2)
+        # Cleanup temporary layers
+        gp_obj.data.layers.remove(fill_layer)
+        gp_obj.data.layers.remove(hint_layer)
+        bpy.ops.object.mode_set(mode=current_mode)
+        return {'FINISHED'}
+
 class TransferWeightOperator(bpy.types.Operator):
     """Transfer bone weights from meshes to Grease Pencil strokes by looking for the nearest vertex"""
     bl_idname = "gpencil.nijigp_rig_by_transfer_weights"
@@ -406,6 +476,11 @@ class TransferWeightOperator(bpy.types.Operator):
                ('ALL', 'All Layers', ''),],
         default='ALL',
     )
+    auto_mesh: bpy.props.BoolProperty(            
+        name='Generate Meshes Using Smart Fill',
+        default=False,
+        description='Use the bones as hint strokes to generate new meshes based on the active layer and frame'
+    )
     weights_exist: bpy.props.BoolProperty(            
         name='Use Existing Weights',
         default=False,
@@ -424,7 +499,9 @@ class TransferWeightOperator(bpy.types.Operator):
         layout = self.layout
         layout.prop(self, "source_arm", icon='ARMATURE_DATA')
         layout.prop(self, "source_type")
-        if self.source_type == 'OBJ':
+        if self.source_type == 'THIS':
+            layout.prop(self, 'auto_mesh')
+        elif self.source_type == 'OBJ':
             layout.prop(self, "source_obj", icon='OBJECT_DATA')
         elif self.source_type == 'COLL':
             layout.prop(self, "source_coll", icon='OUTLINER_COLLECTION')
@@ -453,12 +530,16 @@ class TransferWeightOperator(bpy.types.Operator):
             
         # Get all source objects
         if self.source_type == 'THIS':
+            if self.auto_mesh:
+                bpy.ops.gpencil.nijigp_mesh_from_bones(source_arm = self.source_arm)
             src_objs = get_generated_meshes(gp_obj)
         elif self.source_type == 'OBJ':
             src_objs = [bpy.context.scene.objects[self.source_obj]]
         elif self.source_type == 'COLL':
             source_coll = bpy.data.collections[self.source_coll]
             src_objs = [obj for obj in source_coll.objects if obj.type == 'MESH']
+        if len(src_objs) < 1:
+            return {'FINISHED'}
 
         if not self.weights_exist:
             switch_to([arm] + src_objs)
