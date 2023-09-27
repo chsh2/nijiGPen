@@ -477,7 +477,7 @@ class TransferWeightOperator(bpy.types.Operator):
         default='ALL',
     )
     auto_mesh: bpy.props.BoolProperty(            
-        name='Generate Meshes Using Smart Fill',
+        name='Quick New Mesh Using Smart Fill',
         default=False,
         description='Use the bones as hint strokes to generate new meshes based on the active layer and frame'
     )
