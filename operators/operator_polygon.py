@@ -665,13 +665,28 @@ class BoolLastOperator(bpy.types.Operator):
             default='FILL',
             description='Using either the line radius or the fill to calculate the Boolean shapes'
     )
+    inherit_clip: bpy.props.BoolProperty(
+            name='Inherit Clip Attributes',
+            default=False,
+            description='Use the stroke attributes of the latest drawn stroke'
+    )
+    keep_subjects: bpy.props.BoolProperty(
+            name='Keep Subjects',
+            default=False,
+            description='Do not delete the strokes affected by the latest drawn one'
+    )
+    keep_clips: bpy.props.BoolProperty(
+            name='Keep Clips',
+            default=False,
+            description='Do not delete the latest drawn stroke'
+    )
 
     def draw(self, context):
         layout = self.layout
-        row = layout.row()
-        row.prop(self, "operation_type", text = "Operation")
-        row = layout.row()
-        row.prop(self, "clip_mode", text = "Type")
+        layout.prop(self, "operation_type", text = "Operation")
+        layout.prop(self, "clip_mode", text = "Type")
+        layout.prop(self, "inherit_clip", text = "Use Drawn Stroke's Attributes")
+        layout.prop(self, "keep_subjects", text = "Keep Affected Strokes")
 
     def execute(self, context):
         bpy.ops.object.mode_set(mode='EDIT_GPENCIL')
@@ -762,7 +777,7 @@ class BoolLastOperator(bpy.types.Operator):
                                                                        [poly_list[j]] if self.clip_mode == 'LINE' else [poly_list[j], poly_list[0]],
                                                                        [depth_list[j]] if self.clip_mode == 'LINE' else [depth_list[j], depth_list[0]],
                                                                         [stroke_info[j], stroke_info[0]], current_gp_obj, scale_factor,    
-                                                                        rearrange = True, ref_stroke_mask = {1})
+                                                                        rearrange = True, ref_stroke_mask = {not self.inherit_clip})
                     if self.operation_type == 'INTERSECTION':
                         new_stroke.use_cyclic = True
 
@@ -772,7 +787,9 @@ class BoolLastOperator(bpy.types.Operator):
                             info[2] += 1
 
         # Delete old strokes
-        for info in stroke_info:
+        for i,info in enumerate(stroke_info):
+            if (i==0 and self.keep_clips) or (i>0 and self.keep_subjects):
+                continue
             layer_index = info[1]
             current_gp_obj.data.layers[layer_index].active_frame.strokes.remove(info[0])
 

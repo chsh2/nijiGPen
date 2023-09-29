@@ -229,7 +229,8 @@ class NijiGPAddonPreferences(bpy.types.AddonPreferences):
 
     def draw(self, context):
         layout = self.layout
-        wiki_url = "https://github.com/chsh2/nijiGPen/wiki/Dependency-Installation"
+        #wiki_url = "https://github.com/chsh2/nijiGPen/wiki/Dependency-Installation"
+        wiki_url = "https://chsh2.github.io/nijigp/docs/get_started/installation/"
 
         # Dependency manager
         row = layout.row()
