@@ -35,7 +35,7 @@ class SmartFillOperator(bpy.types.Operator):
     )
     precision: bpy.props.FloatProperty(
         name='Precision',
-        default=0.01, min=0.001, max=1,
+        default=0.05, min=0.001, max=1,
         description='Treat points in proximity as one to speed up'
     )
     fill_holes: bpy.props.BoolProperty(

@@ -445,7 +445,7 @@ class TransferWeightOperator(bpy.types.Operator):
         description='The armature that meshes and Grease Pencil strokes are or will be attached to',
         default='',
         search=lambda self, context, edit_text: [obj.name for obj in bpy.context.scene.objects if obj.type=='ARMATURE']
-    ) 
+    )
     source_type: bpy.props.EnumProperty(            
         name='Source Meshes',
         items=[ ('THIS', 'Generated Meshes', ''),
@@ -527,7 +527,15 @@ class TransferWeightOperator(bpy.types.Operator):
         bone_name_set = set()
         for bone in arm.data.bones:
             bone_name_set.add(bone.name)
-            
+
+        # Remove conflicting modifiers
+        mods_to_remove = []
+        for mod in gp_obj.grease_pencil_modifiers:
+            if mod.type == 'GP_ARMATURE' and mod.object == arm:
+                mods_to_remove.append(mod)
+        for mod in mods_to_remove:
+            gp_obj.grease_pencil_modifiers.remove(mod)        
+                
         # Get all source objects
         if self.source_type == 'THIS':
             if self.auto_mesh:
@@ -593,7 +601,7 @@ class TransferWeightOperator(bpy.types.Operator):
                                                      point_index=i, 
                                                      weight=group.weight)
         
-        # Add modifiers
+        # Add a new modifier
         mod = gp_obj.grease_pencil_modifiers.new(name='nijigp_FromMesh', type='GP_ARMATURE')
         mod.object = arm
         mod.use_vertex_groups = True
