@@ -111,11 +111,9 @@ class NIJIGP_PT_draw_panel_polygon(bpy.types.Panel):
         row.operator("gpencil.nijigp_bool_last", text="+", icon="SELECT_EXTEND").operation_type = 'UNION'
         row.operator("gpencil.nijigp_bool_last", text="-", icon="SELECT_SUBTRACT").operation_type = 'DIFFERENCE'
         row.operator("gpencil.nijigp_bool_last", text="×", icon="SELECT_INTERSECT").operation_type = 'INTERSECTION'
-        layout.label(text="Affect only:")
-        row = layout.row()
-        row.prop(scene, "nijigp_draw_bool_material_constraint", text = "Same Material")
-        row = layout.row()
-        row.prop(scene, "nijigp_draw_bool_fill_constraint", text = "Strokes with Fills")
+        layout.label(text="Affected Strokes:")
+        layout.prop(scene, "nijigp_draw_bool_material_constraint", text = "")
+        layout.prop(scene, "nijigp_draw_bool_fill_constraint", text = "")
 
 class NIJIGP_PT_edit_panel_polygon(bpy.types.Panel):
     bl_idname = 'NIJIGP_PT_edit_panel_polygon'

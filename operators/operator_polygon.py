@@ -736,9 +736,12 @@ class BoolLastOperator(bpy.types.Operator):
                 continue
             if is_stroke_locked(stroke, current_gp_obj):
                 continue
-            if context.scene.nijigp_draw_bool_material_constraint and stroke.material_index != clip_stroke.material_index:
+            # Check the condition of each filter
+            if context.scene.nijigp_draw_bool_material_constraint == 'SAME' and stroke.material_index != clip_stroke.material_index:
                 continue
-            if context.scene.nijigp_draw_bool_fill_constraint and (not current_gp_obj.data.materials[stroke.material_index].grease_pencil.show_fill):
+            if context.scene.nijigp_draw_bool_material_constraint == 'DIFF' and stroke.material_index == clip_stroke.material_index:
+                continue
+            if context.scene.nijigp_draw_bool_fill_constraint == 'FILL' and (not current_gp_obj.data.materials[stroke.material_index].grease_pencil.show_fill):
                 continue
             if not overlapping_strokes(clip_stroke, stroke, t_mat):
                 continue

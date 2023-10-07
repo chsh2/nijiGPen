@@ -44,13 +44,20 @@ def register():
                         default=True, 
                         description="Taking the active layer's transform into consideration when calculating the view angle"
                         )
-    bpy.types.Scene.nijigp_draw_bool_material_constraint = bpy.props.BoolProperty(
-                        default=False, 
-                        description="Boolean operations in Draw mode only apply to strokes with the same material"
+    bpy.types.Scene.nijigp_draw_bool_material_constraint = bpy.props.EnumProperty(
+                        name='Material Filter',
+                        items=[('ALL', 'All Materials', ''),
+                               ('SAME', 'Same Material', ''),
+                               ('DIFF', 'Different Material', '')],
+                        default='ALL',
+                        description="Boolean operations in Draw mode only apply to strokes with materials satisfying this requirement"
                         )
-    bpy.types.Scene.nijigp_draw_bool_fill_constraint = bpy.props.BoolProperty(
-                        default=True, 
-                        description="Boolean operations in Draw mode only apply to strokes showing fills"
+    bpy.types.Scene.nijigp_draw_bool_fill_constraint = bpy.props.EnumProperty(
+                        name='Stroke Filter',
+                        items=[('ALL', 'Stroke & Fill', ''),
+                               ('FILL', 'Fill Only', '')],
+                        default='FILL',
+                        description="Boolean operations in Draw mode apply to either all strokes or only strokes with fills"
                         )
     register_viewport_tools()
     
