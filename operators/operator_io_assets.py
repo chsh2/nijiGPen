@@ -62,27 +62,53 @@ class ImportBrushOperator(bpy.types.Operator, ImportHelper):
             default=1, min=0, max=1,
             description='Rotate the brush texture randomly for each stroke point'
     )
+    hardness: bpy.props.FloatProperty(
+            name='Hardness',
+            default=1, min=0, max=1,
+            description='Whether adding opacity gradient to the texture'
+    )
+    input_samples: bpy.props.IntProperty(
+            name='Input Samples',
+            default=0, min=0, max=10,
+            description='Whether generating intermediate points for fast movement'
+    )
+    override_uv_randomness: bpy.props.BoolProperty(name='UV Randomness', default=True)
+    override_hardness: bpy.props.BoolProperty(name='Hardness', default=True)
+    override_input_samples: bpy.props.BoolProperty(name='Input Samples', default=False)
 
     def draw(self, context):
         layout = self.layout
         row = layout.row()
         row.label(text = 'Import Brushes as: ')
         row.prop(self, "texture_usage", text="")
-        row = layout.row()
+        layout.label(text = 'Texture Options:')
+        box1 = layout.box()
+        row = box1.row()
         row.label(text = 'Brush Color: ')
         row.prop(self, "color_mode", text="")    
-        row = layout.row()
+        row = box1.row()
         row.label(text = 'Alpha Clip: ')
         row.prop(self, "alpha_clip", text="")
-        row = layout.row()
+        row = box1.row()
         row.label(text = 'Keep Aspect Ratio: ')
         row.prop(self, "keep_aspect_ratio", text="")
         if self.texture_usage == "BRUSH":
-            row = layout.row()
+            layout.label(text = 'Brush Options:')
+            box2 = layout.box()
+            row = box2.row()
             row.label(text = 'Template Brush: ')
             row.prop(self, "template_brush", text="", icon='BRUSH_DATA')
-            layout.prop(self, 'uv_randomness')
-            row = layout.row()
+            box2.label(text = 'Override Parameters: ')
+            row = box2.row()
+            row.prop(self, 'override_uv_randomness')
+            row.prop(self, 'uv_randomness', text='')
+            row = box2.row()
+            row.prop(self, 'override_hardness')
+            row.prop(self, 'hardness', text='')
+            row = box2.row()
+            row.prop(self, 'override_input_samples')
+            row.prop(self, 'input_samples', text='')
+            row = box2.row()
             row.label(text = 'Save Icons to: ')
             row.prop(self, "icon_save_path", text="")
 
@@ -171,10 +197,15 @@ class ImportBrushOperator(bpy.types.Operator, ImportHelper):
                     new_brush: bpy.types.Brush = bpy.data.brushes[self.template_brush].copy()
                     new_brush.name = brush_name
                     new_brush.use_custom_icon = True
+                    new_brush.gpencil_settings.use_material_pin = True
                     new_brush.gpencil_settings.material = new_material
-                    if self.uv_randomness > 0:
-                        new_brush.gpencil_settings.use_settings_random = True
+                    if self.override_uv_randomness:
+                        new_brush.gpencil_settings.use_settings_random = (self.uv_randomness > 0)
                         new_brush.gpencil_settings.uv_random = self.uv_randomness
+                    if self.override_input_samples:
+                        new_brush.gpencil_settings.input_samples = self.input_samples
+                    if self.override_hardness:
+                        new_brush.gpencil_settings.hardness = self.hardness
 
                     # Create an icon by scaling the brush texture down
                     icon_obj = img_obj.copy()
