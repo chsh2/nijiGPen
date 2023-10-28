@@ -220,3 +220,92 @@ class ImportBrushOperator(bpy.types.Operator, ImportHelper):
             fd.close()
 
         return {'FINISHED'}
+    
+class ImportSwatchOperator(bpy.types.Operator, ImportHelper):
+    """Import palette or swatch files. Currently supported formats: .swatches, .aco"""
+    bl_idname = "gpencil.nijigp_import_swatch"
+    bl_label = "Import Swatches"
+    bl_category = 'View'
+    bl_options = {'REGISTER', 'UNDO'}
+
+    directory: bpy.props.StringProperty(subtype='DIR_PATH')
+    files: bpy.props.CollectionProperty(type=bpy.types.OperatorFileListElement)
+    filepath = bpy.props.StringProperty(name="File Path", subtype='FILE_PATH')
+    filter_glob: bpy.props.StringProperty(
+        default='*.swatches;*.aco',
+        options={'HIDDEN'}
+    )
+    ignore_placeholders: bpy.props.BoolProperty(
+        name='Ignore Placeholders',
+        default=False,
+        description='Placeholders in the swatch file will be treated as a black color slot if not ignored'
+    )
+    
+    def draw(self, context):
+        layout = self.layout
+        layout.prop(self, 'ignore_placeholders')
+    
+    def execute(self, context):
+        import zipfile, json, struct
+        from colorsys import hsv_to_rgb
+        from mathutils import Color
+        
+        def parse_aco_color(byte_block, offset):
+            color_space_id, c0, c1, c2 = struct.unpack_from('>HHHH', byte_block, offset)
+            if color_space_id == 0:         # RGB
+                return Color((c0/65535.0, c1/65535.0, c2/65535.0))
+            elif color_space_id == 1:       # HSV
+                return Color(hsv_to_rgb(c0/65535.0, c1/65535.0, c2/65535.0))
+            else:                           # Other modes are not supported
+                return None
+        
+        for f in self.files:
+            filename = os.path.join(self.directory, f.name)
+            palette_name = 'Imported_Palette'
+            colors_to_add = []
+            
+            # Parse .swatches: a compressed json file
+            if f.name.split('.')[-1] == 'swatches':
+                with zipfile.ZipFile(filename) as archive:
+                    json_bytes = archive.read('Swatches.json')
+                    json_dict = json.loads(json_bytes)
+                    if 'name' in json_dict:
+                        palette_name = json_dict['name']
+                    if 'swatches' in json_dict:
+                        for swatch in json_dict['swatches']:
+                            # Case of a placeholder
+                            if swatch == None:
+                                if not self.ignore_placeholders:
+                                    colors_to_add.append(Color())
+                            # Use HSV data to generate colors
+                            else:
+                                if (('brightness' not in swatch) or ('hue' not in swatch) or ('saturation' not in swatch)):
+                                    continue
+                                rgb = hsv_to_rgb(swatch['hue'], swatch['saturation'], swatch['brightness'])
+                                colors_to_add.append(Color(rgb))
+            # Parse .aco: according to Photoshop file formats specification
+            elif f.name.split('.')[-1] == 'aco':  
+                with open(filename, 'rb') as fd:
+                    raw_bytes = fd.read()
+                    byte_offset = 0
+                    # File divided in two parts: currently only parse the first one
+                    for target_version in [1]:
+                        version, color_count = struct.unpack_from('>HH', raw_bytes, byte_offset)
+                        if version != target_version:
+                            break
+                        byte_offset += 4
+                        for _ in range(color_count):
+                            color = parse_aco_color(raw_bytes, byte_offset)
+                            byte_offset += 10
+                            if color != None:
+                                colors_to_add.append(color)
+                    palette_name = f.name
+            
+            # Create a new palette in Blender
+            if len(colors_to_add) > 0:
+                new_palette = bpy.data.palettes.new(palette_name)
+                for color in colors_to_add:
+                    new_palette.colors.new()
+                    new_palette.colors[-1].color = color
+            
+        return {'FINISHED'}

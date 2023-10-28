@@ -26,7 +26,8 @@ def draw_io(panel, context):
 
     layout.label(text="Asset Import:")
     row = layout.row()
-    row.operator("gpencil.nijigp_import_brush", text="ABR/GBR Brushes", icon="BRUSH_DATA")
+    row.operator("gpencil.nijigp_import_brush", text="Brushes", icon="BRUSH_DATA")
+    row.operator("gpencil.nijigp_import_swatch", text="Swatches", icon="COLOR")
     
     layout.label(text="Image Export:")
     row = layout.row()
