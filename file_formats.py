@@ -202,6 +202,51 @@ class GbrParser:
             pixels_1d = np.frombuffer(self.bytes, dtype='>u1', count=self.width*self.height*self.num_channels, offset=self.offset)
             self.brush_mats.append(pixels_1d.reshape((self.height,self.width,self.num_channels)))  
 
+class BrushsetParser():
+    """
+    Parse archived textures of Procreate brushes
+    """
+    def __init__(self, filename):
+        self.filename = filename
+        self.brush_mats = []
+        self.is_tex_grain = []  # A unique type of texture defined in Procreate
+    
+    def check(self):
+        import zipfile
+        return zipfile.is_zipfile(self.filename)
+    
+    def parse(self):
+        import zipfile, os
+        from .resources import get_cache_folder
+        from bpy_extras import image_utils
+
+        # Uncompress texture files to the temporary folder
+        cache_dir = get_cache_folder()
+        tex_paths = []
+        with zipfile.ZipFile(self.filename) as archive:
+            namelist = archive.namelist()
+            for member in namelist:
+                if member.find('Reset') != -1:
+                    continue
+                elif member.endswith('Shape.png'):
+                    self.is_tex_grain.append(False)
+                    tex_paths.append(member)
+                elif member.endswith('Grain.png'):
+                    self.is_tex_grain.append(True)
+                    tex_paths.append(member)
+            for member in tex_paths:
+                archive.extract(member, cache_dir)
+        
+        # Process each texture image file
+        # The images loaded in Blender here are just for extracting the pixels
+        # Final brush textures are generated not from this parser, but the operator
+        for path in tex_paths:
+            img_obj = image_utils.load_image(os.path.join(cache_dir, path), check_existing=True)
+            img_W = img_obj.size[0]
+            img_H = img_obj.size[1]
+            img_mat = np.array(img_obj.pixels).reshape(img_H,img_W, img_obj.channels)
+            img_mat = np.flipud(img_mat[:,:,0]) * 255
+            self.brush_mats.append(img_mat)
 
 # Multi-layer image formats
 class PsdLayer:

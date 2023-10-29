@@ -2,7 +2,7 @@ import os
 import bpy
 import struct
 from bpy_extras.io_utils import ImportHelper
-from ..file_formats import GbrParser, Abr1Parser, Abr6Parser
+from ..file_formats import GbrParser, Abr1Parser, Abr6Parser, BrushsetParser
 from ..resources import get_cache_folder
 
 class ImportBrushOperator(bpy.types.Operator, ImportHelper):
@@ -16,7 +16,7 @@ class ImportBrushOperator(bpy.types.Operator, ImportHelper):
     files: bpy.props.CollectionProperty(type=bpy.types.OperatorFileListElement)
     filepath = bpy.props.StringProperty(name="File Path", subtype='FILE_PATH')
     filter_glob: bpy.props.StringProperty(
-        default='*.gbr;*.abr',
+        default='*.gbr;*.abr;*.brushset;*.brush',
         options={'HIDDEN'}
     )
 
@@ -32,7 +32,7 @@ class ImportBrushOperator(bpy.types.Operator, ImportHelper):
             items=[('WHITE', 'White', ''),
                     ('BLACK', 'Black', ''),
                     ('GRAYSCALE', 'Grayscale', '')],
-            default='WHITE'
+            default='GRAYSCALE'
     )
     icon_save_path: bpy.props.EnumProperty(
             name='Icon Folder',
@@ -40,6 +40,11 @@ class ImportBrushOperator(bpy.types.Operator, ImportHelper):
                     ('BRUSH', 'Folder of Brush File', ''),
                     ('TMP', 'Temporary Folder', '')],
             default='BRUSH'
+    )
+    invert_alpha: bpy.props.BoolProperty(
+            name='Invert Alpha',
+            default=False,
+            description='If applied, treat white as transparency instead of black for single-channel images'
     )
     alpha_clip: bpy.props.BoolProperty(
             name='Alpha Clip',
@@ -87,11 +92,10 @@ class ImportBrushOperator(bpy.types.Operator, ImportHelper):
         row.label(text = 'Brush Color: ')
         row.prop(self, "color_mode", text="")    
         row = box1.row()
-        row.label(text = 'Alpha Clip: ')
-        row.prop(self, "alpha_clip", text="")
+        row.prop(self, "alpha_clip")
+        row.prop(self, "invert_alpha")
         row = box1.row()
-        row.label(text = 'Keep Aspect Ratio: ')
-        row.prop(self, "keep_aspect_ratio", text="")
+        row.prop(self, "keep_aspect_ratio")
         if self.texture_usage == "BRUSH":
             layout.label(text = 'Brush Options:')
             box2 = layout.box()
@@ -127,25 +131,29 @@ class ImportBrushOperator(bpy.types.Operator, ImportHelper):
             if not os.path.exists(icon_dir):
                 os.makedirs(icon_dir)
             
+        total_brushes = 0
         for f in self.files:
+            # Determine the software that generates the brush file
             filename = os.path.join(self.directory, f.name)
             fd = open(filename, 'rb')
-
-            # Determine the software that generates the brush file
-            if f.name.split('.')[-1] == 'gbr':
+            parser = None
+            if f.name.endswith('.gbr'):  
                 parser = GbrParser(fd.read())
-            else:
+            elif f.name.endswith('.abr'):
                 bytes = fd.read()
                 major_version = struct.unpack_from('>H',bytes)[0]
                 if major_version > 5:
                     parser = Abr6Parser(bytes)
                 else:
                     parser = Abr1Parser(bytes)
-            if not parser.check():
+            elif f.name.endswith('.brushset') or f.name.endswith('.brush'):
+                parser = BrushsetParser(filename)
+            if not parser or not parser.check():
                 self.report({"ERROR"}, "The file format of the brush cannot be recognized.")
                 return {'FINISHED'}
             
             parser.parse()
+            total_brushes += len(parser.brush_mats)
             for i,brush_mat in enumerate(parser.brush_mats):
                 if len(parser.brush_mats) == 1:
                     brush_name = f.name.split('.')[0]
@@ -158,6 +166,8 @@ class ImportBrushOperator(bpy.types.Operator, ImportHelper):
                     image_mat = brush_mat.copy()
                 else:
                     image_mat = brush_mat.reshape((img_H, img_W, 1)).repeat(4, axis=2)
+                    if self.invert_alpha:
+                        image_mat = 255 - image_mat
                 if self.color_mode == 'WHITE':
                     image_mat[:,:,0] = (image_mat[:,:,3] > 0) * 255
                     image_mat[:,:,1] = (image_mat[:,:,3] > 0) * 255
@@ -184,13 +194,23 @@ class ImportBrushOperator(bpy.types.Operator, ImportHelper):
                 
                 # Create GPencil material
                 if self.texture_usage != 'IMAGE':
-                    new_material = bpy.data.materials.new(brush_name)
-                    bpy.data.materials.create_gpencil_data(new_material)
-                    new_material.grease_pencil.show_stroke = True
-                    new_material.grease_pencil.mode = 'BOX'
-                    new_material.grease_pencil.stroke_style = 'TEXTURE'
-                    new_material.grease_pencil.mix_stroke_factor = 1
-                    new_material.grease_pencil.stroke_image = img_obj
+                    if hasattr(parser, 'is_tex_grain') and parser.is_tex_grain[i]:
+                        brush_name = '(Grain) ' + brush_name
+                        new_material = bpy.data.materials.new(brush_name)
+                        bpy.data.materials.create_gpencil_data(new_material)
+                        new_material.grease_pencil.show_stroke = False
+                        new_material.grease_pencil.show_fill = True
+                        new_material.grease_pencil.fill_style = 'TEXTURE'
+                        new_material.grease_pencil.mix_factor = 1
+                        new_material.grease_pencil.fill_image = img_obj
+                    else:
+                        new_material = bpy.data.materials.new(brush_name)
+                        bpy.data.materials.create_gpencil_data(new_material)
+                        new_material.grease_pencil.show_stroke = True
+                        new_material.grease_pencil.mode = 'BOX'
+                        new_material.grease_pencil.stroke_style = 'TEXTURE'
+                        new_material.grease_pencil.mix_stroke_factor = 1
+                        new_material.grease_pencil.stroke_image = img_obj
                 
                 # Create GPencil draw brush
                 if self.texture_usage == 'BRUSH':
@@ -216,9 +236,8 @@ class ImportBrushOperator(bpy.types.Operator, ImportHelper):
                     icon_obj.save()
                     new_brush.icon_filepath = icon_filepath
                     bpy.data.images.remove(icon_obj)
-                    
             fd.close()
-
+        self.report({"INFO"}, f'Finish importing {total_brushes} brush texture(s).')
         return {'FINISHED'}
     
 class ImportSwatchOperator(bpy.types.Operator, ImportHelper):
@@ -259,13 +278,14 @@ class ImportSwatchOperator(bpy.types.Operator, ImportHelper):
             else:                           # Other modes are not supported
                 return None
         
+        total_colors, total_palettes = 0, 0
         for f in self.files:
             filename = os.path.join(self.directory, f.name)
             palette_name = 'Imported_Palette'
             colors_to_add = []
             
             # Parse .swatches: a compressed json file
-            if f.name.split('.')[-1] == 'swatches':
+            if f.name.endswith('.swatches'):
                 with zipfile.ZipFile(filename) as archive:
                     json_bytes = archive.read('Swatches.json')
                     json_dict = json.loads(json_bytes)
@@ -277,6 +297,7 @@ class ImportSwatchOperator(bpy.types.Operator, ImportHelper):
                             if swatch == None:
                                 if not self.ignore_placeholders:
                                     colors_to_add.append(Color())
+                                    total_colors -= 1
                             # Use HSV data to generate colors
                             else:
                                 if (('brightness' not in swatch) or ('hue' not in swatch) or ('saturation' not in swatch)):
@@ -284,7 +305,7 @@ class ImportSwatchOperator(bpy.types.Operator, ImportHelper):
                                 rgb = hsv_to_rgb(swatch['hue'], swatch['saturation'], swatch['brightness'])
                                 colors_to_add.append(Color(rgb))
             # Parse .aco: according to Photoshop file formats specification
-            elif f.name.split('.')[-1] == 'aco':  
+            elif f.name.endswith('.aco'):  
                 with open(filename, 'rb') as fd:
                     raw_bytes = fd.read()
                     byte_offset = 0
@@ -303,9 +324,12 @@ class ImportSwatchOperator(bpy.types.Operator, ImportHelper):
             
             # Create a new palette in Blender
             if len(colors_to_add) > 0:
+                total_palettes += 1
                 new_palette = bpy.data.palettes.new(palette_name)
                 for color in colors_to_add:
                     new_palette.colors.new()
                     new_palette.colors[-1].color = color
-            
+                    total_colors += 1
+
+        self.report({"INFO"}, f'Finish importing {total_palettes} palette(s) and {total_colors} color(s).')
         return {'FINISHED'}
