@@ -22,32 +22,6 @@ def merge_poly_points(poly, min_dist):
         new_poly = new_poly[1:]
     return new_poly
 
-def get_mixed_color(gp_obj, stroke, point_idx = None):
-    """Get the displayed color by jointly considering the material and vertex colors"""
-    res = [0,0,0,1]
-    mat_gp = gp_obj.data.materials[stroke.material_index].grease_pencil
-    if point_idx == None:
-        # Case of fill color
-        if gp_obj.data.materials[stroke.material_index].grease_pencil.show_fill:
-            for i in range(4):
-                res[i] = mat_gp.fill_color[i]
-        if hasattr(stroke,'vertex_color_fill'):
-            alpha = stroke.vertex_color_fill[3]
-            for i in range(3):
-                res[i] = linear_to_srgb(res[i] * (1-alpha) + alpha * stroke.vertex_color_fill[i])
-        return res
-    else:
-        # Case of line point color
-        point = stroke.points[point_idx]
-        if gp_obj.data.materials[stroke.material_index].grease_pencil.show_stroke:
-            for i in range(4):
-                res[i] = mat_gp.color[i]
-        if hasattr(point,'vertex_color'):
-            alpha = point.vertex_color[3]
-            for i in range(3):
-                res[i] = linear_to_srgb(res[i] * (1-alpha) + alpha * point.vertex_color[i])
-        return res
-
 def apply_mirror_in_depth(obj, inv_mat, loc = (0,0,0)):
     """Apply a Mirror modifier in the Object mode with given center and axis"""
     obj.modifiers.new(name="nijigp_Mirror", type='MIRROR')

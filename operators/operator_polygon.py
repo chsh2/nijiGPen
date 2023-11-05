@@ -248,7 +248,7 @@ class HoleProcessingOperator(bpy.types.Operator):
 
         return {'FINISHED'}
 
-class OffsetSelectedOperator(bpy.types.Operator):
+class OffsetSelectedOperator(bpy.types.Operator, ColorTintConfig):
     """Offset or inset the selected strokes"""
     bl_idname = "gpencil.nijigp_offset_selected"
     bl_label = "Offset Selected"
@@ -335,10 +335,10 @@ class OffsetSelectedOperator(bpy.types.Operator):
 
         layout.label(text = "Post-Processing Options:")
         box2 = layout.box()
-        box2.prop(self, "change_line_color", text = "Change Line Color")
-        box2.prop(self, "line_color_factor", text = "Line Color Factor")
-        box2.prop(self, "change_fill_color", text = "Change Fill Color")
-        box2.prop(self, "fill_color_factor", text = "Fill Color Factor")
+        box2.prop(self, "tint_color")
+        box2.prop(self, "tint_color_factor")
+        box2.prop(self, "tint_mode")
+        box2.prop(self, "blend_mode")
 
     def execute(self, context):
 
@@ -437,12 +437,11 @@ class OffsetSelectedOperator(bpy.types.Operator):
 
         # Post-processing: change colors
         for stroke in generated_strokes:
-            for i in range(4):
-                stroke.vertex_color_fill[i] = stroke.vertex_color_fill[i] * (1 - self.fill_color_factor) + self.change_fill_color[i] * self.fill_color_factor
-            for point in stroke.points:
-                for i in range(4):
-                    point.vertex_color[i] = point.vertex_color[i] * (1 - self.line_color_factor) + self.change_line_color[i] * self.line_color_factor
             stroke.select = True
+        bpy.ops.gpencil.nijigp_color_tint(tint_color=self.tint_color,
+                                          tint_color_factor=self.tint_color_factor,
+                                          tint_mode=self.tint_mode,
+                                          blend_mode=self.blend_mode)
         refresh_strokes(current_gp_obj, list(frames_to_process.keys()))
 
         return {'FINISHED'}
@@ -799,7 +798,7 @@ class BoolLastOperator(bpy.types.Operator):
         bpy.ops.object.mode_set(mode='PAINT_GPENCIL')
         return {'FINISHED'}
     
-class SweepSelectedOperator(bpy.types.Operator):
+class SweepSelectedOperator(bpy.types.Operator, ColorTintConfig):
     """Sweep selected shapes along a path"""
     bl_idname = "gpencil.nijigp_sweep_selected"
     bl_label = "Sweep Selected"
@@ -839,28 +838,6 @@ class SweepSelectedOperator(bpy.types.Operator):
             default=True,
             description='Do not delete the original stroke'
     )
-    change_line_color: bpy.props.FloatVectorProperty(
-            name = "Change Line Color",
-            subtype = "COLOR",
-            default = (1.0,.0,.0,1.0),
-            min = 0.0, max = 1.0, size = 4,
-            description='Change the vertex color after sweeping',
-            )
-    line_color_factor: bpy.props.FloatProperty(
-            name='Line Color Factor',
-            default=0, min=0, max=1
-    )
-    change_fill_color: bpy.props.FloatVectorProperty(
-            name = "Change Fill Color",
-            subtype = "COLOR",
-            default = (.0,.0,1.0,1.0),
-            min = 0.0, max = 1.0, size = 4,
-            description='Change the stroke fill color after sweeping',
-    )
-    fill_color_factor: bpy.props.FloatProperty(
-            name='Fill Color Factor',
-            default=0, min=0, max=1
-    )
 
     def draw(self, context):
         layout = self.layout
@@ -877,10 +854,10 @@ class SweepSelectedOperator(bpy.types.Operator):
 
         layout.label(text = "Post-Processing Options:")
         box2 = layout.box()
-        box2.prop(self, "change_line_color", text = "Change Line Color")
-        box2.prop(self, "line_color_factor", text = "Line Color Factor")
-        box2.prop(self, "change_fill_color", text = "Change Fill Color")
-        box2.prop(self, "fill_color_factor", text = "Fill Color Factor")
+        box2.prop(self, "tint_color")
+        box2.prop(self, "tint_color_factor")
+        box2.prop(self, "tint_mode")
+        box2.prop(self, "blend_mode")
 
 
     def execute(self, context):
@@ -1022,12 +999,11 @@ class SweepSelectedOperator(bpy.types.Operator):
 
         # Post-processing: change colors
         for stroke in generated_strokes:
-            for i in range(4):
-                stroke.vertex_color_fill[i] = stroke.vertex_color_fill[i] * (1 - self.fill_color_factor) + self.change_fill_color[i] * self.fill_color_factor
-            for point in stroke.points:
-                for i in range(4):
-                    point.vertex_color[i] = point.vertex_color[i] * (1 - self.line_color_factor) + self.change_line_color[i] * self.line_color_factor
             stroke.select = True
+        bpy.ops.gpencil.nijigp_color_tint(tint_color=self.tint_color,
+                                          tint_color_factor=self.tint_color_factor,
+                                          tint_mode=self.tint_mode,
+                                          blend_mode=self.blend_mode)
         refresh_strokes(current_gp_obj, list(frames_to_process.keys()))
 
         return {'FINISHED'}

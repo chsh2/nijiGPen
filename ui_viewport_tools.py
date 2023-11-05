@@ -4,8 +4,9 @@ from bpy_extras import view3d_utils
 from mathutils import *
 from .utils import *
 from .resources import *
+from .operators.common import ColorTintConfig
 
-class SweepModalOperator(bpy.types.Operator):
+class SweepModalOperator(bpy.types.Operator, ColorTintConfig):
     """Executing sweep with the path vector determined by mouse position"""
     bl_idname = "gpencil.nijigp_sweep_selected_modal"
     bl_label = "Sweep Selected (Modal)"
@@ -23,25 +24,7 @@ class SweepModalOperator(bpy.types.Operator):
                     ('OUTER', 'Outer Shadow', ''),
                     ('INNER', 'Inner Shadow', '')],
             default='EXTRUDE'
-    )
-    tint_color: bpy.props.FloatVectorProperty(
-            name = "Tint Vertex Color",
-            subtype = "COLOR",
-            default = (1.0,.0,.0,1.0),
-            min = 0.0, max = 1.0, size = 4,
-            description='Change the vertex color after sweeping',
-            )
-    tint_color_factor: bpy.props.FloatProperty(
-            name='Tint Factor',
-            default=0, min=0, max=1
-    )    
-    tint_mode: bpy.props.EnumProperty(
-            name='Mode',
-            items=[('BOTH', 'Stroke & Fill', ''),
-                    ('FILL', 'Fill', ''),
-                    ('LINE', 'Stroke', '')],
-            default='FILL'
-    )    
+    ) 
 
     def modal(self, context, event):
         if event.type == 'MOUSEMOVE':
@@ -52,9 +35,10 @@ class SweepModalOperator(bpy.types.Operator):
             context.area.header_text_set('Path Vector: {:f} m, {:f} m'.format(delta[0], delta[1]))
             bpy.ops.gpencil.nijigp_sweep_selected(multiframe_falloff=self.multiframe_falloff,
                                                   path_type='VEC', path_vector=delta, style=self.style,
-                                                  change_line_color=self.tint_color, change_fill_color=self.tint_color,
-                                                  line_color_factor=self.tint_color_factor if self.tint_mode!='FILL' else 0,
-                                                  fill_color_factor=self.tint_color_factor if self.tint_mode!='LINE' else 0)
+                                                  tint_color=self.tint_color,
+                                                  tint_color_factor=self.tint_color_factor,
+                                                  tint_mode=self.tint_mode,
+                                                  blend_mode=self.blend_mode)
 
         elif event.type == 'LEFTMOUSE':
             context.area.header_text_set(None)
@@ -336,6 +320,7 @@ class SweepTool(bpy.types.WorkSpaceTool):
         layout.prop(props, "tint_color")
         layout.prop(props, "tint_color_factor")
         layout.prop(props, "tint_mode")
+        layout.prop(props, "blend_mode")
 
 class ViewportShortcuts(bpy.types.GizmoGroup):
     bl_idname = "nijigp_viewport_shortcuts"

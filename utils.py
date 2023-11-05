@@ -19,9 +19,9 @@ def linear_to_srgb(color):
     return s_color
 
 def srgb_to_linear(color):
-    '''
+    """
     Can be replaced by from_srgb_to_scene_linear() if Blender version >= 3.2
-    '''
+    """
     if color<0:
         return 0
     elif color<0.04045:
@@ -42,6 +42,62 @@ def rgb_to_hex_code(color:Color) -> str:
     r,g,b = int(color[0]*255), int(color[1]*255), int(color[2]*255)
     hex_code = f"#{r:02x}{g:02x}{b:02x}"
     return hex_code
+
+def mix_rgb(c1, c2, factor, op='REGULAR'):
+    c = c2
+    if op == 'HARDLIGHT':
+        c = (2*c1*c2) if c2<0.5 else (1 - 2*(1-c1)*(1-c2))
+    elif op == 'ADD':
+        c = c1 + c2
+    elif op == 'SUBTRACT':
+        c = c1 - c2
+    elif op == 'MULTIPLY':
+        c = c1 * c2
+    elif op == 'DIVIDE':
+        c = c1 / c2 if c2!=0 else 1
+    c = 0 if c<0 else 1 if c>1 else c
+    return c * factor + c1 * (1 - factor)
+
+def mix_hsv(rgb1, rgb2, factor, ops = {}):
+    from colorsys import rgb_to_hsv, hsv_to_rgb
+    h1, s1, v1 = rgb_to_hsv(rgb1[0], rgb1[1], rgb1[2])
+    h2, s2, v2 = rgb_to_hsv(rgb2[0], rgb2[1], rgb2[2])
+    h = h2 if 'HUE' in ops else h1
+    s = s2 if 'SATURATION' in ops else s1
+    v = v2 if 'BRIGHTNESS' in ops else v1
+    rgb = hsv_to_rgb(h, s, v)
+    return [(rgb1[i]*(1-factor) + rgb[i]*factor) for i in range(3)]
+
+def get_mixed_color(gp_obj, stroke, point_idx = None, to_linear = False):
+    """Get the displayed color by jointly considering the material and vertex colors"""
+    res = [0,0,0,1]
+    mat_gp = gp_obj.data.materials[stroke.material_index].grease_pencil
+    if point_idx == None:
+        # Case of fill color
+        if gp_obj.data.materials[stroke.material_index].grease_pencil.show_fill:
+            for i in range(4):
+                res[i] = mat_gp.fill_color[i]
+        if hasattr(stroke,'vertex_color_fill'):
+            alpha = stroke.vertex_color_fill[3]
+            for i in range(3):
+                res[i] = res[i] * (1-alpha) + alpha * stroke.vertex_color_fill[i]
+                if not to_linear:
+                    res[i] = linear_to_srgb(res[i])
+        return res
+    else:
+        # Case of line point color
+        point = stroke.points[point_idx]
+        if gp_obj.data.materials[stroke.material_index].grease_pencil.show_stroke:
+            for i in range(4):
+                res[i] = mat_gp.color[i]
+        if hasattr(point,'vertex_color'):
+            alpha = point.vertex_color[3]
+            for i in range(3):
+                res[i] = res[i] * (1-alpha) + alpha * point.vertex_color[i]
+                if not to_linear:
+                    res[i] = linear_to_srgb(res[i])
+        return res
+
 #endregion
 
 #region [Math Utilities]

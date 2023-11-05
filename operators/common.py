@@ -1,6 +1,42 @@
 import bpy
 from ..utils import *
 
+class ColorTintConfig:
+    """
+    Options of applying a color tint, shard by multiple operators
+    """
+    tint_color: bpy.props.FloatVectorProperty(
+            name = "Tint Color",
+            subtype = "COLOR",
+            default = (.0,.0,.0,1.0),
+            min = 0.0, max = 1.0, size = 4,
+            description='Change the vertex color by blending with a new color',
+    )
+    tint_color_factor: bpy.props.FloatProperty(
+            name='Tint Factor',
+            default=0, min=0, max=1
+    )    
+    tint_mode: bpy.props.EnumProperty(
+            name='Mode',
+            items=[('BOTH', 'Stroke & Fill', ''),
+                    ('FILL', 'Fill', ''),
+                    ('LINE', 'Stroke', '')],
+            default='FILL'
+    ) 
+    blend_mode: bpy.props.EnumProperty(
+            name='Blend',
+            items=[('REGULAR', 'Regular', ''),
+                    ('HARDLIGHT', 'Hard Light', ''),
+                    ('ADD', 'Add', ''),
+                    ('SUBTRACT', 'Subtract', ''),
+                    ('MULTIPLY', 'Multiply', ''),
+                    ('DIVIDE', 'Divide', ''),
+                    ('HUE', 'Hue', ''),
+                    ('SATURATION', 'Saturation', ''),
+                    ('BRIGHTNESS', 'Brightness', '')],
+            default='REGULAR'
+    ) 
+
 def save_stroke_selection(gp_obj):
     """
     Record the selection state of a Grease Pencil object to a map
