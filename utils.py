@@ -116,6 +116,31 @@ def get_full_bound_box(s):
                 bound_points.append(Vector([x,y,z]))
     return bound_points
 
+def get_2d_bound_box(strokes, t_mat):
+    """Get 2D bounds [u_min, v_min, u_max, v_max] of a list of strokes given a 3D-to-2D transformation matrix"""
+    corners = [None, None, None, None]
+    for s in strokes:
+        bound_points = get_full_bound_box(s)
+        for co in bound_points:
+            co_2d = t_mat @ co
+            u, v = co_2d[0], co_2d[1]
+            corners[0] = u if (not corners[0] or u<corners[0]) else corners[0]
+            corners[1] = v if (not corners[1] or v<corners[1]) else corners[1]
+            corners[2] = u if (not corners[2] or u>corners[2]) else corners[2]
+            corners[3] = v if (not corners[3] or v>corners[3]) else corners[3]
+    return corners
+
+def pad_2d_box(corners, ratio, return_bounds = False):
+    """Scale a 2D box by a given ratio from its center. Return either 4 points or 2 bounds"""
+    bound_W, bound_H = corners[2]-corners[0], corners[3]-corners[1]
+    if return_bounds:
+        return [corners[0] - ratio * bound_W, corners[1] - ratio * bound_H, corners[2] + ratio * bound_W, corners[3] + ratio * bound_H]
+    else:
+        return [(corners[0] - ratio * bound_W, corners[1] - ratio * bound_H),
+                (corners[0] - ratio * bound_W, corners[3] + ratio * bound_H),
+                (corners[2] + ratio * bound_W, corners[1] - ratio * bound_H),
+                (corners[2] + ratio * bound_W, corners[3] + ratio * bound_H)]
+
 def stroke_bound_box_overlapping(s1, s2, t_mat):
     """Judge if bound boxes of two strokes overlap in any given 2D plane"""
     bound_points = [get_full_bound_box(s1), get_full_bound_box(s2)]

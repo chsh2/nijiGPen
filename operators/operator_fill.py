@@ -144,23 +144,13 @@ class SmartFillOperator(bpy.types.Operator):
                     
             # Get points and bound box of line frame
             margin_sizes = (0.1, 0.3, 0.5)
-            corners = [None, None, None, None]
             stroke_list = [stroke for stroke in line_frame.strokes]
             t_mat, inv_mat = get_transformation_mat(mode=context.scene.nijigp_working_plane,
                                                     gp_obj=gp_obj, strokes=stroke_list, operator=self)
-            for stroke in line_frame.strokes:
-                bound_points = get_full_bound_box(stroke)
-                for co in bound_points:
-                    co_2d = t_mat @ co
-                    u, v = co_2d[0], co_2d[1]
-                    corners[0] = u if (not corners[0] or u<corners[0]) else corners[0]
-                    corners[1] = v if (not corners[1] or v<corners[1]) else corners[1]
-                    corners[2] = u if (not corners[2] or u>corners[2]) else corners[2]
-                    corners[3] = v if (not corners[3] or v>corners[3]) else corners[3]
+            corners = get_2d_bound_box(stroke_list, t_mat)
             poly_list, depth_list, scale_factor = get_2d_co_from_strokes(stroke_list, t_mat, scale=True)
             depth_lookup_tree = DepthLookupTree(poly_list, depth_list)
             corners = [co * scale_factor for co in corners]
-            bound_W, bound_H = corners[2]-corners[0], corners[3]-corners[1]
             
             # Build triangles from points
             co_idx = {}
@@ -175,12 +165,9 @@ class SmartFillOperator(bpy.types.Operator):
                         key0 = (int(co_list[j-1][0]*resolution), int(co_list[j-1][1]*resolution))
                         tr_input['segments'].append( (co_idx[key], co_idx[key0]) )
 
-            # Add multiple levels of bound boxes
+            # Add several margins to the bound boxes
             for ratio in margin_sizes:  
-                tr_input['vertices'] += [(corners[0] - ratio * bound_W, corners[1] - ratio * bound_H),
-                                        (corners[0] - ratio * bound_W, corners[3] + ratio * bound_H),
-                                        (corners[2] + ratio * bound_W, corners[1] - ratio * bound_H),
-                                        (corners[2] + ratio * bound_W, corners[3] + ratio * bound_H)]
+                tr_input['vertices'] += pad_2d_box(corners, ratio)
             tr_output = {}
             tr_output['vertices'], tr_output['segments'], tr_output['triangles'], _,tr_output['orig_edges'],_ = geometry.delaunay_2d_cdt(tr_input['vertices'], tr_input['segments'], [], 0, 1e-9)
 
