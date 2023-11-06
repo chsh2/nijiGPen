@@ -76,7 +76,7 @@ class NIJIGP_PT_draw_panel_io(bpy.types.Panel):
     bl_region_type = "UI"
     bl_category = "NijiGP"
     bl_context = "greasepencil_paint"
-    bl_order = 4
+    bl_order = 5
 
     def draw(self, context):
         draw_io(self, context)
@@ -88,7 +88,7 @@ class NIJIGP_PT_edit_panel_io(bpy.types.Panel):
     bl_region_type = "UI"
     bl_category = "NijiGP"
     bl_context = "greasepencil_edit"
-    bl_order = 4
+    bl_order = 5
 
     def draw(self, context):
         draw_io(self, context)
@@ -154,11 +154,6 @@ class NIJIGP_PT_edit_panel_mesh(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         
-        layout.label(text="Preprocessing:")
-        row = layout.row()
-        row.operator("gpencil.stroke_sample", text="Resample").length = 0.02
-        row.operator("gpencil.stroke_smooth", text="Smooth")
-
         layout.label(text="Generation Methods:")
         row = layout.row()
         row.operator("gpencil.nijigp_mesh_generation_offset", text="Frustum", icon="CONE")
@@ -199,7 +194,7 @@ class NIJIGP_PT_edit_panel_line(bpy.types.Panel):
 
     def draw(self, context):
         layout = self.layout
-        
+
         layout.label(text="Line Cleanup by Fitting:")
         row = layout.row()
         row.operator("gpencil.nijigp_fit_selected", text="Single-Line", icon="MOD_SMOOTH")
@@ -249,3 +244,39 @@ class NIJIGP_PT_weight_panel_rig(bpy.types.Panel):
         row.operator("gpencil.nijigp_bake_rigging_animation", icon='KEYFRAME')
         row = layout.row()
         row.operator("gpencil.nijigp_vertex_group_clear", icon='X')
+
+class NIJIGP_PT_edit_panel_misc(bpy.types.Panel):
+    bl_idname = 'NIJIGP_PT_edit_panel_misc'
+    bl_label = "Other Utilities"
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "NijiGP"
+    bl_context = "greasepencil_edit"
+    bl_order = 4
+
+    def draw(self, context):
+        layout = self.layout
+        layout.label(text="Shape Preprocessing:")
+        row = layout.row()
+        row.operator("gpencil.stroke_sample", text="Resample").length = 0.02
+        row.operator("gpencil.stroke_smooth", text="Smooth")
+        
+        layout.label(text="Color Utilities:")
+        row = layout.row()
+        row.operator("gpencil.nijigp_color_tint", text="Tint", icon='MOD_TINT')
+        row.operator("gpencil.nijigp_recolor", text="Recolor", icon='SEQ_CHROMA_SCOPE')
+        
+class NIJIGP_PT_edit_subpanel_palette(bpy.types.Panel):
+    bl_idname = 'NIJIGP_PT_edit_subpanel_palette'
+    bl_label = "Palette Preview"
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "NijiGP"
+    bl_context = "greasepencil_edit"
+    bl_parent_id = "NIJIGP_PT_edit_panel_misc"
+    bl_options = {"DEFAULT_CLOSED"}
+
+    def draw(self, context):
+        layout = self.layout
+        layout.prop(context.tool_settings.gpencil_vertex_paint, "palette")
+        layout.template_palette(context.tool_settings.gpencil_vertex_paint, "palette", color=True)

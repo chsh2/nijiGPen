@@ -289,6 +289,8 @@ class ImportSwatchOperator(bpy.types.Operator, ImportHelper):
                 with zipfile.ZipFile(filename) as archive:
                     json_bytes = archive.read('Swatches.json')
                     json_dict = json.loads(json_bytes)
+                    if isinstance(json_dict, list):
+                        json_dict = json_dict[0]
                     if 'name' in json_dict:
                         palette_name = json_dict['name']
                     if 'swatches' in json_dict:
