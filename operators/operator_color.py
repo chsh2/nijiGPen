@@ -67,15 +67,15 @@ class RecolorSelectedOperator(bpy.types.Operator, ColorTintConfig):
 
     mapping_criterion: bpy.props.EnumProperty(            
         name='Criterion',
-        items=[ ('RGB', 'Nearest RGB', ''),
-               ('HSV', 'Nearest HSV', ''),],
+        items=[ ('RGB', 'RGB Similarity', ''),
+               ('HSV', 'HSV Similarity', ''),],
         default='RGB',
         description='How to map colors to the new palette'
     )
     normalize: bpy.props.FloatProperty(
         name='Normalize',
         default=0, min=0, max=1,
-        description='Convert the color space to have similar mean and variance with the palette'
+        description='Color selected strokes to have similar mean and variance in each color channel with the palette'
     )    
     use_h: bpy.props.BoolProperty(default=True)   
     use_s: bpy.props.BoolProperty(default=True) 
@@ -141,16 +141,16 @@ class RecolorSelectedOperator(bpy.types.Operator, ColorTintConfig):
         for i,color in enumerate(palette.colors):
             # Set up KDTree for color lookup
             linear_color = [srgb_to_linear(color.color[j]) for j in range(3)]
-            h, s, v = get_key(linear_color)
+            k = get_key(linear_color)
             if self.use_h:
-                kdt.insert((h-1.0, s, v), i)
-                kdt.insert((h+1.0, s, v), i)
-            kdt.insert((h, s, v), i)
+                kdt.insert((k[0]-1.0, k[1], k[2]), i)
+                kdt.insert((k[0]+1.0, k[1], k[2]), i)
+            kdt.insert(k, i)
             # Collect statistics: do not count repeated colors which may be placeholders
             if rgb_to_hex_code(linear_color) not in palette_color_set:
                 palette_color_set.add(rgb_to_hex_code(linear_color))
                 for j in range(3):
-                    dst_stat[j].append(linear_color[j])
+                    dst_stat[j].append(k[j])
         kdt.balance()
         dst_stat = np.array(dst_stat)
         dst_mean, dst_std = dst_stat.mean(axis=-1), dst_stat.std(axis=-1)
@@ -161,25 +161,27 @@ class RecolorSelectedOperator(bpy.types.Operator, ColorTintConfig):
             for stroke in frame.strokes:
                 if stroke.select:
                     fill_rgba = get_mixed_color(gp_obj, stroke, to_linear=True)
+                    fill_key = list(get_key(fill_rgba))
                     for i,point in enumerate(stroke.points):
                         if is_fill_tintable(self, gp_obj, stroke):
                             for j in range(3):
-                                src_stat[j].append(fill_rgba[j])
+                                src_stat[j].append(fill_key[j])
                         if is_point_tintable(self, gp_obj, stroke, point):
                             line_rgba = get_mixed_color(gp_obj, stroke, i, to_linear=True)
+                            line_key = list(get_key(line_rgba))
                             for j in range(3):
-                                src_stat[j].append(line_rgba[j])                            
+                                src_stat[j].append(line_key[j])                            
         src_stat = np.array(src_stat)
         src_mean, src_std = src_stat.mean(axis=-1), src_stat.std(axis=-1)
 
         def recolor_single(target, rgb):
             # Find the closest color in the palette
-            converted_rgb = [rgb[0], rgb[1], rgb[2]]
+            key = list(get_key(rgb))
             for j in range(3):
-                normalized = (rgb[j] - src_mean[j])/src_std[j]*dst_std[j] + dst_mean[j]
-                normalized = np.clip(normalized, 0, 1)
-                converted_rgb[j] = normalized * self.normalize + rgb[j] * (1-self.normalize)
-            key = get_key(converted_rgb)
+                if not self.use_h or j!=0:
+                    normalized = (key[j] - src_mean[j])/max(src_std[j], 1e-5)*dst_std[j] + dst_mean[j]
+                    normalized = np.clip(normalized, 0, 1)
+                    key[j] = normalized * self.normalize + key[j] * (1-self.normalize)
             _, p_idx, _ = kdt.find(key)
             c = [srgb_to_linear(palette.colors[p_idx].color[j]) for j in range(3)]
 

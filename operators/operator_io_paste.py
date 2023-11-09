@@ -116,6 +116,11 @@ class PasteXMLOperator(bpy.types.Operator):
     bl_category = 'View'
     bl_options = {'REGISTER', 'UNDO'}
 
+    name: bpy.props.StringProperty(
+            name='Name',
+            default='',
+            description='Rename the palette if not empty'
+    )
     tints_level: bpy.props.IntProperty(
             name='Tints and Shades',
             min=0, max=10, default=0,
@@ -124,14 +129,14 @@ class PasteXMLOperator(bpy.types.Operator):
 
     def draw(self, context):
         layout = self.layout
-        row = layout.row()
-        row.prop(self, "tints_level", text = "Tints and Shades")
+        layout.prop(self, "name")
+        layout.prop(self, "tints_level", text = "Tints and Shades")
 
     def execute(self, context):
         import xml.etree.ElementTree as ET
         clipboard_str = context.window_manager.clipboard
 
-        palette_name = 'Pasted_Palette'
+        palette_name = self.name
         colors_to_add = []
         try:
             root = ET.fromstring(clipboard_str)
@@ -146,12 +151,13 @@ class PasteXMLOperator(bpy.types.Operator):
                 elif 'rgb' in info:
                     h = int(info['rgb'], 16)
                     colors_to_add.append(hex_to_rgb(h))
-                if 'name' in info:
+                if 'name' in info and len(palette_name)==0:
                     palette_name = info['name']
         except:
             # If the string is not XML, regard it as a list and try to extract hex codes
             alnum_str = "".join(filter(str.isalnum, clipboard_str))
-            palette_name = clipboard_str
+            if len(palette_name)==0:
+                palette_name = clipboard_str
             i = 0
             while(i+5<len(alnum_str)):
                 hex_str = alnum_str[i:i+6]
