@@ -414,10 +414,12 @@ class DepthLookupTree:
         self.co2d = []
         self.depth = []
         self.count = 0
+        self.indices = []
         for i,co_list in enumerate(poly_list):
             for j,co in enumerate(co_list):
                 self.co2d.append(xy0(co))
                 self.depth.append(depth_list[i][j])
+                self.indices.append((i,j))
                 self.count += 1
         self.kdtree = kdtree.KDTree(self.count)
         for i in range(self.count):
@@ -427,6 +429,11 @@ class DepthLookupTree:
     def get_depth(self, co):
         _, i, _ = self.kdtree.find(xy0(co))
         return self.depth[i]
+
+    def get_info(self, co):
+        """Get stroke index, point index and the distance"""
+        _, i, dist = self.kdtree.find(xy0(co))
+        return self.indices[i][0], self.indices[i][1], dist       
 
 def restore_3d_co(co, depth, inv_mat, scale_factor=1):
     """Perform inverse transformation on 2D coordinates"""

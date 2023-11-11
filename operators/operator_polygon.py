@@ -291,33 +291,6 @@ class OffsetSelectedOperator(bpy.types.Operator, ColorTintConfig):
             default=True,
             description='If a stroke has its fill holdout, invert the offset value'
     )
-    change_line_color: bpy.props.FloatVectorProperty(
-            name = "Change Line Color",
-            subtype = "COLOR",
-            default = (1.0,.0,.0,1.0),
-            min = 0.0,
-            max = 1.0,
-            description='Change the vertex color after offsetting',
-            size = 4
-            )
-    line_color_factor: bpy.props.FloatProperty(
-            name='Line Color Factor',
-            default=0, min=0, max=1
-    )
-    change_fill_color: bpy.props.FloatVectorProperty(
-            name = "Change Fill Color",
-            subtype = "COLOR",
-            default = (.0,.0,1.0,1.0),
-            min = 0.0,
-            max = 1.0,
-            description='Change the stroke fill color after offsetting',
-            size = 4
-            )
-    fill_color_factor: bpy.props.FloatProperty(
-            name='Fill Color Factor',
-            default=0, min=0, max=1
-    )
-
 
     def draw(self, context):
         layout = self.layout

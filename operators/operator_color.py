@@ -44,7 +44,7 @@ class TintSelectedOperator(bpy.types.Operator, ColorTintConfig):
         gp_obj = context.object
         frames_to_process = get_input_frames(gp_obj, gp_obj.data.use_multiedit)
         for frame in frames_to_process:
-            for stroke in frame.strokes:
+            for stroke in get_input_strokes(gp_obj, frame):
                 # Process fill color
                 if is_fill_tintable(self, gp_obj, stroke):
                     r, g, b, _ = get_mixed_color(gp_obj, stroke, to_linear=True)
@@ -158,7 +158,7 @@ class RecolorSelectedOperator(bpy.types.Operator, ColorTintConfig):
         # Go through all selected points for the first time to collect statistics
         src_stat = [[], [], []]
         for frame in frames_to_process:
-            for stroke in frame.strokes:
+            for stroke in get_input_strokes(gp_obj, frame):
                 if stroke.select:
                     fill_rgba = get_mixed_color(gp_obj, stroke, to_linear=True)
                     fill_key = list(get_key(fill_rgba))
@@ -195,7 +195,7 @@ class RecolorSelectedOperator(bpy.types.Operator, ColorTintConfig):
 
         # Go through all selected points for the second time to apply color changes
         for frame in frames_to_process:
-            for stroke in frame.strokes:
+            for stroke in get_input_strokes(gp_obj, frame):
                 # Process fill color
                 if stroke.select:
                     if is_fill_tintable(self, gp_obj, stroke):

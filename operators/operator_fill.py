@@ -304,3 +304,237 @@ class SmartFillOperator(bpy.types.Operator):
         bpy.ops.gpencil.nijigp_hole_processing(rearrange=True, apply_holdout=False)
         bpy.ops.object.mode_set(mode=current_mode)
         return {'FINISHED'}
+
+class HatchFillOperator(bpy.types.Operator, ColorTintConfig):
+    """Generate hatch strokes inside selected polygons"""
+    bl_idname = "gpencil.nijigp_hatch_fill"
+    bl_label = "Hatch Fill"
+    bl_category = 'View'
+    bl_options = {'REGISTER', 'UNDO'}
+    
+    gap: bpy.props.FloatProperty(
+            name='Line Gap',
+            default=0.1, soft_min=0.05, soft_max=0.5, min=0.01, unit='LENGTH',
+            description='Length between two adjacent generated points'
+    )
+    angle: bpy.props.FloatProperty(
+            name='Angle',
+            default=0, min=-2*math.pi, max=2*math.pi,
+            unit='ROTATION',
+            description='Rotation angle of the hatch pattern'
+    )
+    random_angle: bpy.props.FloatProperty(
+            name='Random',
+            default=0, min=0, max=2*math.pi,
+            unit='ROTATION',
+            description='Additional random rotation angle'
+    )
+    line_width: bpy.props.IntProperty(
+            name='Line Width',
+            description='The line width of the newly generated stroke',
+            default=10, min=1, soft_max=100, subtype='PIXEL'
+    ) 
+    strength: bpy.props.FloatProperty(
+            name='Strength',
+            default=1, min=0, max=1
+    ) 
+    style_line: bpy.props.EnumProperty(
+            name='Line Style',
+            items=[ ('PARA', 'Parallel Lines', ''),
+                    ('DOODLE', 'Doodles', ''),
+                    ('CONVEX', 'Single-Line Doodle', '')],
+            default='DOODLE',
+            description='The way of connecting points to one or multiple lines'
+    )
+    keep_original: bpy.props.BoolProperty(
+            name='Keep Original',
+            default=True,
+            description='Do not delete the original stroke'
+    )
+    ignore_mode: bpy.props.EnumProperty(
+            name='Ignore',
+            items=[('NONE', 'None', ''),
+                    ('LINE', 'All Lines', ''),
+                    ('OPEN', 'All Open Lines', '')],
+            default='NONE',
+            description='Skip strokes without fill'
+    )
+    output_material: bpy.props.StringProperty(
+        name='Output Material',
+        description='Draw the new strokes using this material. If empty, use the active material',
+        default='',
+        search=lambda self, context, edit_text: [material.name for material in context.object.data.materials if material]
+    )
+    vertex_color_mode: bpy.props.EnumProperty(
+            name='Vertex Color',
+            items=[ ('NONE', 'No Vertex Color', ''),
+                    ('LINE', 'Use Line Color', ''),
+                    ('FILL', 'Use Fill Color', '')],
+            default='NONE',
+            description='Whether to use the vertex color from the input strokes'
+    )
+
+    def draw(self, context):
+        layout = self.layout
+        layout.label(text = "Input Options:")
+        box1 = layout.box()
+        box1.prop(self, "ignore_mode")
+        layout.label(text = "Geometry Options:")
+        box2 = layout.box()
+        box2.prop(self, "style_line")
+        box2.prop(self, "gap")
+        row = box2.row()
+        row.prop(self, "line_width")
+        row.prop(self, "strength")
+        row = box2.row()
+        row.prop(self, "angle")
+        row.prop(self, "random_angle")
+        layout.label(text = "Output Options:")
+        box3 = layout.box()
+        box3.prop(self, "output_material", icon='MATERIAL')
+        box3.prop(self, "vertex_color_mode")
+        if self.vertex_color_mode != 'NONE':
+            box4 = box3.box()
+            box4.prop(self, "tint_color")
+            box4.prop(self, "tint_color_factor")
+            box4.prop(self, "blend_mode")    
+        box3.prop(self, "keep_original")    
+
+    def execute(self, context):
+        import random
+        try:
+            import pyclipper
+        except ImportError:
+            self.report({"ERROR"}, "Please install PyClipper in the Preferences panel.")
+            return {'FINISHED'}
+        
+        gp_obj = context.object
+        material = gp_obj.active_material
+        if self.output_material in bpy.data.materials:
+            material = bpy.data.materials[self.output_material]
+        material_idx = gp_obj.material_slots.find(material.name)
+        frames_to_process = get_input_frames(gp_obj, gp_obj.data.use_multiedit)
+        generated_strokes = []
+
+        def across_boundary(p1, p2, poly):
+            for i,point in enumerate(poly):
+                if geometry.intersect_line_line_2d(p1,p2,poly[i], poly[i-1]):
+                    return True
+            return False
+
+        for frame in frames_to_process:
+            stroke_list = get_input_strokes(gp_obj, frame)
+            stroke_list = [s for s in stroke_list if
+                            ((self.ignore_mode == 'LINE' and not is_stroke_line(s, gp_obj)) or
+                                (self.ignore_mode == 'OPEN' and not (is_stroke_line(s, gp_obj) and not s.use_cyclic)) or
+                                (self.ignore_mode == 'NONE')
+                            )]
+            t_mat, inv_mat = get_transformation_mat(mode=context.scene.nijigp_working_plane,
+                                                    gp_obj=gp_obj, strokes=stroke_list, operator=self)
+            # Process each stroke independently
+            for stroke in stroke_list:
+                delta_angle = random.uniform(-0.5 * self.random_angle, 0.5 * self.random_angle)
+                rot_mat = Euler((0,0, self.angle + delta_angle)).to_matrix()
+                poly_list, depth_list, scale_factor = get_2d_co_from_strokes([stroke], rot_mat @ t_mat, scale=True)
+                depth_lookup_tree = DepthLookupTree(poly_list, depth_list)
+                
+                # Generate a grid inside the bound box
+                corners = get_2d_bound_box([stroke], rot_mat @ t_mat)
+                corners = pad_2d_box(corners, 0.05, return_bounds=True)
+                grid_points = []
+                grid_points_inside = []
+                u0 = (corners[2] - corners[0]) % self.gap
+                u0 = min(u0, self.gap - u0)
+                v0 = (corners[3] - corners[1]) % self.gap
+                v0 = min(v0, self.gap - v0)
+                for u in np.arange(corners[0] + u0, corners[2], self.gap):
+                    grid_points.append([])
+                    grid_points_inside.append([])
+                    for v in np.arange(corners[1] + v0, corners[3], self.gap):
+                        co_2d = Vector((u,v))
+                        grid_points[-1].append(co_2d)
+                        grid_points_inside[-1].append(pyclipper.PointInPolygon(co_2d * scale_factor, poly_list[0])==1)
+                if len(grid_points) < 1:
+                    continue
+                grid_U = len(grid_points)
+                grid_V = len(grid_points[0])
+
+                # Connect gird points to generate hatch patterns
+                hatch_polys = []
+                if self.style_line == 'CONVEX':
+                    hatch_polys.append([])
+                    for u in range(grid_U):
+                        for v in range(grid_V):
+                            if grid_points_inside[u][v]:
+                                hatch_polys[-1].append(grid_points[u][v])
+                else:             
+                    # For each row of the grid, get all continuous intervals
+                    row_segments = []
+                    for u in range(grid_U):
+                        row_segments.append({})
+                        start = None
+                        for v in range(grid_V):
+                            if grid_points_inside[u][v] and start == None:
+                                start = v
+                            elif (not grid_points_inside[u][v]) and start != None:
+                                row_segments[-1][start] = (start, v)
+                                start = None
+                        if start != None:
+                            row_segments[-1][start] = (start, grid_V)
+                    # Create a new stroke for each previously unconnected segment
+                    for u in range(grid_U):
+                        for start,end in row_segments[u].values():
+                            hatch_polys.append([])
+                            current_seg = [u, start, end]
+                            while True:
+                                # Parallel lines: Never connect segments
+                                if self.style_line == 'PARA':
+                                    hatch_polys[-1].append(grid_points[current_seg[0]][current_seg[1]])
+                                    if current_seg[1] != current_seg[2]-1:
+                                        hatch_polys[-1].append(grid_points[current_seg[0]][current_seg[2]-1])
+                                    break
+                                # Doodle style: Greedy connects to a point in the next row
+                                for v in range(current_seg[1], current_seg[2]):
+                                    hatch_polys[-1].append(grid_points[current_seg[0]][v])
+                                if current_seg[0] >= grid_U - 1:
+                                    break
+                                for next_start,next_end in row_segments[current_seg[0]+1].values():
+                                    if not across_boundary(grid_points[current_seg[0]][end-1]*scale_factor, 
+                                                           grid_points[current_seg[0]+1][next_start]*scale_factor, 
+                                                           poly_list[0]):
+                                        current_seg = [current_seg[0]+1, next_start, next_end]
+                                        row_segments[current_seg[0]].pop(next_start)
+                                        break
+                                else:
+                                    break
+                # Generate output strokes
+                for co_list in hatch_polys:
+                    new_stroke: bpy.types.GPencilStroke = frame.strokes.new()
+                    new_stroke.material_index = material_idx
+                    new_stroke.points.add(len(co_list))
+                    new_stroke.line_width = self.line_width
+                    for i,point in enumerate(new_stroke.points):
+                        depth = depth_lookup_tree.get_depth(co_list[i]*scale_factor)
+                        _, orig_idx, dist = depth_lookup_tree.get_info(co_list[i]*scale_factor)
+                        # Set point attributes
+                        if self.vertex_color_mode == 'FILL':
+                            point.vertex_color = get_mixed_color(gp_obj, stroke, to_linear=True)
+                        elif self.vertex_color_mode == 'LINE':
+                            point.vertex_color = get_mixed_color(gp_obj, stroke, orig_idx, to_linear=True)
+                        point.strength = self.strength
+                        point.co = restore_3d_co(co_list[i], depth, inv_mat @ rot_mat.transposed(), 1)    
+                    generated_strokes.append(new_stroke)   
+                if not self.keep_original:
+                    frame.strokes.remove(stroke)
+        # Post-processing
+        bpy.ops.gpencil.select_all(action='DESELECT')
+        for stroke in generated_strokes:
+            stroke.select = True
+        if self.vertex_color_mode != 'NONE':
+            bpy.ops.gpencil.nijigp_color_tint(tint_color=self.tint_color,
+                                            tint_color_factor=self.tint_color_factor,
+                                            tint_mode='LINE',
+                                            blend_mode=self.blend_mode)
+        refresh_strokes(gp_obj, [f.frame_number for f in frames_to_process])                      
+        
+        return {'FINISHED'}
