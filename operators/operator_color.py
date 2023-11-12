@@ -25,7 +25,7 @@ def is_point_tintable(operator, gp_obj, stroke, point):
     return (operator.tint_mode != 'FILL' and point.select 
             and gp_mat.show_stroke and not gp_mat.use_stroke_holdout)
     
-class TintSelectedOperator(bpy.types.Operator, ColorTintConfig):
+class TintSelectedOperator(bpy.types.Operator, ColorTintConfig, NoiseConfig):
     """Mixing the vertex color of selected points with another given color"""
     bl_idname = "gpencil.nijigp_color_tint"
     bl_label = "Tint Selected"
@@ -37,25 +37,36 @@ class TintSelectedOperator(bpy.types.Operator, ColorTintConfig):
         layout.prop(self, "tint_color_factor")
         layout.prop(self, "tint_mode")
         layout.prop(self, "blend_mode")
+        layout.label(text="Noise:")
+        row = layout.row()
+        row.prop(self, "random_scale")
+        row.prop(self, "random_seed")
+        row = layout.row()
+        row.prop(self, "random_factor")
 
     def execute(self, context):
         if self.tint_color_factor == 0:
             return {'FINISHED'}
         gp_obj = context.object
         frames_to_process = get_input_frames(gp_obj, gp_obj.data.use_multiedit)
+        noise.seed_set(self.random_seed)
         for frame in frames_to_process:
             for stroke in get_input_strokes(gp_obj, frame):
+                if len(stroke.points) < 1:
+                    continue
                 # Process fill color
                 if is_fill_tintable(self, gp_obj, stroke):
                     r, g, b, _ = get_mixed_color(gp_obj, stroke, to_linear=True)
-                    r, g, b = mix_color([r,g,b], self.tint_color, self.tint_color_factor, self.blend_mode)
+                    factor = self.tint_color_factor + self.random_factor * noise.noise_vector(stroke.points[0].co * self.random_scale)[0]
+                    r, g, b = mix_color([r,g,b], self.tint_color, np.clip(factor,0,1), self.blend_mode)
                     stroke.vertex_color_fill = [r, g, b, 1]
                 # Process line color
                 if self.tint_mode != 'FILL':
                     for i,point in enumerate(stroke.points):
                         if is_point_tintable(self, gp_obj, stroke, point):
                             r, g, b, _ = get_mixed_color(gp_obj, stroke, i, to_linear=True)
-                            r, g, b = mix_color([r,g,b], self.tint_color, self.tint_color_factor, self.blend_mode)
+                            factor = self.tint_color_factor + self.random_factor * noise.noise_vector(point.co * self.random_scale)[0]
+                            r, g, b = mix_color([r,g,b], self.tint_color, np.clip(factor,0,1), self.blend_mode)
                             point.vertex_color = [r, g, b, 1]                        
         return {'FINISHED'}
     

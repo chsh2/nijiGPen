@@ -305,7 +305,7 @@ class SmartFillOperator(bpy.types.Operator):
         bpy.ops.object.mode_set(mode=current_mode)
         return {'FINISHED'}
 
-class HatchFillOperator(bpy.types.Operator, ColorTintConfig):
+class HatchFillOperator(bpy.types.Operator, ColorTintConfig, NoiseConfig):
     """Generate hatch strokes inside selected polygons"""
     bl_idname = "gpencil.nijigp_hatch_fill"
     bl_label = "Hatch Fill"
@@ -323,16 +323,10 @@ class HatchFillOperator(bpy.types.Operator, ColorTintConfig):
             unit='ROTATION',
             description='Rotation angle of the hatch pattern'
     )
-    random_angle: bpy.props.FloatProperty(
-            name='Random',
-            default=0, min=0, max=2*math.pi,
-            unit='ROTATION',
-            description='Additional random rotation angle'
-    )
     line_width: bpy.props.IntProperty(
             name='Line Width',
             description='The line width of the newly generated stroke',
-            default=10, min=1, soft_max=100, subtype='PIXEL'
+            default=10, min=1, soft_max=200, subtype='PIXEL'
     ) 
     strength: bpy.props.FloatProperty(
             name='Strength',
@@ -345,6 +339,13 @@ class HatchFillOperator(bpy.types.Operator, ColorTintConfig):
                     ('CONVEX', 'Single-Line Doodle', '')],
             default='DOODLE',
             description='The way of connecting points to one or multiple lines'
+    )
+    style_tile: bpy.props.EnumProperty(
+            name='Tile',
+            items=[ ('RECT', 'Squares', ''),
+                    ('HEX', 'Hexagons', '')],
+            default='RECT',
+            description='The way of points in the grid are aligned'
     )
     keep_original: bpy.props.BoolProperty(
             name='Keep Original',
@@ -373,6 +374,20 @@ class HatchFillOperator(bpy.types.Operator, ColorTintConfig):
             default='NONE',
             description='Whether to use the vertex color from the input strokes'
     )
+    random_angle: bpy.props.FloatProperty(
+            name='Angle',
+            default=0, min=0, max=2*math.pi, unit='ROTATION',
+            description='Additional random rotation angle'
+    )
+    random_uv: bpy.props.FloatProperty(
+            name='UV', default=0, min=0, max=1,
+    )
+    random_pos: bpy.props.FloatProperty(
+            name='Position', default=0, min=0, max=1,
+    )
+    random_radius: bpy.props.FloatProperty(
+            name='Radius', default=0, min=0, max=1,
+    )
 
     def draw(self, context):
         layout = self.layout
@@ -381,14 +396,23 @@ class HatchFillOperator(bpy.types.Operator, ColorTintConfig):
         box1.prop(self, "ignore_mode")
         layout.label(text = "Geometry Options:")
         box2 = layout.box()
+        box2.prop(self, "angle")
         box2.prop(self, "style_line")
         box2.prop(self, "gap")
+        box2.prop(self, "style_tile")
         row = box2.row()
         row.prop(self, "line_width")
         row.prop(self, "strength")
+        box2.label(text="Noise:")
         row = box2.row()
-        row.prop(self, "angle")
+        row.prop(self, "random_scale")
+        row.prop(self, "random_seed")
+        row = box2.row()
         row.prop(self, "random_angle")
+        row.prop(self, "random_pos")
+        row = box2.row()
+        row.prop(self, "random_uv")
+        row.prop(self, "random_radius")
         layout.label(text = "Output Options:")
         box3 = layout.box()
         box3.prop(self, "output_material", icon='MATERIAL')
@@ -397,7 +421,8 @@ class HatchFillOperator(bpy.types.Operator, ColorTintConfig):
             box4 = box3.box()
             box4.prop(self, "tint_color")
             box4.prop(self, "tint_color_factor")
-            box4.prop(self, "blend_mode")    
+            box4.prop(self, "blend_mode") 
+            box4.prop(self, "random_factor", text="Noise")   
         box3.prop(self, "keep_original")    
 
     def execute(self, context):
@@ -415,10 +440,13 @@ class HatchFillOperator(bpy.types.Operator, ColorTintConfig):
         material_idx = gp_obj.material_slots.find(material.name)
         frames_to_process = get_input_frames(gp_obj, gp_obj.data.use_multiedit)
         generated_strokes = []
+        noise.seed_set(self.random_seed)
 
-        def across_boundary(p1, p2, poly):
+        def across_boundary(p1, p2, poly, scale_factor=1):
             for i,point in enumerate(poly):
-                if geometry.intersect_line_line_2d(p1,p2,poly[i], poly[i-1]):
+                if geometry.intersect_line_line_2d(p1,p2,
+                                                   (poly[i][0]/scale_factor, poly[i][1]/scale_factor),
+                                                   (poly[i-1][0]/scale_factor, poly[i-1][1]/scale_factor) ):
                     return True
             return False
 
@@ -433,7 +461,7 @@ class HatchFillOperator(bpy.types.Operator, ColorTintConfig):
                                                     gp_obj=gp_obj, strokes=stroke_list, operator=self)
             # Process each stroke independently
             for stroke in stroke_list:
-                delta_angle = random.uniform(-0.5 * self.random_angle, 0.5 * self.random_angle)
+                delta_angle = (noise.random() - 0.5) * self.random_angle
                 rot_mat = Euler((0,0, self.angle + delta_angle)).to_matrix()
                 poly_list, depth_list, scale_factor = get_2d_co_from_strokes([stroke], rot_mat @ t_mat, scale=True)
                 depth_lookup_tree = DepthLookupTree(poly_list, depth_list)
@@ -443,14 +471,14 @@ class HatchFillOperator(bpy.types.Operator, ColorTintConfig):
                 corners = pad_2d_box(corners, 0.05, return_bounds=True)
                 grid_points = []
                 grid_points_inside = []
-                u0 = (corners[2] - corners[0]) % self.gap
-                u0 = min(u0, self.gap - u0)
-                v0 = (corners[3] - corners[1]) % self.gap
-                v0 = min(v0, self.gap - v0)
-                for u in np.arange(corners[0] + u0, corners[2], self.gap):
+                v0 = 1./np.sqrt(3)*self.gap if self.style_tile=='HEX' else 0
+                v_scale = 2./np.sqrt(3) if self.style_tile=='HEX' else 1
+                odd_row = 0
+                for u in np.arange(corners[0], corners[2], self.gap):
                     grid_points.append([])
                     grid_points_inside.append([])
-                    for v in np.arange(corners[1] + v0, corners[3], self.gap):
+                    odd_row = 1 - odd_row
+                    for v in np.arange(corners[1] - v0 * odd_row, corners[3] + v0 * (1-odd_row), self.gap * v_scale):
                         co_2d = Vector((u,v))
                         grid_points[-1].append(co_2d)
                         grid_points_inside[-1].append(pyclipper.PointInPolygon(co_2d * scale_factor, poly_list[0])==1)
@@ -499,9 +527,9 @@ class HatchFillOperator(bpy.types.Operator, ColorTintConfig):
                                 if current_seg[0] >= grid_U - 1:
                                     break
                                 for next_start,next_end in row_segments[current_seg[0]+1].values():
-                                    if not across_boundary(grid_points[current_seg[0]][end-1]*scale_factor, 
-                                                           grid_points[current_seg[0]+1][next_start]*scale_factor, 
-                                                           poly_list[0]):
+                                    if not across_boundary(grid_points[current_seg[0]][end-1], 
+                                                           grid_points[current_seg[0]+1][next_start], 
+                                                           poly_list[0], scale_factor):
                                         current_seg = [current_seg[0]+1, next_start, next_end]
                                         row_segments[current_seg[0]].pop(next_start)
                                         break
@@ -521,8 +549,11 @@ class HatchFillOperator(bpy.types.Operator, ColorTintConfig):
                             point.vertex_color = get_mixed_color(gp_obj, stroke, to_linear=True)
                         elif self.vertex_color_mode == 'LINE':
                             point.vertex_color = get_mixed_color(gp_obj, stroke, orig_idx, to_linear=True)
+                        co_noise = noise.noise_vector(co_list[i].to_3d() * self.random_scale)
                         point.strength = self.strength
-                        point.co = restore_3d_co(co_list[i], depth, inv_mat @ rot_mat.transposed(), 1)    
+                        point.co = restore_3d_co(co_list[i] + self.gap * self.random_pos * co_noise.xy , depth, inv_mat @ rot_mat.transposed(), 1)  
+                        point.uv_rotation = math.pi * self.random_uv * co_noise.z
+                        point.pressure += self.random_radius * noise.noise(co_noise)
                     generated_strokes.append(new_stroke)   
                 if not self.keep_original:
                     frame.strokes.remove(stroke)
@@ -533,8 +564,8 @@ class HatchFillOperator(bpy.types.Operator, ColorTintConfig):
         if self.vertex_color_mode != 'NONE':
             bpy.ops.gpencil.nijigp_color_tint(tint_color=self.tint_color,
                                             tint_color_factor=self.tint_color_factor,
-                                            tint_mode='LINE',
-                                            blend_mode=self.blend_mode)
+                                            tint_mode='LINE', blend_mode=self.blend_mode,
+                                            random_seed=self.random_seed, random_scale=self.random_scale, random_factor=self.random_factor)
         refresh_strokes(gp_obj, [f.frame_number for f in frames_to_process])                      
         
         return {'FINISHED'}

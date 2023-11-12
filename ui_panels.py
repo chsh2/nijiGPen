@@ -141,6 +141,8 @@ class NIJIGP_PT_edit_panel_polygon(bpy.types.Panel):
         row.operator("gpencil.nijigp_bool_selected", text="+", icon="SELECT_EXTEND").operation_type = 'UNION'
         row.operator("gpencil.nijigp_bool_selected", text="-", icon="SELECT_SUBTRACT").operation_type = 'DIFFERENCE'
         row.operator("gpencil.nijigp_bool_selected", text="×", icon="SELECT_INTERSECT").operation_type = 'INTERSECTION'
+        row = layout.row()
+        row.operator("gpencil.nijigp_hatch_fill", text="Hatch Fill", icon="ALIGN_JUSTIFY")
 
 class NIJIGP_PT_edit_panel_mesh(bpy.types.Panel):
     bl_idname = 'NIJIGP_PT_edit_panel_mesh'

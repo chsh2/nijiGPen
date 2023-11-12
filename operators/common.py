@@ -1,6 +1,20 @@
 import bpy
 from ..utils import *
 
+class NoiseConfig:
+    """
+    Options for adding noise to stroke/point attributes
+    """
+    random_seed: bpy.props.IntProperty(
+            name='Seed', default=1, min=0, max=65535
+    )
+    random_scale: bpy.props.FloatProperty(
+            name='Scale', default=1, min=0.01, max=100
+    )
+    random_factor: bpy.props.FloatProperty(
+            name='Factor', default=0, min=0, max=1
+    )
+
 class ColorTintConfig:
     """
     Options of applying a color tint, shard by multiple operators
