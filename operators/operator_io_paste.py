@@ -53,7 +53,11 @@ class PasteSVGOperator(bpy.types.Operator):
         # Convert clipboard data to SVG file
         svg_str = context.window_manager.clipboard
         svg_path = os.path.join( get_cache_folder(), "clipboard.svg")
-        svg_file = open(svg_path, "w")
+        try:
+            svg_file = open(svg_path, "w")
+        except:
+            svg_path = os.path.join(bpy.app.tempdir, "clipboard.svg")
+            svg_file = open(svg_path, "w")
         svg_file.write(svg_str)
         svg_file.close()
 
@@ -61,23 +65,30 @@ class PasteSVGOperator(bpy.types.Operator):
         bpy.ops.object.mode_set(mode='OBJECT')
         if bpy.app.version > (3, 3, 0):
             svg_dirname, svg_filename = os.path.split(svg_path)
-            bpy.ops.wm.gpencil_import_svg("EXEC_DEFAULT", filepath=svg_path, directory=svg_dirname, files=[{"name":svg_filename}], resolution = self.svg_resolution, scale = self.svg_scale)
+            bpy.ops.wm.gpencil_import_svg("EXEC_DEFAULT", filepath=svg_path, directory=svg_dirname, files=[{"name":svg_filename}], resolution=self.svg_resolution, scale=self.svg_scale)
         else:
-            bpy.ops.wm.gpencil_import_svg("EXEC_DEFAULT", filepath = svg_path, resolution = self.svg_resolution, scale = self.svg_scale)
+            bpy.ops.wm.gpencil_import_svg("EXEC_DEFAULT", filepath=svg_path, resolution=self.svg_resolution, scale = self.svg_scale)
         new_gp_obj = context.object
 
-        # Rename the layer and materials of the pasted figure
-        if len(self.svg_name)>0:
-            new_gp_obj.data.layers.active.info = self.svg_name
-            fig_name = self.svg_name
-        else:
-            fig_name = new_gp_obj.data.layers.active.info
-        for slot in new_gp_obj.material_slots:
-            slot.material.name = fig_name
+        if new_gp_obj == current_gp_obj:
+            self.report({"WARNING"}, "Cannot write temporary files. Import failed.")
+            return {'FINISHED'}
+        
+        if len(new_gp_obj.data.layers) > 0:
+            # Rename the layer and materials of the pasted figure
+            if len(self.svg_name)>0:
+                new_gp_obj.data.layers.active.info = self.svg_name
+                fig_name = self.svg_name
+            else:
+                fig_name = new_gp_obj.data.layers.active.info
+            for slot in new_gp_obj.material_slots:
+                slot.material.name = fig_name
 
-        # Copy all strokes to the existing GP object
-        current_gp_obj.select_set(True)
-        bpy.ops.gpencil.layer_duplicate_object(mode='ALL', only_active=False)
+            # Copy all strokes to the existing GP object
+            current_gp_obj.select_set(True)
+            bpy.ops.gpencil.layer_duplicate_object(mode='ALL', only_active=False)
+        else:
+            self.report({"WARNING"}, "Cannot recognize the pasted content. No data is imported.")
 
         # Delete the new GP object and switch back to the existing one
         bpy.ops.object.select_all(action='DESELECT')
@@ -138,6 +149,7 @@ class PasteXMLOperator(bpy.types.Operator):
 
         palette_name = self.name
         colors_to_add = []
+        # First, try to parse the string as XML
         try:
             root = ET.fromstring(clipboard_str)
             entries = root.findall('color')
@@ -154,16 +166,20 @@ class PasteXMLOperator(bpy.types.Operator):
                 if 'name' in info and len(palette_name)==0:
                     palette_name = info['name']
         except:
-            # If the string is not XML, regard it as a list and try to extract hex codes
-            alnum_str = "".join(filter(str.isalnum, clipboard_str))
-            if len(palette_name)==0:
-                palette_name = clipboard_str
-            i = 0
-            while(i+5<len(alnum_str)):
-                hex_str = alnum_str[i:i+6]
-                h = int(hex_str, 16)
-                colors_to_add.append(hex_to_rgb(h))
-                i += 6
+            # Otherwise, regard it as a list and try to extract hex codes
+            try:
+                alnum_str = "".join(filter(str.isalnum, clipboard_str))
+                if len(palette_name)==0:
+                    palette_name = clipboard_str
+                i = 0
+                while(i+5<len(alnum_str)):
+                    hex_str = alnum_str[i:i+6]
+                    h = int(hex_str, 16)                  
+                    colors_to_add.append(hex_to_rgb(h))
+                    i += 6
+            except:
+                self.report({"WARNING"}, "Cannot recognize the pasted content.")
+                return {'FINISHED'}
 
         if len(colors_to_add) == 0:
             self.report({"INFO"}, "No available colors found in the clipboard.")
