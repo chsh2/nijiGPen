@@ -322,7 +322,7 @@ class OffsetSelectedOperator(bpy.types.Operator, ColorTintConfig):
             self.report({"ERROR"}, "Please install PyClipper in the Preferences panel.")
             return {'FINISHED'}
         clipper = pyclipper.PyclipperOffset()
-        clipper.MiterLimit = math.inf
+        clipper.MiterLimit = 10     # TODO: What is the best value?
 
         jt = pyclipper.JT_ROUND
         if self.corner_shape == "JT_SQUARE":
@@ -926,7 +926,8 @@ class SweepSelectedOperator(bpy.types.Operator, ColorTintConfig):
             for j,co_list in enumerate(poly_list):
                 if self.path_type != 'VEC' and j == path_idx:
                     continue
-                
+                if len(co_list) < 3:    # Clipper cannot process them
+                    continue
                 new_material_index = None
                 style = str(self.style)
                 if self.invert_holdout and is_stroke_hole(stroke_list[j], current_gp_obj):

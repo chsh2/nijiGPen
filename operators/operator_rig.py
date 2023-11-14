@@ -87,7 +87,7 @@ class PinRigOperator(bpy.types.Operator):
         description='Hint strokes are not rigged by default'
     )  
     rig_all: bpy.props.BoolProperty(
-        name='Ensure Non-Zero Weights',
+        name='Ensure Non-Zero Weights for All Points',
         default=True,
         description='Make sure that every target stroke is assigned at least one weight, even if it is far from any hint'
     ) 
@@ -100,6 +100,10 @@ class PinRigOperator(bpy.types.Operator):
         name='Falloff Distance',
         description='Weights of points decrease when they get farther from the bone. Larger value may lead to smoother rigging',
         default=0.1, min=0.01, max=5,
+    ) 
+    bone_prefix: bpy.props.StringProperty(            
+        name='Name Prefix',
+        default='Pin',
     ) 
     bone_style: bpy.props.EnumProperty(            
         name='Bone Style',
@@ -139,6 +143,7 @@ class PinRigOperator(bpy.types.Operator):
         box2.prop(self, "falloff_multiplier")
         layout.label(text='Bone Setting:')
         box3 = layout.box()
+        box3.prop(self, "bone_prefix")
         box3.prop(self, "bone_style")
         box3.prop(self, "bone_scale")
         box3.prop(self, "bone_rotate")
@@ -194,7 +199,7 @@ class PinRigOperator(bpy.types.Operator):
             bone_centers.append(pin_center)
             bone_radiuses.append(pin_radius)
 
-            bone = arm_data.edit_bones.new(name="Pin_"+str(i))
+            bone = arm_data.edit_bones.new(name=f"{self.bone_prefix}_{i}")
             bones.append(bone)
             rotation = Euler(t_mat @ Vector((0,0,self.bone_rotate)))
             pin_direction.rotate(rotation)
