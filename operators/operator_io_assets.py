@@ -80,6 +80,13 @@ class ImportBrushOperator(bpy.types.Operator, ImportHelper):
     override_uv_randomness: bpy.props.BoolProperty(name='UV Randomness', default=True)
     override_hardness: bpy.props.BoolProperty(name='Hardness', default=True)
     override_input_samples: bpy.props.BoolProperty(name='Input Samples', default=False)
+    convert_orig_params: bpy.props.BoolProperty(
+            name='Convert Brush Parameters',
+            default=True,
+            description='Attempt to parse the original parameters in the brush file and convert them to Grease Pencil options. '
+                        'Only Procreate brushes are supported currently. '
+                        'Please notice that it may not perfectly replicate the original brush look, since the brush is from a different software'
+    )
 
     def draw(self, context):
         layout = self.layout
@@ -115,6 +122,7 @@ class ImportBrushOperator(bpy.types.Operator, ImportHelper):
             row = box2.row()
             row.label(text = 'Save Icons to: ')
             row.prop(self, "icon_save_path", text="")
+        layout.prop(self, 'convert_orig_params')
 
     def execute(self, context):
         import numpy as np
@@ -161,13 +169,34 @@ class ImportBrushOperator(bpy.types.Operator, ImportHelper):
                     brush_name = f.name.split('.')[0] + '_' + str(i)
                 img_H, img_W = brush_mat.shape[0], brush_mat.shape[1]
 
+                # Attempt to read original parameters data
+                # Currently supporting Procreate brushes only
+                orig_name, orig_params, orig_type = None, None, None
+                if hasattr(parser, 'get_params'):
+                    orig_name, orig_params = parser.get_params(i)
+                    if orig_name:
+                        brush_name = orig_name
+                if hasattr(parser, 'is_tex_grain') and parser.is_tex_grain[i]:
+                    orig_type = 'GRAIN'
+
                 # Extract and convert an image texture
                 if len(brush_mat.shape)==3:     # RGBA brush, for GBR only
                     image_mat = brush_mat.copy()
                 else:
                     image_mat = brush_mat.reshape((img_H, img_W, 1)).repeat(4, axis=2)
+                    # In some cases, the texture alpha needs to be inverted
                     if self.invert_alpha:
                         image_mat = 255 - image_mat
+                    if orig_params:
+                        if orig_type == 'GRAIN' and \
+                            'textureInverted' in orig_params and \
+                            orig_params['textureInverted']:
+                                image_mat = 255 - image_mat
+                        if orig_type != 'GRAIN' and \
+                            'shapeInverted' in orig_params and \
+                            orig_params['shapeInverted']:
+                                image_mat = 255 - image_mat
+
                 if self.color_mode == 'WHITE':
                     image_mat[:,:,0] = (image_mat[:,:,3] > 0) * 255
                     image_mat[:,:,1] = (image_mat[:,:,3] > 0) * 255
@@ -194,7 +223,7 @@ class ImportBrushOperator(bpy.types.Operator, ImportHelper):
                 
                 # Create GPencil material
                 if self.texture_usage != 'IMAGE':
-                    if hasattr(parser, 'is_tex_grain') and parser.is_tex_grain[i]:
+                    if orig_type == 'GRAIN':
                         brush_name = '(Grain) ' + brush_name
                         new_material = bpy.data.materials.new(brush_name)
                         bpy.data.materials.create_gpencil_data(new_material)
@@ -229,13 +258,41 @@ class ImportBrushOperator(bpy.types.Operator, ImportHelper):
 
                     # Create an icon by scaling the brush texture down
                     icon_obj = img_obj.copy()
-                    icon_obj.name = "icon_"+brush_name
-                    icon_filepath = os.path.join(icon_dir, brush_name+'.png')
+                    icon_obj.name = "icon_"+new_brush.name
+                    icon_filepath = os.path.join(icon_dir, new_brush.name+'.png')
                     icon_obj.filepath = icon_filepath
                     icon_obj.scale(256,256)
                     icon_obj.save()
                     new_brush.icon_filepath = icon_filepath
                     bpy.data.images.remove(icon_obj)
+                    
+                # Override parameters by parsing the original brush data
+                # Currently supporting Procreate only
+                if self.convert_orig_params and isinstance(parser, BrushsetParser) and orig_params:
+                    if self.texture_usage != 'IMAGE':
+                        if 'textureScale' in orig_params:
+                            new_material.grease_pencil.texture_scale = (orig_params['textureScale'], orig_params['textureScale'])
+                    if self.texture_usage == 'BRUSH':
+                        if 'paintSize' in orig_params:
+                            new_brush.size = int(500.0 * orig_params['paintSize'])
+                        if 'plotJitter' in orig_params:
+                            new_brush.gpencil_settings.pen_jitter = orig_params['plotJitter']
+                        if 'plotSpacing' in orig_params:
+                            new_brush.gpencil_settings.input_samples = int(10 - 10 * orig_params['plotSpacing'])
+                        if 'paintOpacity' in orig_params:
+                            new_brush.gpencil_settings.pen_strength = orig_params['paintOpacity']
+                        if 'shapeRandomise' in orig_params:
+                            new_brush.gpencil_settings.uv_random = round(orig_params['shapeRandomise'])
+                        if 'dynamicsJitterSize' in orig_params:
+                            new_brush.gpencil_settings.random_pressure = orig_params['dynamicsJitterSize']
+                        if 'dynamicsJitterOpacity' in orig_params:
+                            new_brush.gpencil_settings.random_strength = orig_params['dynamicsJitterOpacity']
+                        if 'dynamicsJitterHue' in orig_params:
+                            new_brush.gpencil_settings.random_hue_factor = orig_params['dynamicsJitterHue']
+                        if 'dynamicsJitterStrokeSaturation' in orig_params:
+                            new_brush.gpencil_settings.random_saturation_factor = orig_params['dynamicsJitterStrokeSaturation']
+                        if 'dynamicsJitterStrokeDarkness' in orig_params:
+                            new_brush.gpencil_settings.random_value_factor = orig_params['dynamicsJitterStrokeDarkness']
             fd.close()
         self.report({"INFO"}, f'Finish importing {total_brushes} brush texture(s).')
         return {'FINISHED'}

@@ -210,13 +210,14 @@ class BrushsetParser():
         self.filename = filename
         self.brush_mats = []
         self.is_tex_grain = []  # A unique type of texture defined in Procreate
+        self.params = []
     
     def check(self):
         import zipfile
         return zipfile.is_zipfile(self.filename)
     
     def parse(self):
-        import zipfile, os
+        import zipfile, os, plistlib
         from .resources import get_cache_folder
         from bpy_extras import image_utils
 
@@ -228,15 +229,19 @@ class BrushsetParser():
             for member in namelist:
                 if member.find('Reset') != -1:
                     continue
-                elif member.endswith('Shape.png'):
-                    self.is_tex_grain.append(False)
+                elif member.endswith('Shape.png') or member.endswith('Grain.png'):
                     tex_paths.append(member)
-                elif member.endswith('Grain.png'):
-                    self.is_tex_grain.append(True)
-                    tex_paths.append(member)
+                    self.is_tex_grain.append(member.endswith('Grain.png'))
+                    self.params.append(None)
+                    
+                    # Try to find the brush parameter file
+                    param_path = member[:-9] + 'Brush.archive'
+                    if param_path in namelist:
+                        with archive.open(param_path) as param_file:
+                            self.params[-1] = plistlib.load(param_file)
             for member in tex_paths:
                 archive.extract(member, cache_dir)
-        
+                
         # Process each texture image file
         # The images loaded in Blender here are just for extracting the pixels
         # Final brush textures are generated not from this parser, but the operator
@@ -247,6 +252,25 @@ class BrushsetParser():
             img_mat = np.array(img_obj.pixels).reshape(img_H,img_W, img_obj.channels)
             img_mat = np.flipud(img_mat[:,:,0]) * 255
             self.brush_mats.append(img_mat)
+            
+    def get_params(self, i):
+        """Return the name and parameters of i-th brush"""
+        if self.params[i] == None or '$objects' not in self.params[i]:
+            return None, None
+        
+        parsed_strings = []
+        parsed_params = None
+        for field in self.params[i]['$objects']:
+            # Find all text information.
+            if isinstance(field, str) and \
+                not field.startswith(('$', '{')) and \
+                not field.endswith(('.png','.jpg','.jpeg')):
+                parsed_strings.append(field)
+            # Find the big dictionary that stores parameters
+            if isinstance(field, dict) and 'paintSize' in field:
+                parsed_params = field
+        parsed_name = parsed_strings[0] if len(parsed_strings)>0 else None
+        return parsed_name, parsed_params
 
 # Multi-layer image formats
 class PsdLayer:
