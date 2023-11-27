@@ -319,7 +319,7 @@ class HatchFillOperator(bpy.types.Operator, ColorTintConfig, NoiseConfig):
     )
     angle: bpy.props.FloatProperty(
             name='Angle',
-            default=0, min=-2*math.pi, max=2*math.pi,
+            default=0.25*math.pi, min=-2*math.pi, max=2*math.pi,
             unit='ROTATION',
             description='Rotation angle of the hatch pattern'
     )
@@ -515,15 +515,12 @@ class HatchFillOperator(bpy.types.Operator, ColorTintConfig, NoiseConfig):
                             hatch_polys.append([])
                             current_seg = [u, start, end]
                             while True:
-                                # Parallel lines: Never connect segments
-                                if self.style_line == 'PARA':
-                                    hatch_polys[-1].append(grid_points[current_seg[0]][current_seg[1]])
-                                    if current_seg[1] != current_seg[2]-1:
-                                        hatch_polys[-1].append(grid_points[current_seg[0]][current_seg[2]-1])
-                                    break
                                 # Doodle style: Greedy connects to a point in the next row
                                 for v in range(current_seg[1], current_seg[2]):
                                     hatch_polys[-1].append(grid_points[current_seg[0]][v])
+                                # Parallel line style: Never connect segments
+                                if self.style_line == 'PARA':
+                                    break
                                 if current_seg[0] >= grid_U - 1:
                                     break
                                 for next_start,next_end in row_segments[current_seg[0]+1].values():

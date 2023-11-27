@@ -300,7 +300,7 @@ class MeshGenerationByNormal(CommonMeshConfig, bpy.types.Operator):
         frames_to_process = get_input_frames(current_gp_obj,
                                              multiframe = current_gp_obj.data.use_multiedit,
                                              return_map = True)
-
+        
         # Process selected strokes frame by frame
         for frame_number, layer_frame_map in frames_to_process.items():
             stroke_info, stroke_list = [], []
@@ -336,7 +336,7 @@ class MeshGenerationByNormal(CommonMeshConfig, bpy.types.Operator):
             generated_objects = get_generated_meshes(current_gp_obj)
 
             if len(poly_list) < 1:
-                return {'FINISHED'}
+                continue
 
             # Holes should have an opposite direction, and coordinate of an inside point is needed for triangle input
             mask_hole_points = []

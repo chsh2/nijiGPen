@@ -423,6 +423,8 @@ class MeshFromArmOperator(bpy.types.Operator):
         bpy.ops.gpencil.recalc_geometry()
 
         # Generate fills and meshes using other operators
+        multiframe = gp_obj.data.use_multiedit
+        gp_obj.data.use_multiedit = False
         bpy.ops.gpencil.nijigp_smart_fill(line_layer = gp_obj.data.layers.active.info,
                                           hint_layer = hint_layer.info,
                                           fill_layer = fill_layer.info,
@@ -434,6 +436,7 @@ class MeshFromArmOperator(bpy.types.Operator):
         bpy.ops.gpencil.nijigp_mesh_generation_normal(use_native_triangulation = True,
                                                       resolution = self.resolution * 2)
         # Cleanup temporary layers
+        gp_obj.data.use_multiedit = multiframe
         gp_obj.data.layers.remove(fill_layer)
         gp_obj.data.layers.remove(hint_layer)
         bpy.ops.object.mode_set(mode=current_mode)

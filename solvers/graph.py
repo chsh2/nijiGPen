@@ -145,14 +145,14 @@ class SmartFillSolver:
         # Approximate search using KDTree
         if len(points_co)>0:
             _, current_tr, _ = self.tr_center_kdt.find((points_co[0][0], points_co[0][1], 0))
-        # Exact serach using BFS
+        # Exact search using BFS
         for i, co in enumerate(points_co):
             search_queue = [current_tr]
             pointer = 0
             searched = set()
             while pointer < len(search_queue):
                 current_tr = search_queue[pointer]
-                # To speed up, just label the triangle with the first point found inside it
+                # To speed up, label each triangle only once
                 if point_in_triangle(co, current_tr):
                     if self.labels[current_tr] < 0:
                         self.labels[current_tr] = points_label[i]
