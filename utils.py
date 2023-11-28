@@ -150,10 +150,10 @@ def is_poly_in_poly(poly1, poly2):
             inner_count += 1
     return inner_count > 0
 
-def get_an_inside_co(poly):
+def get_an_inside_co(poly, max_distance = 64):
     """Return a coordinate that is inside an integer polygon as part of the triangle input"""
     import pyclipper
-    delta = 64
+    delta = max_distance
     while delta > 1:
         for co in poly:
             for co_ in [(co[0]-delta, co[1]-delta), (co[0]-delta, co[1]+delta), 

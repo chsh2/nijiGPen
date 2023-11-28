@@ -124,10 +124,10 @@ class SmartFillOperator(bpy.types.Operator):
         if fill_layer.lock:
             self.report({"WARNING"}, "The output layer is locked.")
             return {'FINISHED'}
-        if (self.line_layer == self.hint_layer or self.line_layer == self.fill_layer):
-            self.report({"INFO"}, "Please select a separate layer for line art only.")
+        if self.line_layer == self.hint_layer:
+            self.report({"INFO"}, "Please select different layers for line art and hints.")
             return {'FINISHED'}
-        if (self.fill_layer == self.hint_layer and not self.use_boundary_strokes):
+        if self.fill_layer == self.hint_layer and not self.use_boundary_strokes:
             self.clear_fill_layer = False
 
         bpy.ops.object.mode_set(mode='EDIT_GPENCIL')
@@ -137,10 +137,6 @@ class SmartFillOperator(bpy.types.Operator):
             if len(line_frame.strokes) < 1:
                 return
             resolution = self.precision
-            if self.clear_fill_layer:
-                for stroke in list(fill_frame.strokes):
-                    if not stroke.is_nofill_stroke:
-                        fill_frame.strokes.remove(stroke)
                     
             # Get points and bound box of line frame
             margin_sizes = (0.1, 0.3, 0.5)
@@ -164,6 +160,9 @@ class SmartFillOperator(bpy.types.Operator):
                     if j>0:
                         key0 = (int(co_list[j-1][0]*resolution), int(co_list[j-1][1]*resolution))
                         tr_input['segments'].append( (co_idx[key], co_idx[key0]) )
+                    if j == len(co_list) - 1 and stroke_list[i].use_cyclic:
+                        key0 = (int(co_list[0][0]*resolution), int(co_list[0][1]*resolution))
+                        tr_input['segments'].append( (co_idx[key], co_idx[key0]) )                        
 
             # Add several margins to the bound boxes
             for ratio in margin_sizes:  
@@ -231,6 +230,11 @@ class SmartFillOperator(bpy.types.Operator):
                     # Case 3: Material created but not added
                     gp_obj.data.materials.append(bpy.data.materials[material_name])
                     item[1] = len(gp_obj.material_slots)-1
+
+            if self.clear_fill_layer:
+                for stroke in list(fill_frame.strokes):
+                    if not stroke.is_nofill_stroke:
+                        fill_frame.strokes.remove(stroke)
 
             # Generate new strokes from contours of the filled regions
             contours_co, contours_label = solver.get_contours()
