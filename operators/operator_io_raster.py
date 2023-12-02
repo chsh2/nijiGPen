@@ -309,7 +309,7 @@ class ImportLineImageOperator(bpy.types.Operator, ImportHelper):
                 # TODO: implement a standard smoothing function for different operators
                 if self.smooth_level > 0 and point_count > 2:
                     kernel = np.array([1.0/3, 1.0/3, 1.0/3])
-                    attr_info = {'co':3, 'strength':1, 'pressure':1}
+                    attr_info = {'co':3, 'strength':1, 'pressure':1, 'vertex_color':4}
                     for name in attr_info:
                         attr_values = np.zeros( point_count * attr_info[name] )
                         frame_strokes[-1].points.foreach_get(name, attr_values)
