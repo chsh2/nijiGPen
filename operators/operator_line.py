@@ -1163,7 +1163,7 @@ class TaperSelectedOperator(bpy.types.Operator):
                 # Smooth the curvature by convolution
                 kernel = np.array([1.0/3, 1.0/3, 1.0/3])
                 for i in range(self.smooth_level):
-                    additional_factor_arr = np.convolve(additional_factor_arr, kernel, mode='same')
+                    additional_factor_arr[1:-1] = np.convolve(additional_factor_arr, kernel, mode='same')[1:-1]
                 factor_arr *= additional_factor_arr
 
             # Apply final modification results

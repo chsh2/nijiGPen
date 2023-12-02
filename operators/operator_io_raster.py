@@ -58,6 +58,11 @@ class ImportLineImageOperator(bpy.types.Operator, ImportHelper):
             default=4, min=1, soft_max=32,
             description='Number of pixels of a line, below which a stroke will not be generated'
     )
+    smooth_level: bpy.props.IntProperty(
+            name='Smooth Level',
+            default=1, min=0, soft_max=10,
+            description='Perform smoothing to reduce the alias of pixels'
+    )
     generate_color: bpy.props.BoolProperty(
             name='Generate Vertex Color',
             default=False,
@@ -89,6 +94,7 @@ class ImportLineImageOperator(bpy.types.Operator, ImportHelper):
         box2.prop(self, "size")
         box2.prop(self, "sample_length")
         box2.prop(self, "min_length")
+        box2.prop(self, "smooth_level")
         box2.prop(self, "output_material", text='Material', icon='MATERIAL')
         box2.prop(self, "generate_color")
         box2.prop(self, "generate_strength")
@@ -299,6 +305,18 @@ class ImportLineImageOperator(bpy.types.Operator, ImportHelper):
                         point.vertex_color[1] = srgb_to_linear(denoised_mat[img_co[0], img_co[1], min(1, img_obj.channels-1)])
                         point.vertex_color[2] = srgb_to_linear(denoised_mat[img_co[0], img_co[1], min(2, img_obj.channels-1)])
                 frame_strokes[-1].select = True
+                
+                # TODO: implement a standard smoothing function for different operators
+                if self.smooth_level > 0 and point_count > 2:
+                    kernel = np.array([1.0/3, 1.0/3, 1.0/3])
+                    attr_info = {'co':3, 'strength':1, 'pressure':1}
+                    for name in attr_info:
+                        attr_values = np.zeros( point_count * attr_info[name] )
+                        frame_strokes[-1].points.foreach_get(name, attr_values)
+                        for _ in range(self.smooth_level):
+                            for dim in range(attr_info[name]):
+                                attr_values[dim::attr_info[name]][1:-1] = np.convolve(attr_values[dim::attr_info[name]], kernel, mode='same')[1:-1]
+                        frame_strokes[-1].points.foreach_set(name, attr_values)
 
         # Main processing loop
         processed_frame_numbers = []
@@ -352,7 +370,7 @@ class ImportColorImageOperator(bpy.types.Operator, ImportHelper):
     )
     median_radius: bpy.props.IntProperty(
             name='Median Filter Radius',
-            default=3, min=0, soft_max=15,
+            default=0, min=0, soft_max=15,
             description='Denoise the image with a median filter. Disabled when the value is 0'
     )
     color_source: bpy.props.EnumProperty(            
@@ -380,10 +398,10 @@ class ImportColorImageOperator(bpy.types.Operator, ImportHelper):
             default=8, min=1, soft_max=64,
             description='Number of pixels of the original image between two generated stroke points'
     )
-    min_length: bpy.props.IntProperty(
-            name='Min Stroke Length',
-            default=16, min=0, soft_max=512,
-            description='Number of pixels, a contour smaller than which will not be converted to a stroke'
+    min_area: bpy.props.IntProperty(
+            name='Min Stroke Area',
+            default=64, min=0, soft_max=2048,
+            description='Number of pixels, a contour with its area smaller than which will be ignored'
     )
     color_mode: bpy.props.EnumProperty(            
             name='Color Mode',
@@ -426,7 +444,7 @@ class ImportColorImageOperator(bpy.types.Operator, ImportHelper):
         box2 = layout.box()
         box2.prop(self, "size")
         box2.prop(self, "sample_length")
-        box2.prop(self, "min_length")
+        box2.prop(self, "min_area")
         box2.prop(self, "color_mode")
         if self.color_mode == 'VERTEX':
             box2.prop(self, "output_material", text='Material', icon='MATERIAL')
@@ -521,11 +539,24 @@ class ImportColorImageOperator(bpy.types.Operator, ImportHelper):
             global_mask = np.zeros((img_H,img_W))
             global_mask[1:-1,1:-1] = 1  # Avoid generating open contours
             global_mask *= alpha_mask
+            sampled_contour_points = set()
             for i,color in enumerate(palette):
                 res = measure.find_contours( (label==i)*global_mask, 0.5, positive_orientation='high')
                 for contour in res:
-                    if pyclipper.Area(contour)>self.min_length**2:
-                        contours.append(contour[::self.sample_length,:])
+                    if pyclipper.Area(contour)>self.min_area:
+                        # Sample the contour according to user option, and reuse coordinates when possible
+                        unsampled = 0
+                        new_contour = []
+                        for co_2d in contour:
+                            unsampled += 1
+                            if tuple(co_2d) in sampled_contour_points:
+                                new_contour.append(co_2d)
+                                unsampled = 0
+                            elif unsampled >= self.sample_length:
+                                new_contour.append(co_2d)
+                                unsampled = 0
+                                sampled_contour_points.add(tuple(co_2d))
+                        contours.append(new_contour)
                         contour_color.append(color)
                         contour_label.append(i)
                         label_count[i] += 1
