@@ -258,8 +258,8 @@ class ImportBrushOperator(bpy.types.Operator, ImportHelper):
 
                     # Create an icon by scaling the brush texture down
                     icon_obj = img_obj.copy()
-                    icon_obj.name = "icon_"+new_brush.name
-                    icon_filepath = os.path.join(icon_dir, new_brush.name+'.png')
+                    icon_obj.name = f"icon_{f.name.split('.')[0]}_{i}"
+                    icon_filepath = os.path.join(icon_dir, icon_obj.name+'.png')
                     icon_obj.filepath = icon_filepath
                     icon_obj.scale(256,256)
                     icon_obj.save()

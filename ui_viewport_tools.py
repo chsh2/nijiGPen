@@ -229,7 +229,12 @@ class ArrangeModalOperator(bpy.types.Operator):
                                 blf.color(self.font_id, 0, 0, 0, 1)
                             blf.enable(self.font_id, blf.SHADOW)
                             blf.shadow(self.font_id, 3, 0.8, 0.8, 0.8, 0.95)
-                            blf.size(self.font_id, 36 if stroke.select else 24, 72)
+                            # The third parameter became optional since Blender 3.4,
+                            # and was deprecated in Blender 4.0
+                            if bpy.app.version > (3, 6, 0):
+                                blf.size(self.font_id, 36 if stroke.select else 24)
+                            else:
+                                blf.size(self.font_id, 36 if stroke.select else 24, 72)
                             blf.position(self.font_id, view_co[0], view_co[1], 0)
                             blf.draw(self.font_id, str(i))
 
