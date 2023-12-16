@@ -70,7 +70,7 @@ class TintSelectedOperator(bpy.types.Operator, ColorTintConfig, NoiseConfig):
                             point.vertex_color = [r, g, b, 1]                        
         return {'FINISHED'}
     
-class RecolorSelectedOperator(bpy.types.Operator, ColorTintConfig):
+class RecolorSelectedOperator(bpy.types.Operator, ColorTintConfig, NoiseConfig):
     """Recolor selected strokes/points according to a palette"""
     bl_idname = "gpencil.nijigp_recolor"
     bl_label = "Recolor Selected"
@@ -121,6 +121,10 @@ class RecolorSelectedOperator(bpy.types.Operator, ColorTintConfig):
         row = layout.row()
         row.prop(self, "keep_s", text="Saturation")
         row.prop(self, "keep_v", text="Brightness")
+        layout.label(text="Randomization: ")
+        row = layout.row()
+        row.prop(self, "random_factor", text="Factor")
+        row.prop(self, "random_seed", text="Seed")        
 
     def execute(self, context):
         from colorsys import rgb_to_hsv, hsv_to_rgb
@@ -133,6 +137,7 @@ class RecolorSelectedOperator(bpy.types.Operator, ColorTintConfig):
 
         gp_obj = context.object
         frames_to_process = get_input_frames(gp_obj, gp_obj.data.use_multiedit)
+        noise.seed_set(self.random_seed)
         
         def get_key(color):
             """Convert color components to KDTree coordinates"""
@@ -185,9 +190,10 @@ class RecolorSelectedOperator(bpy.types.Operator, ColorTintConfig):
         src_stat = np.array(src_stat)
         src_mean, src_std = src_stat.mean(axis=-1), src_stat.std(axis=-1)
 
-        def recolor_single(target, rgb):
+        def recolor_single(target, rgb, noise):
             # Find the closest color in the palette
-            key = list(get_key(rgb))
+            key = Vector(get_key(rgb))
+            key = key * (1-self.random_factor) + noise * self.random_factor
             for j in range(3):
                 if not self.use_h or j!=0:
                     normalized = (key[j] - src_mean[j])/max(src_std[j], 1e-5)*dst_std[j] + dst_mean[j]
@@ -207,16 +213,18 @@ class RecolorSelectedOperator(bpy.types.Operator, ColorTintConfig):
         # Go through all selected points for the second time to apply color changes
         for frame in frames_to_process:
             for stroke in get_input_strokes(gp_obj, frame):
+                line_noise = Vector((noise.random(), noise.random(), noise.random()))
+                fill_noise = Vector((noise.random(), noise.random(), noise.random()))
                 # Process fill color
                 if stroke.select:
                     if is_fill_tintable(self, gp_obj, stroke):
                         r, g, b, _ = get_mixed_color(gp_obj, stroke, to_linear=True)
-                        recolor_single(stroke.vertex_color_fill, (r,g,b))
+                        recolor_single(stroke.vertex_color_fill, (r,g,b), fill_noise)
                     # Process line color
                     if self.tint_mode != 'FILL':
                         for i,point in enumerate(stroke.points):
                             if is_point_tintable(self, gp_obj, stroke, point):
                                 r, g, b, _ = get_mixed_color(gp_obj, stroke, i, to_linear=True)
-                                recolor_single(point.vertex_color, (r,g,b))                     
+                                recolor_single(point.vertex_color, (r,g,b), line_noise)                     
         
         return {'FINISHED'}

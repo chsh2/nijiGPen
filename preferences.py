@@ -275,7 +275,8 @@ class NijiGPAddonPreferences(bpy.types.AddonPreferences):
                 row.label(text='Not Installed')
             row.operator("nijigp.dependencies_install").package_name = p['package']
             row.operator("nijigp.dependencies_remove").package_name = p['package']
-
+        column.label(text='Please ignore Triangle if you are using a Mac with Apple Silicon.', icon='INFO')
+        
         # Show captured logs
         row = box1.row()
         row.label(text='Logs:', icon='DECORATE_KEYFRAME')

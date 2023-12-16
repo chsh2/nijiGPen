@@ -217,7 +217,7 @@ class BrushsetParser():
         return zipfile.is_zipfile(self.filename)
     
     def parse(self):
-        import zipfile, os, plistlib
+        import zipfile, os, plistlib, bpy
         from .resources import get_cache_folder
         from bpy_extras import image_utils
 
@@ -252,6 +252,7 @@ class BrushsetParser():
             img_mat = np.array(img_obj.pixels).reshape(img_H,img_W, img_obj.channels)
             img_mat = np.flipud(img_mat[:,:,0]) * 255
             self.brush_mats.append(img_mat)
+            bpy.data.images.remove(img_obj)
             
     def get_params(self, i):
         """Return the name and parameters of i-th brush"""
