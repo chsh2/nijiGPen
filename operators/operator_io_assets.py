@@ -2,7 +2,7 @@ import os
 import bpy
 import struct
 from bpy_extras.io_utils import ImportHelper
-from ..file_formats import GbrParser, Abr1Parser, Abr6Parser, BrushsetParser
+from ..file_formats import GbrParser, Abr1Parser, Abr6Parser, BrushsetParser, SutParser
 from ..resources import get_cache_folder
 
 class ImportBrushOperator(bpy.types.Operator, ImportHelper):
@@ -16,7 +16,7 @@ class ImportBrushOperator(bpy.types.Operator, ImportHelper):
     files: bpy.props.CollectionProperty(type=bpy.types.OperatorFileListElement)
     filepath = bpy.props.StringProperty(name="File Path", subtype='FILE_PATH')
     filter_glob: bpy.props.StringProperty(
-        default='*.gbr;*.abr;*.brushset;*.brush',
+        default='*.gbr;*.abr;*.brushset;*.brush;*.sut',
         options={'HIDDEN'}
     )
 
@@ -156,8 +156,10 @@ class ImportBrushOperator(bpy.types.Operator, ImportHelper):
                     parser = Abr1Parser(bytes)
             elif f.name.endswith('.brushset') or f.name.endswith('.brush'):
                 parser = BrushsetParser(filename)
+            elif f.name.endswith('.sut'):
+                parser = SutParser(filename)
             if not parser or not parser.check():
-                self.report({"ERROR"}, "The file format of the brush cannot be recognized.")
+                self.report({"ERROR"}, "The brush file cannot be recognized or does not contain any images.")
                 return {'FINISHED'}
             
             parser.parse()
@@ -170,7 +172,7 @@ class ImportBrushOperator(bpy.types.Operator, ImportHelper):
                 img_H, img_W = brush_mat.shape[0], brush_mat.shape[1]
 
                 # Attempt to read original parameters data
-                # Currently supporting Procreate brushes only
+                # Currently supporting only Procreate and SUT brushes
                 orig_name, orig_params, orig_type = None, None, None
                 if hasattr(parser, 'get_params'):
                     orig_name, orig_params = parser.get_params(i)
@@ -180,8 +182,10 @@ class ImportBrushOperator(bpy.types.Operator, ImportHelper):
                     orig_type = 'GRAIN'
 
                 # Extract and convert an image texture
-                if len(brush_mat.shape)==3:     # RGBA brush, for GBR only
+                if len(brush_mat.shape)==3:             # RGBA brush such as SUT and some GBR
                     image_mat = brush_mat.copy()
+                    if isinstance(parser, SutParser):   # SUT brushes use black patterns while others use white
+                        image_mat[:,:,:3] = 255 - image_mat[:,:,:3]
                 else:
                     image_mat = brush_mat.reshape((img_H, img_W, 1)).repeat(4, axis=2)
                     # In some cases, the texture alpha needs to be inverted
@@ -266,8 +270,7 @@ class ImportBrushOperator(bpy.types.Operator, ImportHelper):
                     new_brush.icon_filepath = icon_filepath
                     bpy.data.images.remove(icon_obj)
                     
-                # Override parameters by parsing the original brush data
-                # Currently supporting Procreate only
+                # Override parameters by parsing original Procreate brush data
                 if self.convert_orig_params and isinstance(parser, BrushsetParser) and orig_params:
                     if self.texture_usage != 'IMAGE':
                         if 'textureScale' in orig_params:
@@ -293,6 +296,30 @@ class ImportBrushOperator(bpy.types.Operator, ImportHelper):
                             new_brush.gpencil_settings.random_saturation_factor = orig_params['dynamicsJitterStrokeSaturation']
                         if 'dynamicsJitterStrokeDarkness' in orig_params:
                             new_brush.gpencil_settings.random_value_factor = orig_params['dynamicsJitterStrokeDarkness']
+                            
+                # Overrider parameters by parsing original SUT brush data
+                if self.convert_orig_params and isinstance(parser, SutParser) and orig_params:
+                    if self.texture_usage != 'IMAGE':
+                        if 'TextureScale2' in orig_params:
+                            new_material.grease_pencil.texture_scale = (orig_params['TextureScale2']/100.0, orig_params['TextureScale2']/100.0)
+                        if 'BrushRotation' in orig_params:
+                            if orig_params['BrushRotation'] > 1.0:
+                                new_material.grease_pencil.alignment_rotation = (orig_params['BrushRotation'] % 1.0) * np.pi / 2.0
+                            else:
+                                new_material.grease_pencil.alignment_rotation = orig_params['BrushRotation'] * np.pi / 2.0
+                    if self.texture_usage == 'BRUSH':
+                        if 'BrushSize' in orig_params:
+                            new_brush.size = int(orig_params['BrushSize'])
+                        if 'Opacity' in orig_params:
+                            new_brush.gpencil_settings.pen_strength = orig_params['Opacity'] / 100.0
+                        if 'BrushHardness' in orig_params:
+                            new_brush.gpencil_settings.hardness = orig_params['BrushHardness'] / 100.0
+                        if 'BrushInterval' in orig_params:
+                            new_brush.gpencil_settings.input_samples = int(orig_params['BrushInterval'] / 2000.0)
+                        if 'BrushChangePatternColor' in orig_params and orig_params['BrushChangePatternColor'] > 0:
+                            new_brush.gpencil_settings.random_hue_factor = orig_params['BrushHueChange'] / 360.0
+                            new_brush.gpencil_settings.random_saturation_factor = orig_params['BrushSaturationChange'] / 100.0
+                            new_brush.gpencil_settings.random_value_factor = orig_params['BrushValueChange'] / 100.0
             fd.close()
         self.report({"INFO"}, f'Finish importing {total_brushes} brush texture(s).')
         return {'FINISHED'}
