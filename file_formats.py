@@ -232,13 +232,16 @@ class BrushsetParser():
                 elif member.endswith('Shape.png') or member.endswith('Grain.png'):
                     tex_paths.append(member)
                     self.is_tex_grain.append(member.endswith('Grain.png'))
-                    self.params.append(None)
+                    self.params.append({})
                     
                     # Try to find the brush parameter file
                     param_path = member[:-9] + 'Brush.archive'
                     if param_path in namelist:
                         with archive.open(param_path) as param_file:
-                            self.params[-1] = plistlib.load(param_file)
+                            tmp_map = plistlib.load(param_file)
+                            self.params[-1] = {key:value for key, value in tmp_map.items() if value != None}
+                    brush_id = member[:-10]
+                    self.params[-1]['identifier'] = brush_id
             for member in tex_paths:
                 archive.extract(member, cache_dir)
                 
@@ -308,7 +311,7 @@ class SutParser():
         res = cur.execute("SELECT * FROM Variant")
         param_values = res.fetchall()[0]
         param_names = res.description
-        self.params.append({name[0]:value for name,value in zip(param_names, param_values)})
+        self.params.append({name[0]:value for name,value in zip(param_names, param_values) if value != None})
         # Get brush name
         res = cur.execute("SELECT NodeName FROM Node")
         brush_name = res.fetchone()[0]
