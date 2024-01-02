@@ -24,10 +24,12 @@ class SweepModalOperator(bpy.types.Operator, ColorTintConfig):
                     ('OUTER', 'Outer Shadow', ''),
                     ('INNER', 'Inner Shadow', '')],
             default='EXTRUDE'
-    ) 
+    )
+    moused_moved: bool
 
     def modal(self, context, event):
         if event.type == 'MOUSEMOVE':
+            self.mouse_moved = True
             delta = [2 * (event.mouse_x - self.starting_mouse_pos[0]) / LINE_WIDTH_FACTOR,
                      2 * (event.mouse_y - self.starting_mouse_pos[1]) / LINE_WIDTH_FACTOR]
             bpy.ops.ed.undo()
@@ -41,6 +43,10 @@ class SweepModalOperator(bpy.types.Operator, ColorTintConfig):
                                                   blend_mode=self.blend_mode)
 
         elif event.type == 'LEFTMOUSE':
+            # Fall back to the select operation if mouse is never moved
+            if not self.mouse_moved:
+                bpy.ops.gpencil.select(location=(event.mouse_region_x, event.mouse_region_y),
+                                       extend=(self.style=='OUTER'))
             context.area.header_text_set(None)
             return {'FINISHED'}
         
@@ -52,6 +58,7 @@ class SweepModalOperator(bpy.types.Operator, ColorTintConfig):
         return {'RUNNING_MODAL'}
 
     def invoke(self, context, event):
+        self.mouse_moved = False
         if context.object:
             self.starting_mouse_pos = [event.mouse_x, event.mouse_y]
             context.window_manager.modal_handler_add(self)
@@ -89,9 +96,11 @@ class OffsetModalOperator(bpy.types.Operator):
             default='ET_CLOSE',
             description='Offset a stroke as either an open line or a closed fill shape'
     )
+    moused_moved: bool
 
     def modal(self, context, event):
         if event.type == 'MOUSEMOVE':
+            self.mouse_moved = True
             delta = (event.mouse_x - self.starting_mouse_x) / LINE_WIDTH_FACTOR
             bpy.ops.ed.undo()
             bpy.ops.ed.undo_push()
@@ -102,6 +111,10 @@ class OffsetModalOperator(bpy.types.Operator):
                                                    multiframe_falloff=self.multiframe_falloff)   
 
         elif event.type == 'LEFTMOUSE':
+            # Fall back to the select operation if mouse is never moved
+            if not self.mouse_moved:
+                bpy.ops.gpencil.select(location=(event.mouse_region_x, event.mouse_region_y),
+                                       extend=(self.end_type_mode=='ET_OPEN'))
             context.area.header_text_set(None)
             return {'FINISHED'}
         
@@ -113,11 +126,12 @@ class OffsetModalOperator(bpy.types.Operator):
         return {'RUNNING_MODAL'}
 
     def invoke(self, context, event):
+        self.mouse_moved = False
         if context.object:
             self.starting_mouse_x = event.mouse_x
             context.window_manager.modal_handler_add(self)
             bpy.ops.ed.undo_push()
-            bpy.ops.gpencil.nijigp_offset_selected(offset_amount=0) 
+            #bpy.ops.gpencil.nijigp_offset_selected(offset_amount=0) 
             return {'RUNNING_MODAL'}
         else:
             self.report({'WARNING'}, "No active object, could not finish")
