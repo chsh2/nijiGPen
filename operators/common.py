@@ -40,7 +40,10 @@ class ColorTintConfig:
     blend_mode: bpy.props.EnumProperty(
             name='Blend',
             items=[('REGULAR', 'Regular', ''),
+                    ('SCREEN', 'Screen', ''),
+                    ('OVERLAY', 'Overlay', ''),
                     ('HARDLIGHT', 'Hard Light', ''),
+                    ('SOFTLIGHT', 'Soft Light', ''),
                     ('ADD', 'Add', ''),
                     ('SUBTRACT', 'Subtract', ''),
                     ('MULTIPLY', 'Multiply', ''),

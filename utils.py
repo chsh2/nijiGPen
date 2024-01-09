@@ -45,8 +45,14 @@ def rgb_to_hex_code(color:Color) -> str:
 
 def mix_rgb(c1, c2, factor, op='REGULAR'):
     c = c2
-    if op == 'HARDLIGHT':
+    if op == 'OVERLAY':
+        c = (2*c1*c2) if c1<0.5 else (1 - 2*(1-c1)*(1-c2))
+    elif op == 'HARDLIGHT':
         c = (2*c1*c2) if c2<0.5 else (1 - 2*(1-c1)*(1-c2))
+    elif op == 'SOFTLIGHT':
+        c = c1 - (1 - 2*c2) * c1 * (1 - c1) if c2 <= 0.5 \
+            else c1 + (2*c2 - 1) * (16*(c1**3) - 12*(c1**2) + 3*c1) if c1 <= 0.25 \
+            else c1 + (2*c2 - 1) * (np.sqrt(c1) - c1)
     elif op == 'ADD':
         c = c1 + c2
     elif op == 'SUBTRACT':
@@ -55,7 +61,9 @@ def mix_rgb(c1, c2, factor, op='REGULAR'):
         c = c1 * c2
     elif op == 'DIVIDE':
         c = c1 / c2 if c2!=0 else 1
-    c = 0 if c<0 else 1 if c>1 else c
+    elif op == 'SCREEN':
+        c = 1 - (1 - c1) * (1 - c2)
+    c = max(0, min(1, c))
     return c * factor + c1 * (1 - factor)
 
 def mix_hsv(rgb1, rgb2, factor, ops = {}):
