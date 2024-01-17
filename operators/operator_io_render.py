@@ -24,12 +24,18 @@ class MultiLayerRenderOperator(bpy.types.Operator, ExportHelper):
                     ('ALL', 'All GPencil Objects', '')],
             default='ALL'
     )
+    bake_masks: bpy.props.BoolProperty(
+            name='Bake Layer Masks',
+            default=True,
+            description='Clip the layer image according to its masks. Please notice that inverted masks are not supported and will be ignored'
+    ) 
     
     def draw(self, context):
         layout = self.layout
         row = layout.row()
         row.label(text='Render Target:')
         row.prop(self, 'render_target', text='')
+        layout.prop(self, 'bake_masks')
     
     def execute(self, context):
         import numpy as np
@@ -95,17 +101,43 @@ class MultiLayerRenderOperator(bpy.types.Operator, ExportHelper):
         
         # Render each GPencil layer and load the output image
         layer_img_mats = []
-        for gp_obj in gp_obj_list:
+        for i,gp_obj in enumerate(gp_obj_list):
+            name_to_idx = {}
             gp_obj.hide_render = False
             for layer in gp_obj.data.layers:
                 layer.hide = True
             layer_img_mats.append([])
-            for i,layer in enumerate(gp_obj.data.layers):
+            for layer in gp_obj.data.layers:
                 layer.hide, layer.blend_mode, layer.opacity = False, 'REGULAR', 1
                 layer_img_mats[-1].append( render_and_load(os.path.join(cache_folder,str(layer.info)+'.png')) )
                 layer.hide = True
+                name_to_idx[layer.info] = len(layer_img_mats[-1]) - 1
             gp_obj.hide_render = True
         
+            # Adjust the alpha channel according to the masking relationship
+            if self.bake_masks:
+                layer_masks = []
+                # Calculate masks in the first loop
+                for layer in gp_obj.data.layers:
+                    layer_idx = name_to_idx[layer.info]
+                    mask_mat = np.zeros((img_H, img_W))
+                    is_mask_valid = False
+                    if layer.use_mask_layer:
+                        for mask in layer.mask_layers:
+                            mask_idx = name_to_idx[mask.name]
+                            # Currently, invert masks are not supported
+                            if (not gplayers_info[i][mask_idx][0]) and (not mask.hide) and (not mask.invert):
+                                is_mask_valid = True
+                                mask_mat += (layer_img_mats[-1][mask_idx][:,:,3] > 0)
+                    if is_mask_valid:
+                        layer_masks.append(mask_mat)
+                    else:
+                        layer_masks.append(np.ones((img_H, img_W)) * 255)
+                # Apply masks in the second loop
+                for j,layer in enumerate(gp_obj.data.layers):
+                    layer_idx = name_to_idx[layer.info]    
+                    layer_img_mats[-1][layer_idx][:,:,3][layer_masks[j] < 1] = 0
+
         # Convert Blender image objects to PSD format
         psd_template = PsdFileWriter(height=img_H, width=img_W)
         psd_template.set_merged_img(merged_img_mat)
