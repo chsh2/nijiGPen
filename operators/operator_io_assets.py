@@ -6,7 +6,7 @@ from ..file_formats import GbrParser, Abr1Parser, Abr6Parser, BrushsetParser, Su
 from ..resources import get_cache_folder
 
 class ImportBrushOperator(bpy.types.Operator, ImportHelper):
-    """Extract textures of ABR or GBR brushes and append them to the current file"""
+    """Extract textures of brushes exported from painting software and append them to the current file"""
     bl_idname = "gpencil.nijigp_import_brush"
     bl_label = "Import Brushes"
     bl_category = 'View'

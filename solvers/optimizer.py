@@ -4,13 +4,15 @@ from scipy.optimize import minimize
 
 class MeshDepthSolver:
     """
-    Calculating the depth of each vertex of a generated mesh
+    Calculating the depth of each vertex of a generated mesh.
+    Most math expressions are reduced for higher efficiency. Please refer to the documentation site for the original formula:
+        https://chsh2.github.io/nijigp/docs/developer_notes/algorithms/#mesh-generation
     """
-    N: int              # Number of vertices, i.e. dimension of the problem
+    N: int             # Number of vertices, i.e. dimension of the problem
     z0: np.array       # depth of each vertex
     bounds: list
     norm_z: np.array   # Z value of vertex normal
-    graph_coef: map     # edge map recording vertex connectivity
+    graph_coef: map    # edge map recording vertex connectivity
 
     def initialize_from_bmesh(self, bm: bmesh.types.BMesh, scale_factor, boundary_map, is_depth_negative):
         self.N = len(bm.verts)

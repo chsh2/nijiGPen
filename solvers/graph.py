@@ -6,6 +6,7 @@ class TriangleMst:
     """
     A class that converts triangulated strokes to a minimum spanning stree (MST) and calculates different metrics
     """
+    tr_info: map
     mst: csgraph
     def build_mst(self, tr_output):
         def e_dist(i,j):
@@ -15,6 +16,7 @@ class TriangleMst:
             return max(res, 1e-9)
         # Graph and tree construction: vertex -> node, edge length -> link weight
         # All input/output graphs are undirected
+        self.tr_info = tr_output
         num_vert = len(tr_output['vertices'])
         row, col, data = [], [], []
         for f in tr_output['triangles']:
