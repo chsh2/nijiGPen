@@ -7,6 +7,43 @@ from mathutils import *
 from .common import *
 from ..utils import *
 
+class CameraPlaneProjector:
+    """
+    Calculate the coordinates of 2D pixels projected to the camera plane. May be useful when vectorizing rendered results
+    """
+    def __init__(self, gp_obj, camera_obj, scene=None):
+        self.ref_gp: bpy.types.Object = gp_obj
+        self.ref_cam: bpy.types.Object = camera_obj
+        
+        # Calculate distance relationships in the camera space
+        gp_center = (self.ref_cam.matrix_world.inverted_safe()) @ (self.ref_gp.matrix_world.translation)
+        camera_corners = self.ref_cam.data.view_frame(scene=scene)
+        camera_x_vec = camera_corners[0] - camera_corners[1]
+        camera_y_vec = camera_corners[0] - camera_corners[3]
+        # Focal distance is negative according to Blender convention
+        camera_norm = np.cross(camera_x_vec, camera_y_vec)
+        dist_focal_to_cam = -geometry.distance_point_to_plane( (0,0,0), camera_corners[0], camera_norm)
+        dist_gp_to_focal = geometry.distance_point_to_plane(gp_center, camera_corners[0], camera_norm)
+        dist_gp_to_cam = dist_focal_to_cam + dist_gp_to_focal
+        
+        # Currently, support orthographic and perspective cameras
+        self.projected_corners = []
+        for corner in camera_corners:
+            if self.ref_cam.data.type == 'ORTHO':
+                self.projected_corners.append(Vector((corner[0], corner[1], -dist_gp_to_cam)))
+            else:
+                self.projected_corners.append(Vector(corner / dist_focal_to_cam * dist_gp_to_cam))
+        # Convert to GPencil local space
+        gp_inv_mat = self.ref_gp.matrix_world.inverted_safe()
+        for i in range(4):
+            self.projected_corners[i] = gp_inv_mat @ self.ref_cam.matrix_world @ self.projected_corners[i]
+        
+    def get_co(self, norm_x, norm_y):
+        """Convert normalized 2D pixel coordinates to world 3D coordinates"""
+        return Vector(self.projected_corners[2]) + \
+                Vector(norm_x * (self.projected_corners[1]-self.projected_corners[2])) + \
+                Vector(norm_y * (self.projected_corners[3]-self.projected_corners[2]))
+
 class ImportLineImageOperator(bpy.types.Operator, ImportHelper):
     """Generate strokes from a raster image of line art using medial axis algorithm"""
     bl_idname = "gpencil.nijigp_import_lineart"
@@ -48,6 +85,11 @@ class ImportLineImageOperator(bpy.types.Operator, ImportHelper):
             unit='LENGTH',
             description='Dimension of the generated strokes'
     )  
+    fit_to_camera: bpy.props.BoolProperty(
+            name='Fit to Camera',
+            default=False,
+            description='Adjust the size of imported image automatically to fill the whole view of the scene camera'
+    ) 
     sample_length: bpy.props.IntProperty(
             name='Sample Length',
             default=4, min=1, soft_max=32,
@@ -91,7 +133,9 @@ class ImportLineImageOperator(bpy.types.Operator, ImportHelper):
             box1.prop(self, "frame_step")
         layout.label(text = "Stroke Options:")
         box2 = layout.box()
-        box2.prop(self, "size")
+        box2.prop(self, "fit_to_camera")
+        if not self.fit_to_camera:
+            box2.prop(self, "size")
         box2.prop(self, "sample_length")
         box2.prop(self, "min_length")
         box2.prop(self, "smooth_level")
@@ -148,7 +192,9 @@ class ImportLineImageOperator(bpy.types.Operator, ImportHelper):
             img_H = img_obj.size[1]
             img_mat = np.array(img_obj.pixels).reshape(img_H,img_W, img_obj.channels)
             img_mat = np.flipud(img_mat)
-
+            plane_projector = CameraPlaneProjector(gp_obj, bpy.context.scene.camera, bpy.context.scene) \
+                        if self.fit_to_camera else None 
+                        
             # Preprocessing: binarization and denoise
             lumi_mat = img_mat
             if img_obj.channels > 2:
@@ -295,7 +341,10 @@ class ImportLineImageOperator(bpy.types.Operator, ImportHelper):
 
                 for i,point in enumerate(frame_strokes[-1].points):
                     img_co = line[min(i*self.sample_length, len(line)-1)]
-                    point.co = restore_3d_co((img_co[1]-img_W/2, -img_co[0]+img_H/2, 0), 0, inv_mat, scale_factor)
+                    if self.fit_to_camera:
+                        point.co = plane_projector.get_co(img_co[1]/img_W, 1-img_co[0]/img_H)
+                    else:                    
+                        point.co = restore_3d_co((img_co[1]-img_W/2, -img_co[0]+img_H/2, 0), 0, inv_mat, scale_factor)
                     point.pressure = dist_mat[img_co]
                     if self.generate_strength:
                         point.strength = 1 - denoised_lumi_mat[img_co]
@@ -393,6 +442,11 @@ class ImportColorImageOperator(bpy.types.Operator, ImportHelper):
             unit='LENGTH',
             description='Dimension of the generated strokes'
     )  
+    fit_to_camera: bpy.props.BoolProperty(
+            name='Fit to Camera',
+            default=False,
+            description='Adjust the size of imported image automatically to fill the whole view of the scene camera'
+    ) 
     sample_length: bpy.props.IntProperty(
             name='Sample Length',
             default=8, min=1, soft_max=64,
@@ -442,7 +496,9 @@ class ImportColorImageOperator(bpy.types.Operator, ImportHelper):
 
         layout.label(text = "Stroke Options:")
         box2 = layout.box()
-        box2.prop(self, "size")
+        box2.prop(self, "fit_to_camera")
+        if not self.fit_to_camera:
+            box2.prop(self, "size")
         box2.prop(self, "sample_length")
         box2.prop(self, "min_area")
         box2.prop(self, "color_mode")
@@ -618,6 +674,8 @@ class ImportColorImageOperator(bpy.types.Operator, ImportHelper):
             strength = context.tool_settings.gpencil_paint.brush.gpencil_settings.pen_strength
             frame_strokes = frame.strokes
             scale_factor = min(img_H, img_W) / self.size
+            plane_projector = CameraPlaneProjector(gp_obj, bpy.context.scene.camera, bpy.context.scene) \
+                        if self.fit_to_camera else None 
 
             for i,path in enumerate(contours):
                 color, label = contour_color[i], contour_label[i]
@@ -632,7 +690,10 @@ class ImportColorImageOperator(bpy.types.Operator, ImportHelper):
                                                 srgb_to_linear(color[2]),1]
                 stroke.points.add(len(path))
                 for i,point in enumerate(frame_strokes[-1].points):
-                    point.co = restore_3d_co((path[i][1]-img_W/2, -path[i][0]+img_H/2, 0), 0, inv_mat, scale_factor)
+                    if self.fit_to_camera:
+                        point.co = plane_projector.get_co(path[i][1]/img_W, 1-path[i][0]/img_H)
+                    else:
+                        point.co = restore_3d_co((path[i][1]-img_W/2, -path[i][0]+img_H/2, 0), 0, inv_mat, scale_factor)
                     point.strength = strength
                     if self.color_mode == 'VERTEX' and self.set_line_color:
                         point.vertex_color = [srgb_to_linear(color[0]),
