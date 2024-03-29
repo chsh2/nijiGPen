@@ -30,9 +30,7 @@ def modify_package(command, option, name):
     # Use an alternative source for triangle in MacOS with Apple Silicon
     import platform
     if name == 'triangle' and command == 'install' and platform.machine() == 'arm64':
-        res = run_command([python_exe, '-m', 'pip', 'install', '--no-input', '--no-index', 
-                           '--find-links=https://github.com/chsh2/triangle/releases/download/j042-mac-arm64/triangle-20230923-cp310-cp310-macosx_11_0_arm64.whl',
-                           'triangle'])
+        res = run_command([python_exe, '-m', 'pip', command, option, 'triangle2'])
     else:
         res = run_command([python_exe, '-m', 'pip', command, option, name])
     if res > 0:
@@ -282,7 +280,6 @@ class NijiGPAddonPreferences(bpy.types.AddonPreferences):
                 row.label(text='Not Installed')
             row.operator("nijigp.dependencies_install").package_name = p['package']
             row.operator("nijigp.dependencies_remove").package_name = p['package']
-        column.label(text='Triangle may have compatibility issue with Apple Silicon. It is optional and can be skipped.', icon='INFO')
         
         # Show captured logs
         row = box1.row()
