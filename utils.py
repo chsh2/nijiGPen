@@ -231,6 +231,14 @@ def is_stroke_line(stroke, gp_obj):
     material = gp_obj.material_slots[mat_idx].material
     return not material.grease_pencil.show_fill
 
+def is_stroke_fill(stroke, gp_obj):
+    """
+    Check if a stroke does not have line material
+    """
+    mat_idx = stroke.material_index
+    material = gp_obj.material_slots[mat_idx].material
+    return not material.grease_pencil.show_stroke
+
 def is_stroke_locked(stroke, gp_obj):
     """
     Check if a stroke has the material that is being locked or invisible
@@ -268,6 +276,20 @@ def get_stroke_length(stroke: bpy.types.GPencilStroke = None, co_list = None):
             if i>0:
                 res += math.sqrt(get_2d_squared_distance(co,1,co0,1))
     return max(res,1e-9)
+
+def get_stroke_center(stroke: bpy.types.GPencilStroke = None, co_list = None):
+    """Calculate the 3D or 2D center of a stroke"""
+    if stroke:
+        res = Vector((0,0,0))
+        for i,point in enumerate(stroke.points):
+            res += point.co
+        res /= len(stroke.points)
+    if co_list:
+        res = Vector((0,0))
+        for i,co in enumerate(co_list):
+            res += Vector((co[0],co[1]))
+        res /= len(co_list)
+    return res
 #endregion
 
 #region [3D<->2D Utilities]

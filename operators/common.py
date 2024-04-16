@@ -54,6 +54,11 @@ class ColorTintConfig:
             default='REGULAR'
     ) 
 
+class ColorTintPropertyGroup(ColorTintConfig, bpy.types.PropertyGroup):
+    """
+    Used when an operator needs more than one type of color tint
+    """
+
 def save_stroke_selection(gp_obj):
     """
     Record the selection state of a Grease Pencil object to a map

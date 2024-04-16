@@ -520,7 +520,7 @@ class ImportColorImageOperator(bpy.types.Operator, ImportHelper):
             from scipy import cluster
             import pyclipper
         except:
-            self.report({"ERROR"}, "Please install Scikit-Image in the Preferences panel.")
+            self.report({"ERROR"}, "Please install PyClipper and Scikit-Image in the Preferences panel.")
             return {'FINISHED'}
 
         gp_obj.data.use_multiedit = self.image_sequence

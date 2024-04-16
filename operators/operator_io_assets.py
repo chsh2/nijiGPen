@@ -49,12 +49,12 @@ class ImportBrushOperator(bpy.types.Operator, ImportHelper):
     alpha_clip: bpy.props.BoolProperty(
             name='Alpha Clip',
             default=False,
-            description='If applied, the transparency of the brush pixels will be either 0 or 1'
+            description='If applied, set the alpha value of brush pixels to either 0 or 1'
     )
     keep_aspect_ratio: bpy.props.BoolProperty(
             name='Keep Aspect Ratio',
             default=True,
-            description='If applied, pads the texture to a square to display it without distortion.'
+            description='If applied, pads the texture to a square to display it without distortion'
     )
     template_brush: bpy.props.StringProperty(
             name='Template Brush',
@@ -81,11 +81,10 @@ class ImportBrushOperator(bpy.types.Operator, ImportHelper):
     override_hardness: bpy.props.BoolProperty(name='Hardness', default=True)
     override_input_samples: bpy.props.BoolProperty(name='Input Samples', default=False)
     convert_orig_params: bpy.props.BoolProperty(
-            name='Convert Brush Parameters',
+            name='Parse Brush Parameters',
             default=True,
             description='Attempt to parse the original parameters in the brush file and convert them to Grease Pencil options. '
-                        'Only Procreate brushes are supported currently. '
-                        'Please notice that it may not perfectly replicate the original brush look, since the brush is from a different software'
+                        'Please note that not all brush formats are supported, and the conversion may not perfectly replicate the original brush look'
     )
 
     def draw(self, context):
