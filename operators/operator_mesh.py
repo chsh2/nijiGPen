@@ -306,7 +306,7 @@ class MeshGenerationByNormal(CommonMeshConfig, bpy.types.Operator):
             stroke_info, stroke_list = [], []
             mask_info, mask_list = [], []
             mesh_names = []
-            context.scene.frame_current = frame_number
+            context.scene.frame_set(frame_number)
             
             for layer_idx, item in layer_frame_map.items():
                 frame = item[0]
@@ -711,7 +711,7 @@ class MeshGenerationByNormal(CommonMeshConfig, bpy.types.Operator):
             bpy.ops.object.mode_set(mode='EDIT_GPENCIL')
             
         bpy.ops.object.mode_set(mode='OBJECT') 
-        context.scene.frame_current = current_frame_number 
+        context.scene.frame_set(current_frame_number)
         return {'FINISHED'}
 
 class MeshGenerationByOffsetting(CommonMeshConfig, bpy.types.Operator):
@@ -860,7 +860,7 @@ class MeshGenerationByOffsetting(CommonMeshConfig, bpy.types.Operator):
             stroke_info = []
             stroke_list = []
             mesh_names = []
-            context.scene.frame_current = frame_number
+            context.scene.frame_set(frame_number)
             
             for layer_idx, item in layer_frame_map.items():
                 frame = item[0]
@@ -1105,6 +1105,6 @@ class MeshGenerationByOffsetting(CommonMeshConfig, bpy.types.Operator):
             bpy.ops.object.mode_set(mode='EDIT_GPENCIL')
             
         bpy.ops.object.mode_set(mode='OBJECT')
-        context.scene.frame_current = current_frame_number
+        context.scene.frame_set(current_frame_number)
         return {'FINISHED'}
 

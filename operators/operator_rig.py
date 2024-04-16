@@ -726,7 +726,7 @@ class BakeRiggingOperator(bpy.types.Operator):
         # Process by frame number
         switch_to([ref_gp_obj])
         for frame_number in target_frame_numbers:
-            context.scene.frame_current = frame_number
+            context.scene.frame_set(frame_number)
             
             # Duplicate the object to apply all armature modifiers, and record coordinate changes
             bpy.ops.object.duplicate()

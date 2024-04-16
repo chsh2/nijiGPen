@@ -146,11 +146,11 @@ def refresh_strokes(gp_obj, frame_numbers):
 
     bpy.ops.object.mode_set(mode='EDIT_GPENCIL')
     for f in frame_numbers:
-        bpy.context.scene.frame_current = f
+        bpy.context.scene.frame_set(f)
         bpy.ops.gpencil.recalc_geometry()
     
     bpy.ops.object.mode_set(mode=current_mode)
-    bpy.context.scene.frame_current = current_frame
+    bpy.context.scene.frame_set(current_frame)
 
 def copy_stroke_attributes(dst: bpy.types.GPencilStroke, srcs,
                            copy_hardness = False,
