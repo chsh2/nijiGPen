@@ -682,7 +682,10 @@ class MeshGenerationByNormal(CommonMeshConfig, bpy.types.Operator):
                 bpy.ops.object.select_all(action='DESELECT')
                 new_object.select_set(True)
                 context.view_layer.objects.active = new_object
-                bpy.ops.object.shade_smooth(use_auto_smooth=False)
+                if bpy.app.version < (4, 1, 0):
+                    bpy.ops.object.shade_smooth(use_auto_smooth=False)
+                else:
+                    bpy.ops.object.shade_smooth(keep_sharp_edges=False)
                 mean_depth_offset = inv_mat @ Vector((0, 0, mean_depth))
                 if self.mesh_type=='MESH' and self.postprocess_double_sided:
                     apply_mirror_in_depth(new_object, inv_mat, applied_offset + mean_depth_offset)
@@ -1088,7 +1091,10 @@ class MeshGenerationByOffsetting(CommonMeshConfig, bpy.types.Operator):
                     new_object.data.use_remesh_preserve_vertex_colors = True
                     bpy.ops.object.voxel_remesh("EXEC_DEFAULT")
 
-                new_object.data.use_auto_smooth = self.postprocess_shade_smooth
+                if bpy.app.version < (4, 1, 0):
+                    new_object.data.use_auto_smooth = self.postprocess_shade_smooth
+                elif self.postprocess_shade_smooth:
+                    bpy.ops.object.shade_smooth_by_angle()
 
                 if self.stop_motion_animation and not self.postprocess_remesh:
                     new_object.modifiers.new(name="nijigp_GeoNodes", type='NODES')
