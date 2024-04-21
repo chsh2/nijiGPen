@@ -127,8 +127,6 @@ class NIJIGP_PT_edit_panel_polygon(bpy.types.Panel):
 
     def draw(self, context):
         layout = self.layout
-        scene = context.scene
-        obj = context.object
 
         row = layout.row()
         row.operator("gpencil.nijigp_hole_processing", text="Hole Holdout", icon="MESH_TORUS")
@@ -143,6 +141,8 @@ class NIJIGP_PT_edit_panel_polygon(bpy.types.Panel):
         row.operator("gpencil.nijigp_bool_selected", text="×", icon="SELECT_INTERSECT").operation_type = 'INTERSECTION'
         row = layout.row()
         row.operator("gpencil.nijigp_hatch_fill", text="Hatch Fill", icon="ALIGN_JUSTIFY")
+        row = layout.row()
+        row.operator("gpencil.nijigp_shade_selected", text="Calculate Shading", icon="SHADING_RENDERED")
 
 class NIJIGP_PT_edit_panel_mesh(bpy.types.Panel):
     bl_idname = 'NIJIGP_PT_edit_panel_mesh'

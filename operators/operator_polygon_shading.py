@@ -46,7 +46,7 @@ def generate_shading_stroke(co_list, inv_mat, scale_factor, gp_obj, ref_stroke_i
     return new_stroke, new_index, layer_index, terminator_points
         
 class ShadeSelectedOperator(bpy.types.Operator):
-    """TODO - This operator has not been finished. Do not use it."""
+    """This operator uses a light in the 3D scenario to calculate shadows and rim lights and generate corresponding strokes"""
     bl_idname = "gpencil.nijigp_shade_selected"
     bl_label = "Shade Selected"
     bl_category = 'View'
@@ -120,13 +120,18 @@ class ShadeSelectedOperator(bpy.types.Operator):
     shadow_tint_config: bpy.props.PointerProperty(type=ColorTintPropertyGroup)
     shadow_resolution: bpy.props.IntProperty(
             name='Resolution',
-            default=10, min=5, soft_max=30,
+            default=15, min=5, soft_max=30,
             description='Determine how precisely the shading will be calculated'
     )
     shadow_threshold: bpy.props.FloatProperty(
         name='Threshold',
         default=0, soft_min=-5, soft_max=5,
         description='Determine the terminator line between shadow and lighter parts based on the light intensity hitting the surface'
+    )
+    shadow_scale: bpy.props.FloatProperty(
+            name='Vertical Scale',
+            default=1, soft_max=5, soft_min=-5,
+            description='Scale the vertical component of generated normal vectors. Negative values result in concave shapes'
     )
     shadow_material: bpy.props.StringProperty(
         name='Material',
@@ -169,6 +174,7 @@ class ShadeSelectedOperator(bpy.types.Operator):
         if self.shadow_enabled:
             box3 = layout.box()
             box3.prop(self, 'shadow_threshold')
+            box3.prop(self, 'shadow_scale')
             box3.prop(self, 'shadow_resolution')
             box3.prop(self, 'shadow_material', icon='MATERIAL')
             row = box3.row(align=True)
@@ -262,7 +268,7 @@ class ShadeSelectedOperator(bpy.types.Operator):
                     light_vec_world = stroke_center_world - light_obj.matrix_world.translation 
                 else:
                     if self.light_type == 'VEC':
-                        light_vec_world = Vector(self.light_vector)
+                        light_vec_world = - Vector(self.light_vector)
                     else:
                         light_vec_world = Vector((0,0,-1))
                         light_vec_world.rotate(light_obj.matrix_world.to_euler())
@@ -368,6 +374,7 @@ class ShadeSelectedOperator(bpy.types.Operator):
                                 norm_u = np.dot(contour_normal_array[:,0], weights)
                                 norm_v = np.dot(contour_normal_array[:,1], weights)
                                 norm = Vector((norm_u, norm_v, np.sqrt(1 - norm_u ** 2 - norm_v ** 2)))
+                            norm = Vector((norm.x * self.shadow_scale, norm.y * self.shadow_scale, norm.z)).normalized()
                             grid_is_shadow[v][u] = (norm.dot(- light_vec_local) * light_energy < self.shadow_threshold)
                      
                     # Get the contour of shadow areas to generate new strokes
