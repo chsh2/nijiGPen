@@ -52,6 +52,7 @@ class ShadeSelectedOperator(bpy.types.Operator):
     bl_category = 'View'
     bl_options = {'REGISTER', 'UNDO'}
 
+    is_initialized: bpy.props.BoolProperty(default=False)
     ignore_mode: bpy.props.EnumProperty(
             name='Ignore',
             items=[('NONE', 'None', ''),
@@ -117,10 +118,11 @@ class ShadeSelectedOperator(bpy.types.Operator):
     
     # shadow output configurations
     shadow_enabled: bpy.props.BoolProperty(name='Generate Shadow', default=False)  
+    shadow_double_level: bpy.props.BoolProperty(name='Double', default=False) 
     shadow_tint_config: bpy.props.PointerProperty(type=ColorTintPropertyGroup)
     shadow_resolution: bpy.props.IntProperty(
             name='Resolution',
-            default=15, min=5, soft_max=30,
+            default=20, min=5, soft_max=50,
             description='Determine how precisely the shading will be calculated'
     )
     shadow_threshold: bpy.props.FloatProperty(
@@ -128,10 +130,21 @@ class ShadeSelectedOperator(bpy.types.Operator):
         default=0, soft_min=-5, soft_max=5,
         description='Determine the terminator line between shadow and lighter parts based on the light intensity hitting the surface'
     )
+    shadow_second_threshold: bpy.props.FloatProperty(
+        name='',
+        default=0.5, min=0, soft_max=5,
+        description='Determine an additional terminator line to generate two levels of shadow'
+    )
     shadow_scale: bpy.props.FloatProperty(
             name='Vertical Scale',
             default=1, soft_max=5, soft_min=-5,
             description='Scale the vertical component of generated normal vectors. Negative values result in concave shapes'
+    )
+    shadow_min_area: bpy.props.FloatProperty(
+            name='Min Area',
+            default=1, min=0, max=100,
+            subtype='PERCENTAGE',
+            description='Ignore shadows with too small an area'
     )
     shadow_material: bpy.props.StringProperty(
         name='Material',
@@ -143,6 +156,12 @@ class ShadeSelectedOperator(bpy.types.Operator):
         return context.window_manager.invoke_props_dialog(self, width=500)
         
     def draw(self, context):
+        if not self.is_initialized:
+            self.rim_tint_config.tint_color = (1, 1, 1, 1)
+            self.rim_tint_config.tint_color_factor = 0.2
+            self.shadow_tint_config.tint_color_factor = 0.2
+            self.is_initialized = True
+
         layout = self.layout
         layout.prop(self, "ignore_mode")
         layout.prop(self, "fill_always_closed")
@@ -170,12 +189,20 @@ class ShadeSelectedOperator(bpy.types.Operator):
             row.prop(self.rim_tint_config, "tint_color_factor", slider=True)
             row.prop(self.rim_tint_config, "blend_mode", text='')     
             
-        layout.prop(self, "shadow_enabled")
+        row = layout.row()
+        row.prop(self, "shadow_enabled")
+        if self.shadow_enabled:
+            row.prop(self, "shadow_double_level")
         if self.shadow_enabled:
             box3 = layout.box()
-            box3.prop(self, 'shadow_threshold')
+            row = box3.row(align=True)
+            row.prop(self, 'shadow_threshold')
+            if self.shadow_double_level:
+                row.prop(self, 'shadow_second_threshold')
             box3.prop(self, 'shadow_scale')
-            box3.prop(self, 'shadow_resolution')
+            row = box3.row(align=True)
+            row.prop(self, 'shadow_resolution')
+            row.prop(self, 'shadow_min_area')
             box3.prop(self, 'shadow_material', icon='MATERIAL')
             row = box3.row(align=True)
             row.prop(self.shadow_tint_config, "tint_color")
@@ -221,7 +248,7 @@ class ShadeSelectedOperator(bpy.types.Operator):
                                              return_map = True)
 
         select_map = save_stroke_selection(current_gp_obj)
-        generated_shadow_strokes = []
+        generated_shadow_strokes_multilevel = [[], []] if self.shadow_double_level else [[]]
         generated_rim_strokes = []
         
         current_frame = context.scene.frame_current
@@ -326,86 +353,91 @@ class ShadeSelectedOperator(bpy.types.Operator):
 
                 # Shadow: use normal interpolation method to achieve
                 if self.shadow_enabled:
-                    # Get contour point normals
-                    contour_co_array = []
-                    contour_normal_array = []
-                    contour_normal_map = {}
-                    for j,co in enumerate(new_co_list):
-                        _co = new_co_list[j-1]
-                        norm = Vector([co[1]-_co[1], -co[0]+_co[0], 0]).normalized()
-                        contour_co_array.append(co)
-                        contour_normal_array.append(norm)
-                        contour_normal_map[(int(co[0]),int(co[1]))] = norm
-                    contour_co_array = np.array(contour_co_array)
-                    contour_normal_array = np.array(contour_normal_array)
-                    
-                    # Generate a grid inside the shape to sample lighting
-                    corners = get_2d_bound_box([src_stroke], new_t_mat)
-                    corners = [co * scale_factor for co in pad_2d_box(corners, 0.05, return_bounds=True)]
-                    U = V = int(self.shadow_resolution)
-                    def get_grid_co(u: float, v: float):
-                        """Should allow float/unbounded inputs"""
-                        return (corners[0] + (corners[2] - corners[0]) * (u - 1) / (U - 1),
-                                corners[1] + (corners[3] - corners[1]) * (v - 1) / (V - 1))
+                    shadow_thresholds = [self.shadow_threshold]
+                    if self.shadow_double_level:
+                        shadow_thresholds.append(self.shadow_threshold + self.shadow_second_threshold)
+                    # Support either 1 or 2 levels of shadow
+                    for shadow_level, current_shadow_threshold in enumerate(shadow_thresholds):
+                        # Get contour point normals
+                        contour_co_array = []
+                        contour_normal_array = []
+                        contour_normal_map = {}
+                        for j,co in enumerate(new_co_list):
+                            _co = new_co_list[j-1]
+                            norm = Vector([co[1]-_co[1], -co[0]+_co[0], 0]).normalized()
+                            contour_co_array.append(co)
+                            contour_normal_array.append(norm)
+                            contour_normal_map[(int(co[0]),int(co[1]))] = norm
+                        contour_co_array = np.array(contour_co_array)
+                        contour_normal_array = np.array(contour_normal_array)
                         
-                    # Check which grid points are inside the shape
-                    grid_is_inside = np.zeros((V + 2, U + 2), dtype='int') # Pad the grid once more
-                    for v in range(1, V+1):
-                        for u in range(1, U+1):
-                            grid_is_inside[v][u] = (pyclipper.PointInPolygon(get_grid_co(u, v), new_co_list) == 1)
-                    # Dilate the result, so the grid points now enclose the original shape
-                    grid_is_inside = morphology.binary_dilation(grid_is_inside)    
-                    
-                    # Calculate the light information for each grid point  
-                    grid_is_shadow = np.zeros((V + 2, U + 2), dtype='int')
-                    for v in range(V+2):
-                        for u in range(U+2):
-                            if not grid_is_inside[v][u]:
-                                continue
-                            # Get the normal by interpolation
-                            co_2d = get_grid_co(u, v)
-                            if (int(co_2d[0]), int(co_2d[1])) in contour_normal_map:
-                                norm = contour_normal_map[(int(co_2d[0]), int(co_2d[1]))].to_3d()
-                                norm.z = np.sqrt(1 - norm.x ** 2 - norm.y ** 2)
-                            else:
-                                dist_sq = (contour_co_array[:,0]-co_2d[0])**2 + (contour_co_array[:,1]-co_2d[1])**2
-                                weights = 1.0 / dist_sq
-                                weights /= np.sum(weights)
-                                norm_u = np.dot(contour_normal_array[:,0], weights)
-                                norm_v = np.dot(contour_normal_array[:,1], weights)
-                                norm = Vector((norm_u, norm_v, np.sqrt(1 - norm_u ** 2 - norm_v ** 2)))
-                            norm = Vector((norm.x * self.shadow_scale, norm.y * self.shadow_scale, norm.z)).normalized()
-                            grid_is_shadow[v][u] = (norm.dot(- light_vec_local) * light_energy < self.shadow_threshold)
-                     
-                    # Get the contour of shadow areas to generate new strokes
-                    shadow_paths = []
-                    res = measure.find_contours( grid_is_shadow, 0.5, positive_orientation='high')
-                    for path in res:
-                        if pyclipper.Area(path)>1:
-                            shadow_paths.append([get_grid_co(co[1], co[0]) for co in path])
-                    # Perform intersect with the original shape to get the final results
-                    op = pyclipper.CT_INTERSECTION
-                    for poly in shadow_paths:
-                        clipper.Clear()
-                        clipper.AddPath(new_co_list, pyclipper.PT_SUBJECT, True)
-                        clipper.AddPath(poly, pyclipper.PT_CLIP, True)
-                        shadow_results = clipper.Execute(op, pyclipper.PFT_NONZERO, pyclipper.PFT_NONZERO)
+                        # Generate a grid inside the shape to sample lighting
+                        corners = get_2d_bound_box([src_stroke], new_t_mat)
+                        corners = [co * scale_factor for co in pad_2d_box(corners, 0.05, return_bounds=True)]
+                        U = V = int(self.shadow_resolution)
+                        def get_grid_co(u: float, v: float):
+                            """Should allow float/unbounded inputs"""
+                            return (corners[0] + (corners[2] - corners[0]) * (u - 1) / (U - 1),
+                                    corners[1] + (corners[3] - corners[1]) * (v - 1) / (V - 1))
+                            
+                        # Check which grid points are inside the shape
+                        grid_is_inside = np.zeros((V + 2, U + 2), dtype='int') # Pad the grid once more
+                        for v in range(1, V+1):
+                            for u in range(1, U+1):
+                                grid_is_inside[v][u] = (pyclipper.PointInPolygon(get_grid_co(u, v), new_co_list) == 1)
+                        # Dilate the result, so the grid points now enclose the original shape
+                        grid_is_inside = morphology.binary_dilation(grid_is_inside)    
                         
-                        for result in shadow_results:
-                            if pyclipper.Area(result) < MIN_AREA:
-                                continue
-                            new_stroke, new_index, new_layer_index, new_terminator_points = \
-                                generate_shading_stroke(result, new_t_mat.transposed(), scale_factor, current_gp_obj,
-                                                                stroke_info[i], ref_kdtree)
-                            generated_shadow_strokes.append(new_stroke)
-                            shadow_terminator_points += new_terminator_points
-                            new_stroke.use_cyclic = True
-                            if shadow_material_idx >= 0:
-                                new_stroke.material_index = shadow_material_idx
-                            # Update the stroke index
-                            for info in stroke_info:
-                                if new_index <= info[2] and new_layer_index == info[1]:
-                                    info[2] += 1            
+                        # Calculate the light information for each grid point  
+                        grid_is_shadow = np.zeros((V + 2, U + 2), dtype='int')
+                        for v in range(V+2):
+                            for u in range(U+2):
+                                if not grid_is_inside[v][u]:
+                                    continue
+                                # Get the normal by interpolation
+                                co_2d = get_grid_co(u, v)
+                                if (int(co_2d[0]), int(co_2d[1])) in contour_normal_map:
+                                    norm = contour_normal_map[(int(co_2d[0]), int(co_2d[1]))].to_3d()
+                                    norm.z = np.sqrt(1 - norm.x ** 2 - norm.y ** 2)
+                                else:
+                                    dist_sq = (contour_co_array[:,0]-co_2d[0])**2 + (contour_co_array[:,1]-co_2d[1])**2
+                                    weights = 1.0 / dist_sq
+                                    weights /= np.sum(weights)
+                                    norm_u = np.dot(contour_normal_array[:,0], weights)
+                                    norm_v = np.dot(contour_normal_array[:,1], weights)
+                                    norm = Vector((norm_u, norm_v, np.sqrt(1 - norm_u ** 2 - norm_v ** 2)))
+                                norm = Vector((norm.x * self.shadow_scale, norm.y * self.shadow_scale, norm.z)).normalized()
+                                grid_is_shadow[v][u] = (norm.dot(- light_vec_local) * light_energy < current_shadow_threshold)
+                        
+                        # Get the contour of shadow areas to generate new strokes
+                        shadow_paths = []
+                        res = measure.find_contours( grid_is_shadow, 0.5, positive_orientation='high')
+                        for path in res:
+                            if pyclipper.Area(path) > max(1, self.shadow_min_area * 0.01 * (self.shadow_resolution ** 2)):
+                                shadow_paths.append([get_grid_co(co[1], co[0]) for co in path])
+                        # Perform intersect with the original shape to get the final results
+                        op = pyclipper.CT_INTERSECTION
+                        for poly in shadow_paths:
+                            clipper.Clear()
+                            clipper.AddPath(new_co_list, pyclipper.PT_SUBJECT, True)
+                            clipper.AddPath(poly, pyclipper.PT_CLIP, True)
+                            shadow_results = clipper.Execute(op, pyclipper.PFT_NONZERO, pyclipper.PFT_NONZERO)
+                            
+                            for result in shadow_results:
+                                if pyclipper.Area(result) < MIN_AREA:
+                                    continue
+                                new_stroke, new_index, new_layer_index, new_terminator_points = \
+                                    generate_shading_stroke(result, new_t_mat.transposed(), scale_factor, current_gp_obj,
+                                                                    stroke_info[i], ref_kdtree)
+                                generated_shadow_strokes_multilevel[shadow_level].append(new_stroke)
+                                shadow_terminator_points += new_terminator_points
+                                new_stroke.use_cyclic = True
+                                if shadow_material_idx >= 0:
+                                    new_stroke.material_index = shadow_material_idx
+                                # Update the stroke index
+                                for info in stroke_info:
+                                    if new_index <= info[2] and new_layer_index == info[1]:
+                                        info[2] += 1            
                                                                         
             # Single-frame post-processing
             bpy.ops.gpencil.select_all(action='DESELECT')
@@ -423,15 +455,17 @@ class ShadeSelectedOperator(bpy.types.Operator):
                                         tint_color_factor=self.rim_tint_config.tint_color_factor,
                                         tint_mode='FILL', blend_mode=self.rim_tint_config.blend_mode)
         # Shadow strokes
-        bpy.ops.gpencil.select_all(action='DESELECT')
-        for stroke in generated_shadow_strokes:
-            stroke.select = True
-        bpy.ops.gpencil.nijigp_color_tint(tint_color=self.shadow_tint_config.tint_color,
-                                        tint_color_factor=self.shadow_tint_config.tint_color_factor,
-                                        tint_mode='FILL', blend_mode=self.shadow_tint_config.blend_mode)
+        num_levels = len(generated_shadow_strokes_multilevel)
+        for shadow_level, generated_shadow_strokes in enumerate(generated_shadow_strokes_multilevel):
+            bpy.ops.gpencil.select_all(action='DESELECT')
+            for stroke in generated_shadow_strokes:
+                stroke.select = True
+            bpy.ops.gpencil.nijigp_color_tint(tint_color=self.shadow_tint_config.tint_color,
+                                            tint_color_factor=self.shadow_tint_config.tint_color_factor * (num_levels - shadow_level) / num_levels,
+                                            tint_mode='FILL', blend_mode=self.shadow_tint_config.blend_mode)
         # All strokes
         bpy.ops.gpencil.select_all(action='DESELECT')
-        for stroke in generated_rim_strokes + generated_shadow_strokes:
+        for stroke in generated_rim_strokes + sum(generated_shadow_strokes_multilevel, []):
             stroke.select = True        
         refresh_strokes(current_gp_obj, list(frames_to_process.keys()))
                 
