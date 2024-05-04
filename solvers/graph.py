@@ -151,7 +151,7 @@ class SmartFillSolver:
         for i, co in enumerate(points_co):
             search_queue = [current_tr]
             pointer = 0
-            searched = set()
+            searched = {current_tr}
             while pointer < len(search_queue):
                 current_tr = search_queue[pointer]
                 # To speed up, label each triangle only once
@@ -160,10 +160,10 @@ class SmartFillSolver:
                         self.labels[current_tr] = points_label[i]
                     break
                 # Move to the next triangle
-                searched.add(current_tr)
                 for next_tr in self.graph.getrow(current_tr).nonzero()[1]:
                     if next_tr not in searched:
                         search_queue.append(next_tr)
+                        searched.add(next_tr)
                 pointer += 1
 
     def propagate_labels(self):

@@ -3,6 +3,32 @@ import numpy as np
 from .common import *
 from ..utils import *
 
+def lineart_triangulation(stroke_list, t_mat, poly_list, scale_factor, resolution):
+    """Using Blender native Delaunay method on line art strokes"""
+    corners = get_2d_bound_box(stroke_list, t_mat)
+    corners = [co * scale_factor for co in corners]
+    co_idx = {}
+    tr_input = dict(vertices = [], segments = [])
+    for i,co_list in enumerate(poly_list):
+        for j,co in enumerate(co_list):
+            key = (int(co[0]*resolution), int(co[1]*resolution))
+            if key not in co_idx:
+                co_idx[key] = len(co_idx)
+                tr_input['vertices'].append(tuple(co))
+            if j>0:
+                key0 = (int(co_list[j-1][0]*resolution), int(co_list[j-1][1]*resolution))
+                tr_input['segments'].append( (co_idx[key], co_idx[key0]) )
+            if j == len(co_list) - 1 and stroke_list[i].use_cyclic:
+                key0 = (int(co_list[0][0]*resolution), int(co_list[0][1]*resolution))
+                tr_input['segments'].append( (co_idx[key], co_idx[key0]) )                        
+    # Add several margins to the bound boxes
+    margin_sizes = (0.1, 0.3, 0.5)
+    for ratio in margin_sizes:  
+        tr_input['vertices'] += pad_2d_box(corners, ratio)
+    tr_output = {}
+    tr_output['vertices'], tr_output['segments'], tr_output['triangles'], _,tr_output['orig_edges'],_ = geometry.delaunay_2d_cdt(tr_input['vertices'], tr_input['segments'], [], 0, 1e-9)
+    return tr_output
+
 class SmartFillOperator(bpy.types.Operator):
     """Generate fill shapes given a line art layer and a hint layer"""
     bl_idname = "gpencil.nijigp_smart_fill"
@@ -136,41 +162,15 @@ class SmartFillOperator(bpy.types.Operator):
         def fill_single_frame(line_frame, hint_frame, fill_frame):
             if len(line_frame.strokes) < 1:
                 return
-            resolution = self.precision
-                    
-            # Get points and bound box of line frame
-            margin_sizes = (0.1, 0.3, 0.5)
+            # Get points of line frame
             stroke_list = [stroke for stroke in line_frame.strokes]
             t_mat, inv_mat = get_transformation_mat(mode=context.scene.nijigp_working_plane,
                                                     gp_obj=gp_obj, strokes=stroke_list, operator=self)
-            corners = get_2d_bound_box(stroke_list, t_mat)
             poly_list, depth_list, scale_factor = get_2d_co_from_strokes(stroke_list, t_mat, scale=True)
             depth_lookup_tree = DepthLookupTree(poly_list, depth_list)
-            corners = [co * scale_factor for co in corners]
             
-            # Build triangles from points
-            co_idx = {}
-            tr_input = dict(vertices = [], segments = [])
-            for i,co_list in enumerate(poly_list):
-                for j,co in enumerate(co_list):
-                    key = (int(co[0]*resolution), int(co[1]*resolution))
-                    if key not in co_idx:
-                        co_idx[key] = len(co_idx)
-                        tr_input['vertices'].append(tuple(co))
-                    if j>0:
-                        key0 = (int(co_list[j-1][0]*resolution), int(co_list[j-1][1]*resolution))
-                        tr_input['segments'].append( (co_idx[key], co_idx[key0]) )
-                    if j == len(co_list) - 1 and stroke_list[i].use_cyclic:
-                        key0 = (int(co_list[0][0]*resolution), int(co_list[0][1]*resolution))
-                        tr_input['segments'].append( (co_idx[key], co_idx[key0]) )                        
-
-            # Add several margins to the bound boxes
-            for ratio in margin_sizes:  
-                tr_input['vertices'] += pad_2d_box(corners, ratio)
-            tr_output = {}
-            tr_output['vertices'], tr_output['segments'], tr_output['triangles'], _,tr_output['orig_edges'],_ = geometry.delaunay_2d_cdt(tr_input['vertices'], tr_input['segments'], [], 0, 1e-9)
-
-            # Build graph from triangles
+            # Build graph from triangles converted from the line art
+            tr_output = lineart_triangulation(stroke_list, t_mat, poly_list, scale_factor, self.precision)
             solver = SmartFillSolver()
             solver.build_graph(tr_output)
             

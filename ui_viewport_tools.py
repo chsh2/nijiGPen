@@ -4,7 +4,199 @@ from bpy_extras import view3d_utils
 from mathutils import *
 from .utils import *
 from .resources import *
-from .operators.common import ColorTintConfig
+from .operators.common import ColorTintConfig, refresh_strokes
+from .operators.operator_fill import lineart_triangulation
+
+class SmartFillModalOperator(bpy.types.Operator):
+    """TODO"""
+    bl_idname = "gpencil.nijigp_smart_fill_modal"
+    bl_label = "Smart Fill (Modal)"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    line_layer: bpy.props.StringProperty(
+        name='Line Art Layer',
+        description='',
+        default='',
+        search=lambda self, context, edit_text: [layer.info for layer in context.object.data.layers]
+    )
+    precision: bpy.props.FloatProperty(
+        name='Precision',
+        default=0.05, min=0.001, max=1,
+        description='Treat points in proximity as one to speed up'
+    )
+    incremental: bpy.props.BoolProperty(
+            name='Incremental',
+            default=True,
+            description='If disabled, ignore all previously generated fills when painting a new one'
+    )
+    
+    def smart_fill_setup(self):
+        # Get line art strokes. Skip the whole operation if cannot find a proper frame
+        gp_obj = bpy.context.object
+        line_art_layer = gp_obj.data.layers.active
+        if self.line_layer in gp_obj.data.layers:
+            line_art_layer = gp_obj.data.layers[self.line_layer]
+        if not line_art_layer.active_frame:
+            return 1
+        if len(line_art_layer.active_frame.strokes) < 1:
+            return 1
+        # Get or create an output frame from active layer
+        fill_layer = gp_obj.data.layers.active
+        self.output_frame = fill_layer.active_frame
+        if not self.output_frame:
+            self.output_frame = fill_layer.frames.new(bpy.context.scene.frame_current)
+
+        # Process line art as solver input
+        stroke_list = [stroke for stroke in line_art_layer.active_frame.strokes]
+        if self.incremental:
+            stroke_list += [stroke for stroke in self.output_frame.strokes]
+        self.t_mat, _ = get_transformation_mat(mode='VIEW',
+                                                gp_obj=gp_obj, strokes=stroke_list, operator=self)
+        poly_list, depth_list, self.scale_factor = get_2d_co_from_strokes(stroke_list, self.t_mat, scale=True)
+        self.depth_lookup_tree = DepthLookupTree(poly_list, depth_list)
+        tr_output = lineart_triangulation(stroke_list, self.t_mat, poly_list, self.scale_factor, self.precision)
+        self.solver.build_graph(tr_output)
+        self.solver_init_state = self.solver.labels.copy()
+        return 0
+
+    def smart_fill_update(self, mouse_region_co, label):
+        """Clear pervious results and recalculate with the newly added hint point"""
+        if not self.output_frame:
+            return 1
+        # Solve the graph problem
+        mouse_global_co = view3d_utils.region_2d_to_location_3d(bpy.context.region,
+                                              bpy.context.space_data.region_3d,
+                                              mouse_region_co, (0,0,0))
+        self.hint_points_co.append((self.t_mat @ mouse_global_co) * self.scale_factor)
+        self.hint_points_label.append(label)
+        self.smart_fill_clear()
+        self.solver.labels = self.solver_init_state.copy()
+        try:
+            for co, label in zip(reversed(self.hint_points_co), reversed(self.hint_points_label)):
+                self.solver.set_labels_from_points([co], [label])
+            self.solver.propagate_labels()
+            self.solver.complete_labels()
+        except:
+            return 1
+        
+        # Generate new strokes
+        contours_co, contours_label = self.solver.get_contours()
+        inv_mat = self.t_mat.inverted_safe()
+        gp_settings = bpy.context.scene.tool_settings.gpencil_paint
+        for i, contours in enumerate(contours_co):
+            label = contours_label[i]
+            if label < 1:
+                continue
+            for c in contours:
+                new_stroke: bpy.types.GPencilStroke = self.output_frame.strokes.new()
+                new_stroke.line_width = gp_settings.brush.size
+                new_stroke.use_cyclic = True
+                new_stroke.material_index = bpy.context.object.active_material_index
+                if gp_settings.color_mode == 'VERTEXCOLOR':
+                    new_stroke.vertex_color_fill = [color for color in gp_settings.brush.color] + [1]
+                new_stroke.points.add(len(c))
+                for i,co in enumerate(c):
+                    new_stroke.points[i].co = restore_3d_co(co, self.depth_lookup_tree.get_depth(co), inv_mat, self.scale_factor)
+                self.generated_strokes.append(new_stroke)
+        refresh_strokes(bpy.context.object)
+
+    def smart_fill_clear(self):
+        if not self.output_frame:
+            return 1
+        for stroke in self.generated_strokes:
+            self.output_frame.strokes.remove(stroke)
+        self.generated_strokes = []
+
+    def smart_fill_finalize(self):
+        bpy.ops.object.mode_set(mode='EDIT_GPENCIL')
+        bpy.ops.gpencil.select_all(action='DESELECT')
+        for stroke in self.generated_strokes:
+            stroke.select = True
+        if bpy.context.scene.tool_settings.use_gpencil_draw_onback:
+            bpy.ops.gpencil.stroke_arrange(direction='BOTTOM')
+        bpy.ops.object.mode_set(mode='PAINT_GPENCIL')
+    
+    def draw_callback_px(self, op, context):
+        font_id = 0
+        font_size = 18
+        blf.color(font_id, 0, 0, 0, 1)
+        blf.enable(font_id, blf.SHADOW)
+        blf.shadow(font_id, 3, 0.8, 0.8, 0.8, 0.95)
+        if bpy.app.version > (3, 6, 0):
+            blf.size(font_id, font_size)
+        else:
+            blf.size(font_id, font_size, 72)
+            
+        # Draw hint texts on the screen
+        hint_texts = ["[Interactive Fill Mode]",
+                      "Left Click - Include Area",
+                      "Right Click - Exclude Area",
+                      "Enter - Confirm",
+                      "ESC - Abort"]
+        hint_text_position = [150, 100]
+        for i,text in enumerate(reversed(hint_texts)):
+            blf.position(font_id, hint_text_position[0], hint_text_position[1] + font_size * 1.2 * i, 0)
+            blf.draw(font_id, text)
+            
+        # Draw hint points according to user clicks
+        for symbol in ['+', '-']:
+            for co in self._screen_hint_points[symbol]:
+                blf.position(font_id, co[0] - font_size * .25, co[1] - font_size * .25, 0)
+                blf.draw(font_id, symbol)
+    
+    def modal(self, context, event):
+        context.area.tag_redraw()   
+        if event.type in {'RET', 'NUMPAD_ENTER'}:
+            bpy.types.SpaceView3D.draw_handler_remove(self._handle, 'WINDOW')
+            self.smart_fill_finalize()
+            return {'FINISHED'}
+        if event.type == 'ESC':
+            bpy.types.SpaceView3D.draw_handler_remove(self._handle, 'WINDOW')
+            self.smart_fill_clear()
+            return {'CANCELLED'}
+        ret = None
+        if event.type == 'LEFTMOUSE' and event.value == 'RELEASE':
+            self._screen_hint_points['+'].append((event.mouse_region_x, event.mouse_region_y))
+            ret = self.smart_fill_update((event.mouse_region_x, event.mouse_region_y), 1)
+        if event.type == 'RIGHTMOUSE' and event.value == 'RELEASE':
+            self._screen_hint_points['-'].append((event.mouse_region_x, event.mouse_region_y))
+            ret = self.smart_fill_update((event.mouse_region_x, event.mouse_region_y), 0)
+        if ret and ret > 0:
+            self.report({"ERROR"}, "Cannot calculate the fill area.")
+            bpy.types.SpaceView3D.draw_handler_remove(self._handle, 'WINDOW')
+            return {'FINISHED'}
+        return {'RUNNING_MODAL'}
+    
+    def invoke(self, context, event):
+        try:
+            from .solvers.graph import SmartFillSolver
+        except:
+            self.report({"ERROR"}, "Please install Scikit-Image in the Preferences panel.")
+            return {'FINISHED'}
+        if is_layer_locked(context.object.data.layers.active):
+            self.report({"ERROR"}, "Active layer is locked or hidden.")
+            return {'FINISHED'}
+
+        # Setup the solver for calculations
+        self.t_mat = Matrix()
+        self.scale_factor = 1
+        self.depth_lookup_tree = None
+        self.hint_points_co = []
+        self.hint_points_label = []
+        self.output_frame = None
+        self.generated_strokes = []
+        self.solver = SmartFillSolver()
+        self.solver_init_state = None
+        self.smart_fill_setup()
+        
+        # Setup the handler for screen hint messages
+        self._screen_hint_points = {'+':[], '-':[]}
+        args = (self, context)
+        self._handle = bpy.types.SpaceView3D.draw_handler_add(
+            self.draw_callback_px, args, 'WINDOW', 'POST_PIXEL'
+        )
+        context.window_manager.modal_handler_add(self)
+        return {'RUNNING_MODAL'}    
 
 class SweepModalOperator(bpy.types.Operator, ColorTintConfig):
     """Executing sweep with the path vector determined by mouse position"""
@@ -286,6 +478,42 @@ class ArrangeModalOperator(bpy.types.Operator):
         context.window_manager.modal_handler_add(self)
         return {'RUNNING_MODAL'}
 
+class SmartFillTool(bpy.types.WorkSpaceTool):
+    bl_space_type = 'VIEW_3D'
+    bl_context_mode = 'PAINT_GPENCIL'
+    bl_idname = "nijigp.smart_fill_tool"
+    bl_label = "Interactive Smart Fill"
+    bl_description = (
+        "TODO"
+    )
+    bl_icon = None #TODO
+    bl_widget = None
+    bl_keymap = (
+        ("gpencil.nijigp_smart_fill_modal", {"type": 'LEFTMOUSE', "value": 'PRESS'},
+         {"properties": []}),
+    )
+    def draw_settings(context, layout, tool):
+        props = tool.operator_properties("gpencil.nijigp_smart_fill_modal")
+        gp_settings = context.scene.tool_settings.gpencil_paint
+        active_material_name = context.object.active_material.name if context.object.active_material else ""
+        
+        # Color/material setting panel imitating the native style
+        row = layout.row(align=True)
+        row.popover(panel="TOPBAR_PT_gpencil_materials", text=active_material_name)
+        row = layout.row(align=True)
+        row.separator(factor=1.0)
+        sub_row = row.row(align=True)
+        sub_row.prop_enum(gp_settings, "color_mode", 'MATERIAL', text="", icon='MATERIAL')
+        sub_row.prop_enum(gp_settings, "color_mode", 'VERTEXCOLOR', text="", icon='VPAINT_HLT')
+        sub_row = row.row(align=True)
+        sub_row.enabled = gp_settings.color_mode == 'VERTEXCOLOR'
+        sub_row.prop_with_popover(gp_settings.brush, "color", text="", panel="TOPBAR_PT_gpencil_vertexcolor")
+        
+        # Other attributes
+        layout.prop(props, "line_layer")
+        layout.prop(props, "precision")
+        layout.prop(props, "incremental")
+
 class OffsetTool(bpy.types.WorkSpaceTool):
     bl_space_type = 'VIEW_3D'
     bl_context_mode = 'EDIT_GPENCIL'
@@ -423,9 +651,13 @@ class RefreshGizmoOperator(bpy.types.Operator):
         return {'FINISHED'}
 
 def register_viewport_tools():
+    # Edit mode tools
     bpy.utils.register_tool(OffsetTool, after={"builtin.transform_fill"}, separator=True, group=True)
     bpy.utils.register_tool(SweepTool, after={OffsetTool.bl_idname})
+    # Draw mode tools
+    bpy.utils.register_tool(SmartFillTool, after={"builtin.circle"}, separator=True, group=True)
 
 def unregister_viewport_tools():
     bpy.utils.unregister_tool(OffsetTool)
     bpy.utils.unregister_tool(SweepTool)
+    bpy.utils.unregister_tool(SmartFillTool)

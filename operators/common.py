@@ -136,7 +136,7 @@ def get_input_strokes(gp_obj, frame: bpy.types.GPencilFrame, select_all = False)
                 res.append(stroke)
     return res
 
-def refresh_strokes(gp_obj, frame_numbers):
+def refresh_strokes(gp_obj, frame_numbers = None):
     """
     When generating new strokes via scripting, sometimes the strokes do not have correct bound boxes and are not displayed correctly.
     This function recalculates the geometry data
@@ -145,9 +145,12 @@ def refresh_strokes(gp_obj, frame_numbers):
     current_frame = bpy.context.scene.frame_current
 
     bpy.ops.object.mode_set(mode='EDIT_GPENCIL')
-    for f in frame_numbers:
-        bpy.context.scene.frame_set(f)
+    if frame_numbers == None:
         bpy.ops.gpencil.recalc_geometry()
+    else:
+        for f in frame_numbers:
+            bpy.context.scene.frame_set(f)
+            bpy.ops.gpencil.recalc_geometry()
     
     bpy.ops.object.mode_set(mode=current_mode)
     bpy.context.scene.frame_set(current_frame)
