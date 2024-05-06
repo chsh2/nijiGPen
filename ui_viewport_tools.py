@@ -8,7 +8,7 @@ from .operators.common import ColorTintConfig, refresh_strokes
 from .operators.operator_fill import lineart_triangulation
 
 class SmartFillModalOperator(bpy.types.Operator):
-    """TODO"""
+    """Filling areas by giving hints with mouse clicks"""
     bl_idname = "gpencil.nijigp_smart_fill_modal"
     bl_label = "Smart Fill (Modal)"
     bl_options = {'REGISTER', 'UNDO'}
@@ -48,7 +48,7 @@ class SmartFillModalOperator(bpy.types.Operator):
 
         # Process line art as solver input
         stroke_list = [stroke for stroke in line_art_layer.active_frame.strokes]
-        if self.incremental:
+        if self.incremental and line_art_layer.active_frame != self.output_frame:
             stroke_list += [stroke for stroke in self.output_frame.strokes]
         self.t_mat, _ = get_transformation_mat(mode='VIEW',
                                                 gp_obj=gp_obj, strokes=stroke_list, operator=self)
@@ -71,6 +71,7 @@ class SmartFillModalOperator(bpy.types.Operator):
         self.hint_points_label.append(label)
         self.smart_fill_clear()
         self.solver.labels = self.solver_init_state.copy()
+        # Handle exceptions to prevent the modal from being interrupted
         try:
             for co, label in zip(reversed(self.hint_points_co), reversed(self.hint_points_label)):
                 self.solver.set_labels_from_points([co], [label])
@@ -97,6 +98,8 @@ class SmartFillModalOperator(bpy.types.Operator):
                 new_stroke.points.add(len(c))
                 for i,co in enumerate(c):
                     new_stroke.points[i].co = restore_3d_co(co, self.depth_lookup_tree.get_depth(co), inv_mat, self.scale_factor)
+                    if gp_settings.color_mode == 'VERTEXCOLOR':
+                        new_stroke.points[i].vertex_color = [color for color in gp_settings.brush.color] + [1]
                 self.generated_strokes.append(new_stroke)
         refresh_strokes(bpy.context.object)
 
@@ -108,6 +111,7 @@ class SmartFillModalOperator(bpy.types.Operator):
         self.generated_strokes = []
 
     def smart_fill_finalize(self):
+        """Post-processing."""
         bpy.ops.object.mode_set(mode='EDIT_GPENCIL')
         bpy.ops.gpencil.select_all(action='DESELECT')
         for stroke in self.generated_strokes:
@@ -162,7 +166,7 @@ class SmartFillModalOperator(bpy.types.Operator):
             self._screen_hint_points['-'].append((event.mouse_region_x, event.mouse_region_y))
             ret = self.smart_fill_update((event.mouse_region_x, event.mouse_region_y), 0)
         if ret and ret > 0:
-            self.report({"ERROR"}, "Cannot calculate the fill area.")
+            self.report({"ERROR"}, "Cannot calculate the fill area. Please select a proper line art layer.")
             bpy.types.SpaceView3D.draw_handler_remove(self._handle, 'WINDOW')
             return {'FINISHED'}
         return {'RUNNING_MODAL'}
@@ -484,9 +488,9 @@ class SmartFillTool(bpy.types.WorkSpaceTool):
     bl_idname = "nijigp.smart_fill_tool"
     bl_label = "Interactive Smart Fill"
     bl_description = (
-        "TODO"
+        "Filling areas by giving hints with mouse clicks"
     )
-    bl_icon = None #TODO
+    bl_icon = get_workspace_tool_icon('ops.nijigp.smart_fill_tool')
     bl_widget = None
     bl_keymap = (
         ("gpencil.nijigp_smart_fill_modal", {"type": 'LEFTMOUSE', "value": 'PRESS'},
