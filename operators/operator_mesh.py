@@ -1088,7 +1088,11 @@ class MeshGenerationByOffsetting(CommonMeshConfig, bpy.types.Operator):
                 if self.postprocess_remesh:
                     new_object.data.remesh_voxel_size = self.remesh_voxel_size
                     new_object.data.use_remesh_preserve_volume = True
-                    new_object.data.use_remesh_preserve_vertex_colors = True
+                    # API change from Blender 4.1
+                    if hasattr(new_object.data, "use_remesh_preserve_vertex_attributes"):
+                        new_object.data.use_remesh_preserve_vertex_attributes = True
+                    elif hasattr(new_object.data, "use_remesh_preserve_vertex_colors"):
+                        new_object.data.use_remesh_preserve_vertex_colors = True
                     bpy.ops.object.voxel_remesh("EXEC_DEFAULT")
 
                 if bpy.app.version < (4, 1, 0):
