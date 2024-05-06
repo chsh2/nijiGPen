@@ -143,7 +143,7 @@ class SmartFillSolver:
         def point_in_triangle(point_co, tr_idx):
             poly = [self.tr_map['vertices'][i] for i in self.tr_map['triangles'][tr_idx]]
             return (pyclipper.PointInPolygon(point_co, poly) != 0)
-        
+        # TODO: The higher bound of time complexity is linear. May need better searching strategy.
         # Approximate search using KDTree
         if len(points_co)>0:
             _, current_tr, _ = self.tr_center_kdt.find((points_co[0][0], points_co[0][1], 0))

@@ -184,6 +184,8 @@ def get_2d_bound_box(strokes, t_mat):
     """Get 2D bounds [u_min, v_min, u_max, v_max] of a list of strokes given a 3D-to-2D transformation matrix"""
     corners = [None, None, None, None]
     for s in strokes:
+        if len(s.points) < 1:
+            continue
         bound_points = get_full_bound_box(s)
         for co in bound_points:
             co_2d = t_mat @ co
