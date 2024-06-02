@@ -375,6 +375,7 @@ class ImportLineImageOperator(bpy.types.Operator, ImportHelper):
         else:
             for frame_idx, img_filepath in enumerate(img_filepaths):
                 target_frame_number = starting_frame.frame_number + frame_idx * self.frame_step
+                context.scene.frame_set(target_frame_number)
                 if target_frame_number in frame_dict:
                     process_single_image(img_filepath, frame_dict[target_frame_number])
                 else:
@@ -724,6 +725,7 @@ class ImportColorImageOperator(bpy.types.Operator, ImportHelper):
         else:
             for frame_idx, img_filepath in enumerate(img_filepaths):
                 target_frame_number = starting_frame.frame_number + frame_idx * self.frame_step
+                context.scene.frame_set(target_frame_number)
                 if target_frame_number in frame_dict:
                     updated_palette = process_single_image(img_filepath, frame_dict[target_frame_number], given_colors)
                 else:
