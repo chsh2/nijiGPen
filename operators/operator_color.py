@@ -15,15 +15,19 @@ def mix_color(rgb1, rgb2, factor, op):
 
 def is_fill_tintable(operator, gp_obj, stroke):
     """Determine if a stroke's vertex_color_fill should be considered in an operator"""
-    gp_mat = gp_obj.material_slots[stroke.material_index].material.grease_pencil
+    gp_mat = gp_obj.material_slots[stroke.material_index].material
+    if not gp_mat:
+        return False
     return (operator.tint_mode != 'LINE' and stroke.select 
-            and gp_mat.show_fill and not gp_mat.use_fill_holdout)
+            and gp_mat.grease_pencil.show_fill and not gp_mat.grease_pencil.use_fill_holdout)
 
 def is_point_tintable(operator, gp_obj, stroke, point):
     """Determine if a stroke point's vertex_color should be considered in an operator"""
-    gp_mat = gp_obj.material_slots[stroke.material_index].material.grease_pencil
+    gp_mat = gp_obj.material_slots[stroke.material_index].material
+    if not gp_mat:
+        return False
     return (operator.tint_mode != 'FILL' and point.select 
-            and gp_mat.show_stroke and not gp_mat.use_stroke_holdout)
+            and gp_mat.grease_pencil.show_stroke and not gp_mat.grease_pencil.use_stroke_holdout)
     
 class TintSelectedOperator(bpy.types.Operator, ColorTintConfig, NoiseConfig):
     """Mixing the vertex color of selected points with another given color"""

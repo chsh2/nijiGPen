@@ -170,7 +170,7 @@ class HoleProcessingOperator(bpy.types.Operator):
             src_mat = gp_obj.material_slots[src_mat_idx].material
             src_mat_name = gp_obj.material_slots[src_mat_idx].name
 
-            if src_mat.grease_pencil.use_fill_holdout:
+            if not src_mat or src_mat.grease_pencil.use_fill_holdout:
                 return
 
             # Case 1: holdout material available in cache

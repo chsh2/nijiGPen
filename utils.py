@@ -231,6 +231,8 @@ def is_stroke_line(stroke, gp_obj):
     """
     mat_idx = stroke.material_index
     material = gp_obj.material_slots[mat_idx].material
+    if not material:
+        return False
     return not material.grease_pencil.show_fill
 
 def is_stroke_fill(stroke, gp_obj):
@@ -239,6 +241,8 @@ def is_stroke_fill(stroke, gp_obj):
     """
     mat_idx = stroke.material_index
     material = gp_obj.material_slots[mat_idx].material
+    if not material:
+        return False
     return not material.grease_pencil.show_stroke
 
 def is_stroke_locked(stroke, gp_obj):
@@ -247,6 +251,8 @@ def is_stroke_locked(stroke, gp_obj):
     """
     mat_idx = stroke.material_index
     material = gp_obj.material_slots[mat_idx].material
+    if not material:
+        return False
     return material.grease_pencil.lock or material.grease_pencil.hide
 
 def is_stroke_hole(stroke, gp_obj):
@@ -255,6 +261,8 @@ def is_stroke_hole(stroke, gp_obj):
     """
     mat_idx = stroke.material_index
     material = gp_obj.material_slots[mat_idx].material
+    if not material:
+        return False
     return material.grease_pencil.use_fill_holdout
 
 def is_layer_locked(layer: bpy.types.GPencilLayer):
