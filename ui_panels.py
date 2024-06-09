@@ -17,7 +17,7 @@ def draw_io(panel, context):
     layout.label(text="Paste from Clipboard:")
     row = layout.row()
     row.operator("gpencil.nijigp_paste_svg", text="SVG", icon="PASTEDOWN")
-    row.operator("gpencil.nijigp_paste_xml_palette", text="XML/Hex", icon="COLOR")
+    row.operator("gpencil.nijigp_paste_swatch", text="Swatches", icon="COLOR")
 
     layout.label(text="Image Vectorization:")
     row = layout.row()

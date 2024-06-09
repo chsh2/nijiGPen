@@ -5,6 +5,18 @@ from mathutils import *
 from ..utils import *
 from ..resources import get_cache_folder
 
+def save_clipboard_text(filename):
+    text = bpy.context.window_manager.clipboard
+    path = os.path.join( get_cache_folder(), filename)
+    try:
+        fd = open(path, "w")
+    except:
+        path = os.path.join(bpy.app.tempdir, filename)
+        fd = open(path, "w")
+    fd.write(text)
+    fd.close()
+    return path
+
 class PasteSVGOperator(bpy.types.Operator):
     """Convert SVG codes in the clipboard to strokes and insert them in the current Grease Pencil object"""
     bl_idname = "gpencil.nijigp_paste_svg"
@@ -51,15 +63,7 @@ class PasteSVGOperator(bpy.types.Operator):
         t_mat, inv_mat = get_transformation_mat(mode=context.scene.nijigp_working_plane, gp_obj=current_gp_obj)
 
         # Convert clipboard data to SVG file
-        svg_str = context.window_manager.clipboard
-        svg_path = os.path.join( get_cache_folder(), "clipboard.svg")
-        try:
-            svg_file = open(svg_path, "w")
-        except:
-            svg_path = os.path.join(bpy.app.tempdir, "clipboard.svg")
-            svg_file = open(svg_path, "w")
-        svg_file.write(svg_str)
-        svg_file.close()
+        svg_path = save_clipboard_text("clipboard.svg")
 
         # Import SVG file
         bpy.ops.object.mode_set(mode='OBJECT')
@@ -120,23 +124,23 @@ class PasteSVGOperator(bpy.types.Operator):
 
         return {'FINISHED'}
 
-class PasteXMLOperator(bpy.types.Operator):
-    """Parse XML messages in the clipboard to create a new palette"""
-    bl_idname = "gpencil.nijigp_paste_xml_palette"
-    bl_label = "Paste XML Palette"
+class PasteSwatchOperator(bpy.types.Operator):
+    """Parse an XML message or a Hex code list in the clipboard to create a new palette"""
+    bl_idname = "gpencil.nijigp_paste_swatch"
+    bl_label = "Paste Swatches"
     bl_category = 'View'
     bl_options = {'REGISTER', 'UNDO'}
 
     name: bpy.props.StringProperty(
             name='Name',
-            default='',
-            description='Rename the palette if not empty'
+            default='Palette_From_Clipboard',
+            description='Name the imported palette if the format does not contain a name itself'
     )
     tints_level: bpy.props.IntProperty(
             name='Tints and Shades',
             min=0, max=10, default=0,
-            description='Automatically generate tints and shades from existing colors',
-            )
+            description='Extend the palette by generating tints and shades colors based on existing ones',
+    )
 
     def draw(self, context):
         layout = self.layout
@@ -144,75 +148,13 @@ class PasteXMLOperator(bpy.types.Operator):
         layout.prop(self, "tints_level", text = "Tints and Shades")
 
     def execute(self, context):
-        import xml.etree.ElementTree as ET
-        clipboard_str = context.window_manager.clipboard
-
-        palette_name = self.name
-        colors_to_add = []
-        # First, try to parse the string as XML
-        try:
-            root = ET.fromstring(clipboard_str)
-            entries = root.findall('color')
-            for color_entry in entries:
-                info = color_entry.attrib
-                if 'r' in info:
-                    r = int(info['r']) / 255.0
-                    g = int(info['g']) / 255.0
-                    b = int(info['b']) / 255.0
-                    colors_to_add.append(Color([r,g,b]))
-                elif 'rgb' in info:
-                    h = int(info['rgb'], 16)
-                    colors_to_add.append(hex_to_rgb(h))
-                if 'name' in info and len(palette_name)==0:
-                    palette_name = info['name']
-        except:
-            # Otherwise, regard it as a list and try to extract hex codes
-            try:
-                alnum_str = "".join(filter(str.isalnum, clipboard_str))
-                if len(palette_name)==0:
-                    palette_name = clipboard_str
-                i = 0
-                while(i+5<len(alnum_str)):
-                    hex_str = alnum_str[i:i+6]
-                    h = int(hex_str, 16)                  
-                    colors_to_add.append(hex_to_rgb(h))
-                    i += 6
-            except:
-                self.report({"WARNING"}, "Cannot recognize the pasted content.")
-                return {'FINISHED'}
-
-        if len(colors_to_add) == 0:
-            self.report({"INFO"}, "No available colors found in the clipboard.")
-        else:
-            new_palette = bpy.data.palettes.new(palette_name)
-            for color in colors_to_add:
-                new_palette.colors.new()
-                new_palette.colors[-1].color = color
-
-            # Generate tints and shades
-            if self.tints_level > 0:
-                # Add padding slots for better alignment
-                padding_slots = (10 - len(colors_to_add))%10
-                for _ in range(padding_slots):
-                    new_palette.colors.new()
-
-                padding_slots = (5 - len(colors_to_add))%5
-                for i in range(self.tints_level):
-                    factor = (i+1) / (self.tints_level + 1)
-                    # Add tints
-                    for color in colors_to_add:
-                        new_palette.colors.new()
-                        new_palette.colors[-1].color = color * (1-factor) + Color((1,1,1)) * factor  
-                    for _ in range(padding_slots):
-                        new_palette.colors.new()
-                    # Add shades
-                    for color in colors_to_add:
-                        new_palette.colors.new()
-                        new_palette.colors[-1].color = color * (1-factor) + Color((0,0,0)) * factor  
-                    for _ in range(padding_slots):
-                        new_palette.colors.new()
-                                      
-            total_num = len(colors_to_add) * (1+2*self.tints_level)
-            self.report({"INFO"}, "A new palette is created with " + str(total_num) + " colors.")
-
+        swatch_path = save_clipboard_text(self.name)
+        bpy.ops.gpencil.nijigp_import_swatch(
+            filepath = swatch_path,
+            directory = os.path.dirname(swatch_path),
+            files = [{"name": self.name}],
+            ignore_placeholders = False,
+            tints_level = self.tints_level
+        )
+        context.scene.tool_settings.gpencil_paint.palette = bpy.data.palettes[-1]
         return {'FINISHED'}

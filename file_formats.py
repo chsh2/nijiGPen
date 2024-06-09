@@ -482,3 +482,127 @@ class PsdFileWriter:
             file_bytes += struct.pack('>H',0) 
             file_bytes += self.merged_img_mat[:,:,i].tobytes()
         return file_bytes
+    
+    
+# Various palette/swatch formats
+from colorsys import hsv_to_rgb
+from mathutils import Color
+from .utils import hex_to_rgb
+import os
+
+class PaletteParser:
+    def __init__(self):
+        self.name = ''
+        self.colors = []
+
+    def parse_from_aco(self, path):
+        """
+        Read a Photoshop's Color Swatches palette file according to:
+        https://www.adobe.com/devnet-apps/photoshop/fileformatashtml/#50577411_pgfId-1055819
+        """
+        def parse_aco_color(byte_block, offset):
+            color_space_id, c0, c1, c2 = struct.unpack_from('>HHHH', byte_block, offset)
+            if color_space_id == 0:         # RGB
+                return Color((c0/65535.0, c1/65535.0, c2/65535.0))
+            elif color_space_id == 1:       # HSV
+                return Color(hsv_to_rgb(c0/65535.0, c1/65535.0, c2/65535.0))
+            else:                           # Other modes are not supported
+                return None
+            
+        with open(path, 'rb') as fd:
+            raw_bytes = fd.read()
+            byte_offset = 0
+            if len(raw_bytes) < 8:
+                return 1
+            version, color_count = struct.unpack_from('>HH', raw_bytes, byte_offset)
+            if version != 1:                # Ignore version 2
+                return 1
+            byte_offset += 4
+            for _ in range(color_count):
+                color = parse_aco_color(raw_bytes, byte_offset)
+                byte_offset += 10
+                if color != None:
+                    self.colors.append(color)
+            self.name = os.path.basename(path)
+            return 0
+                        
+    def parse_from_swatches(self, path, ignore_placeholders = True):
+        """
+        Read a .swatches file as compressed JSON
+        """
+        import zipfile, json
+        if not zipfile.is_zipfile(path):
+            return 1
+        with zipfile.ZipFile(path) as archive:
+            json_bytes = archive.read('Swatches.json')
+            json_dict = json.loads(json_bytes)
+            if isinstance(json_dict, list):
+                json_dict = json_dict[0]
+            if 'swatches' in json_dict:
+                for swatch in json_dict['swatches']:
+                    # Case of a placeholder
+                    if swatch == None:
+                        if not ignore_placeholders:
+                            self.colors.append(Color())
+                    # Use HSV data to generate colors
+                    else:
+                        if (('brightness' not in swatch) or ('hue' not in swatch) or ('saturation' not in swatch)):
+                            continue
+                        rgb = hsv_to_rgb(swatch['hue'], swatch['saturation'], swatch['brightness'])
+                        self.colors.append(Color(rgb))
+        self.name = os.path.basename(path)
+        return 0
+                            
+    def parse_from_xml(self, path):
+        """
+        Read colors from an XML file 
+        """
+        import xml.etree.ElementTree as ET
+        with open(path, 'r') as fd:
+            text = fd.read()
+            self.name = os.path.basename(path)
+            try:
+                root = ET.fromstring(text)
+                entries = root.findall('color')
+                for color_entry in entries:
+                    info = color_entry.attrib
+                    if 'r' in info and 'g' in info and 'b' in info:
+                        r = int(info['r']) / 255.0
+                        g = int(info['g']) / 255.0
+                        b = int(info['b']) / 255.0
+                        self.colors.append(Color([r,g,b]))
+                    elif 'rgb' in info:
+                        h = int(info['rgb'], 16)
+                        self.colors.append(hex_to_rgb(h))
+                    if 'name' in info:
+                        self.name = info['name']
+            except:
+                return 1            
+        return 0
+        
+    def parse_from_hex(self, path):
+        """
+        Extract HEX codes as colors from a plain text file
+        """
+        with open(path, 'r') as fd:
+            text = fd.read()
+            self.name = os.path.basename(path)
+            try:
+                alnum_str = "".join(filter(str.isalnum, text))
+                i = 0
+                while(i+5<len(alnum_str)):
+                    hex_str = alnum_str[i:i+6]
+                    h = int(hex_str, 16)                  
+                    self.colors.append(hex_to_rgb(h))
+                    i += 6
+            except:
+                return 1
+            return 0       
+    
+    def parse_auto(self, path):
+        """
+        For files with an unknown format, try different parsers until it is successfully parsed
+        """
+        if self.parse_from_xml(path) > 0:
+            return self.parse_from_hex(path)
+        return 0

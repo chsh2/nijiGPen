@@ -2,7 +2,8 @@ import os
 import bpy
 import struct
 from bpy_extras.io_utils import ImportHelper
-from ..file_formats import GbrParser, Abr1Parser, Abr6Parser, BrushsetParser, SutParser
+from mathutils import Color
+from ..file_formats import GbrParser, Abr1Parser, Abr6Parser, BrushsetParser, SutParser, PaletteParser
 from ..resources import get_cache_folder
 
 class ImportBrushOperator(bpy.types.Operator, ImportHelper):
@@ -324,7 +325,7 @@ class ImportBrushOperator(bpy.types.Operator, ImportHelper):
         return {'FINISHED'}
     
 class ImportSwatchOperator(bpy.types.Operator, ImportHelper):
-    """Import palette or swatch files. Currently supported formats: .swatches, .aco"""
+    """Import palette or swatch files. Currently supported formats: .swatches, .aco, .xml, .txt"""
     bl_idname = "gpencil.nijigp_import_swatch"
     bl_label = "Import Swatches"
     bl_category = 'View'
@@ -334,87 +335,74 @@ class ImportSwatchOperator(bpy.types.Operator, ImportHelper):
     files: bpy.props.CollectionProperty(type=bpy.types.OperatorFileListElement)
     filepath = bpy.props.StringProperty(name="File Path", subtype='FILE_PATH')
     filter_glob: bpy.props.StringProperty(
-        default='*.swatches;*.aco',
+        default='*.swatches;*.aco;*.xml;*.txt',
         options={'HIDDEN'}
     )
     ignore_placeholders: bpy.props.BoolProperty(
         name='Ignore Placeholders',
         default=False,
-        description='Placeholders in the swatch file will be treated as a black color slot if not ignored'
+        description='Some palette files contain empty color slots, which will be ignored when this option is enabled'
     )
-    
+    tints_level: bpy.props.IntProperty(
+        name='Tints and Shades',
+        min=0, max=10, default=0,
+        description='Extend the palette by generating tints and shades colors based on existing ones',
+    )
+        
     def draw(self, context):
         layout = self.layout
+        layout.prop(self, 'tints_level')
         layout.prop(self, 'ignore_placeholders')
     
     def execute(self, context):
-        import zipfile, json, struct
-        from colorsys import hsv_to_rgb
-        from mathutils import Color
-        
-        def parse_aco_color(byte_block, offset):
-            color_space_id, c0, c1, c2 = struct.unpack_from('>HHHH', byte_block, offset)
-            if color_space_id == 0:         # RGB
-                return Color((c0/65535.0, c1/65535.0, c2/65535.0))
-            elif color_space_id == 1:       # HSV
-                return Color(hsv_to_rgb(c0/65535.0, c1/65535.0, c2/65535.0))
-            else:                           # Other modes are not supported
-                return None
-        
-        total_colors, total_palettes = 0, 0
+        total_palettes = 0
         for f in self.files:
             filename = os.path.join(self.directory, f.name)
-            palette_name = 'Imported_Palette'
-            colors_to_add = []
+            parser = PaletteParser()
             
-            # Parse .swatches: a compressed json file
+            ret = 0
             if f.name.endswith('.swatches'):
-                with zipfile.ZipFile(filename) as archive:
-                    json_bytes = archive.read('Swatches.json')
-                    json_dict = json.loads(json_bytes)
-                    if isinstance(json_dict, list):
-                        json_dict = json_dict[0]
-                    if 'name' in json_dict:
-                        palette_name = json_dict['name']
-                    if 'swatches' in json_dict:
-                        for swatch in json_dict['swatches']:
-                            # Case of a placeholder
-                            if swatch == None:
-                                if not self.ignore_placeholders:
-                                    colors_to_add.append(Color())
-                                    total_colors -= 1
-                            # Use HSV data to generate colors
-                            else:
-                                if (('brightness' not in swatch) or ('hue' not in swatch) or ('saturation' not in swatch)):
-                                    continue
-                                rgb = hsv_to_rgb(swatch['hue'], swatch['saturation'], swatch['brightness'])
-                                colors_to_add.append(Color(rgb))
-            # Parse .aco: according to Photoshop file formats specification
+                ret = parser.parse_from_swatches(filename, self.ignore_placeholders)
             elif f.name.endswith('.aco'):  
-                with open(filename, 'rb') as fd:
-                    raw_bytes = fd.read()
-                    byte_offset = 0
-                    # File divided in two parts: currently only parse the first one
-                    for target_version in [1]:
-                        version, color_count = struct.unpack_from('>HH', raw_bytes, byte_offset)
-                        if version != target_version:
-                            break
-                        byte_offset += 4
-                        for _ in range(color_count):
-                            color = parse_aco_color(raw_bytes, byte_offset)
-                            byte_offset += 10
-                            if color != None:
-                                colors_to_add.append(color)
-                    palette_name = f.name
+                ret = parser.parse_from_aco(filename)
+            elif f.name.endswith('.xml'):  
+                ret = parser.parse_from_xml(filename)
+            elif f.name.endswith('.txt'):  
+                ret = parser.parse_from_hex(filename)
+            else:
+                ret = parser.parse_auto(filename)
+            if ret > 0:
+                self.report({"ERROR"}, f'The file {f.name} belongs to an unknown format and cannot be parsed.')
             
             # Create a new palette in Blender
-            if len(colors_to_add) > 0:
+            if len(parser.colors) > 0:
                 total_palettes += 1
-                new_palette = bpy.data.palettes.new(palette_name)
-                for color in colors_to_add:
+                new_palette = bpy.data.palettes.new(parser.name)
+                for color in parser.colors:
                     new_palette.colors.new()
                     new_palette.colors[-1].color = color
-                    total_colors += 1
+                    
+            # Generate tints and shades
+            if self.tints_level > 0:
+                # Add padding slots for better alignment
+                padding_slots = (10 - len(parser.colors))%10 if not self.ignore_placeholders else 0
+                for _ in range(padding_slots):
+                    new_palette.colors.new()
+                padding_slots = (5 - len(parser.colors))%5 if not self.ignore_placeholders else 0
+                for i in range(self.tints_level):
+                    factor = (i+1) / (self.tints_level + 1)
+                    # Add tints
+                    for color in parser.colors:
+                        new_palette.colors.new()
+                        new_palette.colors[-1].color = color * (1-factor) + Color((1,1,1)) * factor  
+                    for _ in range(padding_slots):
+                        new_palette.colors.new()
+                    # Add shades
+                    for color in parser.colors:
+                        new_palette.colors.new()
+                        new_palette.colors[-1].color = color * (1-factor) + Color((0,0,0)) * factor  
+                    for _ in range(padding_slots):
+                        new_palette.colors.new()
 
-        self.report({"INFO"}, f'Finish importing {total_palettes} palette(s) and {total_colors} color(s).')
+        self.report({"INFO"}, f'Finish importing {total_palettes} palette(s).')
         return {'FINISHED'}
