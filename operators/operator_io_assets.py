@@ -5,6 +5,7 @@ from bpy_extras.io_utils import ImportHelper
 from mathutils import Color
 from ..file_formats import GbrParser, Abr1Parser, Abr6Parser, BrushsetParser, SutParser, PaletteParser
 from ..resources import get_cache_folder
+from ..utils import *
 
 class ImportBrushOperator(bpy.types.Operator, ImportHelper):
     """Extract textures of brushes exported from painting software and append them to the current file"""
@@ -373,7 +374,8 @@ class ImportSwatchOperator(bpy.types.Operator, ImportHelper):
                 ret = parser.parse_auto(filename)
             if ret > 0:
                 self.report({"ERROR"}, f'The file {f.name} belongs to an unknown format and cannot be parsed.')
-            
+                return {'FINISHED'}
+                
             # Create a new palette in Blender
             if len(parser.colors) > 0:
                 total_palettes += 1
@@ -405,4 +407,162 @@ class ImportSwatchOperator(bpy.types.Operator, ImportHelper):
                         new_palette.colors.new()
 
         self.report({"INFO"}, f'Finish importing {total_palettes} palette(s).')
+        return {'FINISHED'}
+    
+class AppendSVGOperator(bpy.types.Operator, ImportHelper):
+    """Similar to the native SVG import tool, but append SVG to the active object instead of creating a new one"""
+    bl_idname = "gpencil.nijigp_append_svg"
+    bl_label = "Append SVG"
+    bl_category = 'View'
+    bl_options = {'REGISTER', 'UNDO'}
+
+    directory: bpy.props.StringProperty(subtype='DIR_PATH')
+    files: bpy.props.CollectionProperty(type=bpy.types.OperatorFileListElement)
+    filepath = bpy.props.StringProperty(name="File Path", subtype='FILE_PATH')
+    filter_glob: bpy.props.StringProperty(
+        default='*.svg',
+        options={'HIDDEN'}
+    )
+    
+    svg_resolution: bpy.props.IntProperty(
+            name='Resolution',
+            min=1, max=50, default=10,
+            description='Resolution of pasted SVG',
+    )
+    svg_scale: bpy.props.FloatProperty(
+            name='Scale',
+            min=0, max=100, default=50,
+            description='Scale of pasted SVG',
+    )
+    auto_holdout: bpy.props.BoolProperty(
+            name='Auto Holdout',
+            default=False,
+            description='Change materials of holes (SVG polygons with negative area) to holdout and move holes to front'
+    )
+    image_sequence: bpy.props.BoolProperty(
+            name='Image Sequence',
+            default=False,
+            description='Import each SVG as a new frame rather than a new layer'
+    )
+    frame_step: bpy.props.IntProperty(
+            name='Frame Step',
+            default=1, min=1,
+            description='The number of frames between two generated keyframes'
+    )
+    reuse_materials: bpy.props.BoolProperty(
+            name='Reuse Materials',
+            default=False,
+            description='Share the materials among all appended SVG instead of creating new materials'
+    ) 
+    
+    def draw(self, context):
+        layout = self.layout
+        layout.label(text = "Geometry Options:")
+        box1 = layout.box()
+        box1.prop(self, "svg_resolution")
+        box1.prop(self, "svg_scale")
+        layout.label(text = "Material Options:")
+        box2 = layout.box()
+        box2.prop(self, "auto_holdout")
+        box2.prop(self, "reuse_materials")
+        layout.label(text = "Animation Options:")
+        box3 = layout.box()
+        box3.prop(self, "image_sequence")
+        if self.image_sequence:
+            box3.prop(self, "frame_step")
+            
+    def execute(self, context):
+        current_gp_obj = context.object
+        current_material_idx = context.object.active_material_index
+        current_frame_number = context.scene.frame_current
+        use_multiedit = current_gp_obj.data.use_multiedit
+        t_mat, inv_mat = get_transformation_mat(mode=context.scene.nijigp_working_plane, gp_obj=current_gp_obj)
+
+        frame_number = current_frame_number
+        current_gp_obj.data.use_multiedit = self.image_sequence
+        multiframe_svg_name = None
+        for f in self.files:
+            filename = os.path.join(self.directory, f.name)
+            if not multiframe_svg_name:
+                multiframe_svg_name = f.name
+            
+            # Call the native SVG import operator
+            bpy.ops.object.mode_set(mode='OBJECT')
+            if bpy.app.version > (3, 3, 0):
+                bpy.ops.wm.gpencil_import_svg("EXEC_DEFAULT", filepath=filename, directory=self.directory, files=[{"name":f.name}], resolution=self.svg_resolution, scale=self.svg_scale)
+            else:
+                bpy.ops.wm.gpencil_import_svg("EXEC_DEFAULT", filepath=filename, resolution=self.svg_resolution, scale = self.svg_scale)
+            new_gp_obj: bpy.types.Object = context.object
+            if new_gp_obj == current_gp_obj or len(new_gp_obj.data.layers) < 1:
+                self.report({"ERROR"}, "No data can be imported. Import failed.")
+                return {'FINISHED'}            
+
+            # Merge layers and materials
+            bpy.ops.gpencil.layer_merge(mode='ALL')
+            new_gp_obj.data.layers[0].info = f.name
+            mat_name_prefix = 'SVG' if self.reuse_materials else \
+                              multiframe_svg_name if self.image_sequence else f.name
+            for slot in new_gp_obj.material_slots:
+                gp_mat = slot.material.grease_pencil
+                if gp_mat.show_fill and not gp_mat.show_stroke:
+                    mat_name = f'{mat_name_prefix}_Fill'
+                elif gp_mat.show_stroke and not gp_mat.show_fill:
+                    mat_name = f'{mat_name_prefix}_Line'
+                else:
+                    mat_name = f'{mat_name_prefix}_Both'
+                    
+                if mat_name in bpy.data.materials:
+                    slot.material = bpy.data.materials[mat_name]
+                else:
+                    slot.material.name = mat_name            
+            
+            # Move all strokes to the existing GP object and delete the new object
+            current_gp_obj.select_set(True)
+            bpy.ops.gpencil.layer_duplicate_object(mode='ALL', only_active=False)
+            bpy.ops.object.select_all(action='DESELECT')
+            new_gp_obj.select_set(True)
+            bpy.ops.object.delete()
+            context.view_layer.objects.active = current_gp_obj
+            bpy.ops.object.mode_set(mode='EDIT_GPENCIL')
+            bpy.ops.gpencil.select_all(action='DESELECT')
+            current_gp_obj.select_set(True)
+            
+            # Transform the figure to the working 2D plane
+            # Default plane is X-Z for imported SVG. Convert it to X-Y first
+            z_to_y_mat = Matrix([(1,0,0), (0,0,1), (0,1,0)])
+            for stroke in context.object.data.layers[0].active_frame.strokes:
+                for point in stroke.points:
+                    point.co = inv_mat @ z_to_y_mat @ point.co
+            if context.scene.tool_settings.gpencil_stroke_placement_view3d == 'CURSOR':
+                bpy.ops.transform.translate(value=context.scene.cursor.location)
+                        
+            # Set animation data
+            if self.image_sequence:
+                frame_number += self.frame_step
+                current_gp_obj.data.layers[0].frames.new(frame_number)
+                context.scene.frame_set(frame_number)
+
+        # Merge layers of different frames
+        if self.image_sequence:
+            current_gp_obj.data.layers.active_index = len(self.files) - 1
+            for i in range(len(self.files) - 1):
+                bpy.ops.gpencil.layer_merge(mode='ACTIVE')
+            current_gp_obj.data.layers[0].info = multiframe_svg_name
+        
+        # Select imported strokes
+        for i in range(len(self.files)):
+            if self.image_sequence and i > 0:
+                break
+            for frame in context.object.data.layers[i].frames:
+                for stroke in frame.strokes:
+                    stroke.select = True
+        
+        if self.auto_holdout:
+            bpy.ops.gpencil.nijigp_hole_processing(rearrange=True, separate_colors=True)
+        
+        # Recover the state
+        context.object.active_material_index = current_material_idx
+        context.scene.frame_set(current_frame_number)
+        current_gp_obj.data.use_multiedit = use_multiedit
+
         return {'FINISHED'}
