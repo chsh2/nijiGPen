@@ -142,6 +142,8 @@ class NIJIGP_PT_edit_panel_polygon(bpy.types.Panel):
         row.operator("gpencil.nijigp_bool_selected", text="-", icon="SELECT_SUBTRACT").operation_type = 'DIFFERENCE'
         row.operator("gpencil.nijigp_bool_selected", text="×", icon="SELECT_INTERSECT").operation_type = 'INTERSECTION'
         row = layout.row()
+        row.operator("gpencil.nijigp_fracture_selected", text="Fracture Selected", icon="MOD_EXPLODE")
+        row = layout.row()
         row.operator("gpencil.nijigp_hatch_fill", text="Hatch Fill", icon="ALIGN_JUSTIFY")
         row = layout.row()
         row.operator("gpencil.nijigp_shade_selected", text="Calculate Shading", icon="SHADING_RENDERED")

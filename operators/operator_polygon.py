@@ -419,6 +419,146 @@ class OffsetSelectedOperator(bpy.types.Operator, ColorTintConfig):
 
         return {'FINISHED'}
 
+
+class FractureSelectedOperator(bpy.types.Operator):
+    """Split the paths of multiple selected polygons into non-overlapping parts"""
+    bl_idname = "gpencil.nijigp_fracture_selected"
+    bl_label = "Fracture Selected"
+    bl_category = 'View'
+    bl_options = {'REGISTER', 'UNDO'}
+
+    keep_original: bpy.props.BoolProperty(
+            name='Keep Original',
+            default=False,
+            description='Do not delete the original strokes'
+    )
+
+    def draw(self, context):
+        layout = self.layout
+        row = layout.row()
+        row.prop(self, "keep_original")
+
+    def execute(self, context):
+
+        # Import and configure Clipper
+        try:
+            import pyclipper
+        except ImportError:
+            self.report({"ERROR"}, "Please install PyClipper in the Preferences panel.")
+            return {'FINISHED'}
+        clipper = pyclipper.Pyclipper()
+        clipper.PreserveCollinear = True
+        clipper.StrictlySimple = True
+        
+        # Get a list of layers / frames to process
+        current_gp_obj = context.object
+        frames_to_process = get_input_frames(current_gp_obj,
+                                             multiframe = current_gp_obj.data.use_multiedit,
+                                             return_map = True)
+
+        select_map = save_stroke_selection(current_gp_obj)
+        generated_strokes = []
+        for frame_number, layer_frame_map in frames_to_process.items():
+            load_stroke_selection(current_gp_obj, select_map)
+            stroke_info = []
+            stroke_list = []
+            select_seq_map = {}
+
+            # Convert selected strokes to 2D polygon point lists
+            for i,item in layer_frame_map.items():
+                frame = item[0]
+                layer = current_gp_obj.data.layers[i]
+                if hasattr(frame, "strokes"):
+                    for j,stroke in enumerate(frame.strokes):
+                        if stroke.select and not is_stroke_locked(stroke, current_gp_obj):
+                            stroke_info.append([stroke, i, j, frame])
+                            stroke_list.append(stroke)
+                            select_seq_map[len(stroke_list) - 1] = select_map[layer][frame][stroke]
+                            
+            t_mat, inv_mat = get_transformation_mat(mode=context.scene.nijigp_working_plane,
+                                                    gp_obj=current_gp_obj, 
+                                                    strokes=stroke_list, operator=self)
+            poly_list, depth_list, scale_factor = get_2d_co_from_strokes(stroke_list, t_mat,
+                                                                         scale=True,
+                                                                         correct_orientation = True)
+
+            # Boolean operation requires at least two shapes
+            if len(stroke_info) < 2:
+                continue
+
+            poly_results = []
+            def generate_new_strokes():
+                if len(poly_results) > 0:
+                    for result in poly_results:
+                        if len(result) == 0:
+                            continue
+                        new_stroke, new_index, new_layer_index = generate_stroke_from_2d(result, inv_mat, poly_list, depth_list,
+                                                                                         stroke_info, current_gp_obj, scale_factor,    
+                                                                                         rearrange = True)
+                        generated_strokes.append(new_stroke)
+                        new_stroke.use_cyclic = True
+                        # Update the stroke index
+                        for info in stroke_info:
+                            if new_index <= info[2] and new_layer_index == info[1]:
+                                info[2] += 1
+
+            def fracture_pair(poly1, poly2):
+                """
+                Split two polygon paths by returning A-B and A*B
+                """
+                clipper.Clear()
+                clipper.AddPath(poly1, pyclipper.PT_SUBJECT, True)
+                clipper.AddPath(poly2, pyclipper.PT_CLIP, True)
+                part1 = clipper.Execute(pyclipper.CT_DIFFERENCE, pyclipper.PFT_NONZERO, pyclipper.PFT_NONZERO)
+                clipper.Clear()
+                clipper.AddPath(poly1, pyclipper.PT_SUBJECT, True)
+                clipper.AddPath(poly2, pyclipper.PT_CLIP, True)
+                part2 = clipper.Execute(pyclipper.CT_INTERSECTION, pyclipper.PFT_NONZERO, pyclipper.PFT_NONZERO)                       
+                return part1 + part2
+            
+            # Starting from 2 polygons, calculate A-B, B-A, A*B as initial paths. Also calculate A+B for future usage
+            clipper.Clear()
+            clipper.AddPath(poly_list[0], pyclipper.PT_SUBJECT, True)
+            clipper.AddPath(poly_list[1], pyclipper.PT_CLIP, True)
+            total_union = clipper.Execute(pyclipper.CT_UNION, pyclipper.PFT_NONZERO, pyclipper.PFT_NONZERO)[0]
+            poly_results = fracture_pair(poly_list[0], poly_list[1])
+            clipper.Clear()
+            clipper.AddPath(poly_list[1], pyclipper.PT_SUBJECT, True)
+            clipper.AddPath(poly_list[0], pyclipper.PT_CLIP, True)
+            poly_results += clipper.Execute(pyclipper.CT_DIFFERENCE, pyclipper.PFT_NONZERO, pyclipper.PFT_NONZERO)
+            poly_results = [_ for _ in poly_results if len(_) > 0]
+            # Execute Boolean operations for each remaining polygon
+            for i in range(2, len(poly_list)):
+                tmp_res = []
+                # Do fracture with each previously generated path
+                for poly in poly_results:
+                    tmp_res += fracture_pair(poly, poly_list[i])
+                # Do fracture with the union path
+                clipper.Clear()
+                clipper.AddPath(poly_list[i], pyclipper.PT_SUBJECT, True)
+                clipper.AddPath(total_union, pyclipper.PT_CLIP, True)
+                tmp_res += clipper.Execute(pyclipper.CT_DIFFERENCE, pyclipper.PFT_NONZERO, pyclipper.PFT_NONZERO)                
+                poly_results = [_ for _ in tmp_res if len(_) > 0]
+                # Update the union path
+                clipper.Clear()
+                clipper.AddPath(total_union, pyclipper.PT_SUBJECT, True)
+                clipper.AddPath(poly_list[i], pyclipper.PT_CLIP, True)
+                total_union = clipper.Execute(pyclipper.CT_UNION, pyclipper.PFT_NONZERO, pyclipper.PFT_NONZERO)[0]
+            generate_new_strokes()
+            
+            # Delete old strokes
+            for i,info in enumerate(stroke_info):
+                if not self.keep_original:
+                    stroke_info[i][3].strokes.remove(info[0])
+
+        # Post-processing
+        refresh_strokes(current_gp_obj, list(frames_to_process.keys()))
+        bpy.ops.gpencil.select_all(action='DESELECT')
+        for stroke in generated_strokes:
+            stroke.select = True
+
+        return {'FINISHED'}
+
 class BoolSelectedOperator(bpy.types.Operator):
     """Execute boolean operations on selected strokes"""
     bl_idname = "gpencil.nijigp_bool_selected"
@@ -495,6 +635,7 @@ class BoolSelectedOperator(bpy.types.Operator):
             return {'FINISHED'}
         clipper = pyclipper.Pyclipper()
         clipper.PreserveCollinear = True
+        clipper.StrictlySimple = True
 
         op = pyclipper.CT_UNION
         if self.operation_type == 'INTERSECTION':
@@ -503,7 +644,6 @@ class BoolSelectedOperator(bpy.types.Operator):
             op = pyclipper.CT_DIFFERENCE
         elif self.operation_type == 'XOR':
             op = pyclipper.CT_XOR
-
         
         # Get a list of layers / frames to process
         current_gp_obj = context.object
@@ -672,6 +812,7 @@ class BoolLastOperator(bpy.types.Operator):
             return {'FINISHED'}
         clipper = pyclipper.Pyclipper()
         clipper.PreserveCollinear = True
+        clipper.StrictlySimple = True
         
         op = pyclipper.CT_UNION
         if self.operation_type == 'INTERSECTION':
