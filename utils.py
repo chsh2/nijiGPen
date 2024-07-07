@@ -222,6 +222,61 @@ def stroke_bound_box_overlapping(s1, s2, t_mat):
             return False
     return True        
 
+def get_2d_stroke_outline(path_2d, stroke, scale_factor = 1, path_inverted = False, resolution = 32):
+    """
+    Given the 2D path and point radius data of a stroke, return its outline polygon.
+    Different from Blender native operator, this one uses boolean to avoid generating a self-overlapping path.
+    """
+    path = list(reversed(path_2d)) if path_inverted else path_2d
+    if len(path) < 2:
+        return []
+    import pyclipper
+    clipper = pyclipper.Pyclipper()
+    clipper.PreserveCollinear = True
+    clipper.StrictlySimple = True
+
+    radius_profile = [p.pressure * stroke.line_width / LINE_WIDTH_FACTOR * scale_factor for p in stroke.points]
+    length_from_start = [0 for _ in range(len(stroke.points))]
+    normals = [None for _ in range(len(stroke.points))]
+
+    # Get normal direction of each point
+    for i in range(len(stroke.points) - 1):
+        direction = Vector(path[i+1]) - Vector(path[i])
+        length_from_start[i+1] = length_from_start[i] + direction.length
+        normals[i] = Vector((-direction[1], direction[0])).normalized()
+    normals[-1] = normals[-2]
+    true_normals = normals.copy()
+    for i in range(1, len(stroke.points) - 1):
+        true_normals[i] = 0.5 * (normals[i] + normals[i-1])
+
+    # Draw each segment as a quad
+    for i in range(len(stroke.points) - 1):
+        quad = [Vector(path[i]) - radius_profile[i] * true_normals[i],
+                Vector(path[i]) + radius_profile[i] * true_normals[i],
+                Vector(path[i+1]) + radius_profile[i+1] * true_normals[i+1],
+                Vector(path[i+1]) - radius_profile[i+1] * true_normals[i+1]]
+        if not pyclipper.Orientation(quad):
+            quad.reverse()
+        clipper.AddPath(quad, pyclipper.PT_SUBJECT, True)
+
+    # Draw each line joint as a circle
+    for i in range(len(stroke.points)):
+        if radius_profile[i] < 1:
+            continue
+        if stroke.start_cap_mode == 'FLAT' and length_from_start[i] < radius_profile[0]:
+            continue
+        elif stroke.end_cap_mode == 'FLAT' and (length_from_start[-1] - length_from_start[i]) < radius_profile[-1]:
+            continue
+        else:     
+            angles = np.linspace(0, 2* np.pi, resolution, endpoint=False)
+            joint = [ [path[i][0] + radius_profile[i] * math.cos(angle), 
+                        path[i][1] + radius_profile[i] * math.sin(angle)] for angle in angles ]
+        if not pyclipper.Orientation(joint):
+            joint.reverse()
+        clipper.AddPath(joint, pyclipper.PT_SUBJECT, True)
+    res = clipper.Execute(pyclipper.CT_UNION, pyclipper.PFT_NONZERO, pyclipper.PFT_NONZERO)
+    return res
+
 #endregion
 
 #region [Bpy Utilities]

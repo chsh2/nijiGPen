@@ -865,26 +865,20 @@ class BoolLastOperator(bpy.types.Operator):
             bpy.ops.object.mode_set(mode='PAINT_GPENCIL')
             return {'FINISHED'}
 
-        poly_list, depth_list, scale_factor = get_2d_co_from_strokes(stroke_list, t_mat,
-                                                                     scale = True, correct_orientation = True)
+        poly_list, depth_list, poly_inverted, scale_factor = get_2d_co_from_strokes(stroke_list, t_mat,
+                                                                     scale=True, correct_orientation=True, return_orientation=True)
         
         # Convert line to poly shape if needed
         if self.clip_mode == 'LINE':
-            clipper_offset = pyclipper.PyclipperOffset()
-            jt = pyclipper.JT_ROUND
-            et = pyclipper.ET_OPENROUND
-            if clip_stroke.end_cap_mode == 'FLAT':
-                et = pyclipper.ET_OPENBUTT
-            clipper_offset.AddPath(poly_list[0], join_type = jt, end_type = et)
-            clip_poly = clipper_offset.Execute(clip_stroke.line_width / LINE_WIDTH_FACTOR * scale_factor)[0]
+            clip_polys = get_2d_stroke_outline(poly_list[0], clip_stroke, scale_factor, poly_inverted[0])
         else:
-            clip_poly = poly_list[0]
+            clip_polys = [poly_list[0]]
 
         # Operate on the last stroke with any other stroke one by one
         for j in range(1, len(stroke_list)):
             clipper.Clear()
             clipper.AddPath(poly_list[j], pyclipper.PT_SUBJECT, True)
-            clipper.AddPath(clip_poly, pyclipper.PT_CLIP, True)
+            clipper.AddPaths(clip_polys, pyclipper.PT_CLIP, True)
             poly_results = clipper.Execute(op, pyclipper.PFT_NONZERO, pyclipper.PFT_NONZERO)
 
             if len(poly_results) > 0:
