@@ -560,7 +560,7 @@ class FractureSelectedOperator(bpy.types.Operator):
         return {'FINISHED'}
 
 class BoolSelectedOperator(bpy.types.Operator):
-    """Execute boolean operations on selected strokes"""
+    """Execute Boolean operations on selected strokes"""
     bl_idname = "gpencil.nijigp_bool_selected"
     bl_label = "Boolean of Selected"
     bl_category = 'View'
@@ -755,7 +755,7 @@ class BoolSelectedOperator(bpy.types.Operator):
         return {'FINISHED'}
 
 class BoolLastOperator(bpy.types.Operator):
-    """Execute boolean operations with the latest drawn strokes"""
+    """Execute Boolean operations with the latest drawn strokes"""
     bl_idname = "gpencil.nijigp_bool_last"
     bl_label = "Boolean with Last Stroke"
     bl_category = 'View'
@@ -903,6 +903,7 @@ class BoolLastOperator(bpy.types.Operator):
             layer_index = info[1]
             current_gp_obj.data.layers[layer_index].active_frame.strokes.remove(info[0])
 
+        refresh_strokes(current_gp_obj, [context.scene.frame_current])
         bpy.ops.object.mode_set(mode='PAINT_GPENCIL')
         return {'FINISHED'}
     

@@ -237,29 +237,38 @@ def get_2d_stroke_outline(path_2d, stroke, scale_factor = 1, path_inverted = Fal
 
     radius_profile = [p.pressure * stroke.line_width / LINE_WIDTH_FACTOR * scale_factor for p in stroke.points]
     length_from_start = [0 for _ in range(len(stroke.points))]
-    normals = [None for _ in range(len(stroke.points))]
+    forwarding_normals = [None for _ in range(len(stroke.points) - 1)]
 
     # Get normal direction of each point
     for i in range(len(stroke.points) - 1):
         direction = Vector(path[i+1]) - Vector(path[i])
         length_from_start[i+1] = length_from_start[i] + direction.length
-        normals[i] = Vector((-direction[1], direction[0])).normalized()
-    normals[-1] = normals[-2]
-    true_normals = normals.copy()
-    for i in range(1, len(stroke.points) - 1):
-        true_normals[i] = 0.5 * (normals[i] + normals[i-1])
+        forwarding_normals[i] = Vector((-direction[1], direction[0])).normalized()
 
     # Draw each segment as a quad
     for i in range(len(stroke.points) - 1):
-        quad = [Vector(path[i]) - radius_profile[i] * true_normals[i],
-                Vector(path[i]) + radius_profile[i] * true_normals[i],
-                Vector(path[i+1]) + radius_profile[i+1] * true_normals[i+1],
-                Vector(path[i+1]) - radius_profile[i+1] * true_normals[i+1]]
-        if not pyclipper.Orientation(quad):
+        quad = [Vector(path[i]) - radius_profile[i] * forwarding_normals[i],
+                Vector(path[i]) + radius_profile[i] * forwarding_normals[i],
+                Vector(path[i+1]) + radius_profile[i+1] * forwarding_normals[i],
+                Vector(path[i+1]) - radius_profile[i+1] * forwarding_normals[i]]
+        area = pyclipper.Area(quad)
+        if area < 0:
             quad.reverse()
-        clipper.AddPath(quad, pyclipper.PT_SUBJECT, True)
-
-    # Draw each line joint as a circle
+        if area > 1 or area < -1:
+            clipper.AddPath(quad, pyclipper.PT_SUBJECT, True)
+            
+        if i != len(stroke.points) - 2:
+            joint = [Vector(path[i+1]) + radius_profile[i+1] * forwarding_normals[i],
+                     Vector(path[i+1]) + radius_profile[i+1] * forwarding_normals[i+1],
+                     Vector(path[i+1]) - radius_profile[i+1] * forwarding_normals[i],
+                     Vector(path[i+1]) - radius_profile[i+1] * forwarding_normals[i+1]]
+            area = pyclipper.Area(joint)
+            if area < 0:
+                joint.reverse()
+            if area > 1 or area < -1:
+                clipper.AddPath(joint, pyclipper.PT_SUBJECT, True)   
+        
+    # Draw a circle at specific joints
     for i in range(len(stroke.points)):
         if radius_profile[i] < 1:
             continue
@@ -269,11 +278,11 @@ def get_2d_stroke_outline(path_2d, stroke, scale_factor = 1, path_inverted = Fal
             continue
         else:     
             angles = np.linspace(0, 2* np.pi, resolution, endpoint=False)
-            joint = [ [path[i][0] + radius_profile[i] * math.cos(angle), 
+            circle = [ [path[i][0] + radius_profile[i] * math.cos(angle), 
                         path[i][1] + radius_profile[i] * math.sin(angle)] for angle in angles ]
-        if not pyclipper.Orientation(joint):
-            joint.reverse()
-        clipper.AddPath(joint, pyclipper.PT_SUBJECT, True)
+        if not pyclipper.Orientation(circle):
+            circle.reverse()
+        clipper.AddPath(circle, pyclipper.PT_SUBJECT, True)
     res = clipper.Execute(pyclipper.CT_UNION, pyclipper.PFT_NONZERO, pyclipper.PFT_NONZERO)
     return res
 

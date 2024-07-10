@@ -7,6 +7,99 @@ from .resources import *
 from .operators.common import ColorTintConfig, refresh_strokes
 from .operators.operator_fill import lineart_triangulation
 
+class BooleanModalOperator(bpy.types.Operator):
+    """Use mouse or pen to draw shapes for Boolean operations"""
+    bl_idname = "gpencil.nijigp_boolean_modal"
+    bl_label = "Boolean (Modal)"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    use_pressure: bpy.props.BoolProperty(
+        name='Use Pressure',
+        default=True,
+    )
+    caps_type: bpy.props.EnumProperty(
+        name='Caps Type',
+        items=[('ROUND', 'Round', ''),
+                ('FLAT', 'Flat', ''),
+                ('TAPER', 'Taper', '')],
+        default='ROUND'
+    )
+    operation_type: bpy.props.EnumProperty(
+        name='Operation',
+        items=[('DIFFERENCE', 'Erase', ''),
+                ('UNION', 'Append', '')],
+        default='DIFFERENCE'
+    )
+
+    def boolean_eraser_setup(self, context):
+        # Create a temporary material for preview only
+        mat = bpy.data.materials.new('nijigp_Boolean_Eraser_Preview')
+        bpy.data.materials.create_gpencil_data(mat)
+        mat.grease_pencil.color[3] = 0.5
+        context.active_object.data.materials.append(mat)
+        
+        frame = context.active_object.data.layers.active.active_frame
+        stroke = frame.strokes.new()
+        stroke.line_width = context.scene.tool_settings.gpencil_paint.brush.size
+        stroke.material_index = len(context.active_object.data.materials) - 1
+        stroke.start_cap_mode = 'FLAT' if self.caps_type == 'FLAT' else 'ROUND'
+        stroke.end_cap_mode = 'FLAT' if self.caps_type == 'FLAT' else 'ROUND'
+        self._stroke = stroke
+
+    def boolean_eraser_update(self, context, event):
+        origin = (0,0,0)
+        if context.scene.tool_settings.gpencil_stroke_placement_view3d == 'CURSOR':
+            origin = context.scene.cursor.location
+        self._raw_pressure.append(event.pressure if self.use_pressure else 1)
+        self._stroke.points.add(1, pressure=self._raw_pressure[-1])
+        self._stroke.points[-1].co = view3d_utils.region_2d_to_location_3d(context.region,
+                                    context.space_data.region_3d,
+                                    (event.mouse_region_x, event.mouse_region_y), origin)
+        # For taper mode, reshape the whole stroke 
+        if self.caps_type == 'TAPER' and len(self._stroke.points) > 1:
+            for i,point in enumerate(self._stroke.points):
+                factor = i / (len(self._stroke.points) - 1)
+                point.pressure = self._raw_pressure[i] * factor * (1-factor) * 4
+
+    def boolean_eraser_finalize(self, context):
+        # Execute Draw mode Boolean operator
+        self._stroke.material_index = context.active_object.active_material_index
+        refresh_strokes(context.active_object, [context.scene.frame_current])
+        bpy.ops.gpencil.nijigp_bool_last(
+            operation_type = self.operation_type,
+            clip_mode = 'LINE'
+        )
+        # If the newly drawn stroke still exist, remove it
+        frame = context.active_object.data.layers.active.active_frame
+        if self._stroke == frame.strokes[-1]:
+            frame.strokes.remove(self._stroke)
+        # Purge the temporary preview material
+        mat = bpy.data.materials['nijigp_Boolean_Eraser_Preview']
+        context.active_object.data.materials.pop()
+        bpy.data.materials.remove(mat)
+
+    def modal(self, context, event): 
+        if event.type == 'MOUSEMOVE' and event.pressure > 0:
+            if event.mouse_x != self._last_x or event.mouse_y != self._last_y:
+                self._last_x, self._last_y = event.mouse_x, event.mouse_y
+                self.boolean_eraser_update(context, event)
+                return {'RUNNING_MODAL'}
+        if event.type in {'LEFTMOUSE'} and event.value == 'RELEASE':
+            self.boolean_eraser_finalize(context)
+            context.scene.tool_settings.use_gpencil_draw_onback = self._onback
+            return {'FINISHED'}
+        return {'RUNNING_MODAL'}
+
+    def invoke(self, context, event):
+        self._onback = context.scene.tool_settings.use_gpencil_draw_onback
+        self._stroke = None
+        self._raw_pressure = []
+        self._last_x, self._last_y = -1, -1
+        context.scene.tool_settings.use_gpencil_draw_onback = False
+        self.boolean_eraser_setup(context)
+        context.window_manager.modal_handler_add(self)
+        return {'RUNNING_MODAL'}  
+
 class SmartFillModalOperator(bpy.types.Operator):
     """Filling areas by giving hints with mouse clicks"""
     bl_idname = "gpencil.nijigp_smart_fill_modal"
@@ -482,6 +575,39 @@ class ArrangeModalOperator(bpy.types.Operator):
         context.window_manager.modal_handler_add(self)
         return {'RUNNING_MODAL'}
 
+class BooleanEraserTool(bpy.types.WorkSpaceTool):
+    bl_space_type = 'VIEW_3D'
+    bl_context_mode = 'PAINT_GPENCIL'
+    bl_idname = "nijigp.boolean_eraser_tool"
+    bl_label = "Boolean Eraser"
+    bl_description = (
+        "Use mouse or pen drawing to perform Boolean operations"
+    )
+    bl_icon = get_workspace_tool_icon('ops.nijigp.boolean_eraser_tool')
+    bl_cursor = 'ERASER'
+    bl_widget = None
+    bl_keymap = (
+        ("gpencil.nijigp_boolean_modal", {"type": 'LEFTMOUSE', "value": 'PRESS'},
+         {"properties": []}),
+    )
+    def draw_settings(context, layout, tool):
+        props = tool.operator_properties("gpencil.nijigp_boolean_modal")
+        gp_settings = context.scene.tool_settings.gpencil_paint
+        active_material_name = context.object.active_material.name if context.object.active_material else ""
+        
+        # Brush setting panel imitating the native style
+        row = layout.row(align=True)
+        row.popover(panel="TOPBAR_PT_gpencil_materials", text=active_material_name)
+        row = layout.row(align=True)
+        row.prop(gp_settings.brush, "size", text="Radius")
+        row.prop(props, "use_pressure", text="", icon='STYLUS_PRESSURE')
+        layout.prop(props, "caps_type")
+        layout.prop(props, "operation_type")
+        
+        layout.label(text="Affected Strokes:")
+        layout.prop(context.scene, "nijigp_draw_bool_material_constraint", text = "")
+        layout.prop(context.scene, "nijigp_draw_bool_fill_constraint", text = "")        
+
 class SmartFillTool(bpy.types.WorkSpaceTool):
     bl_space_type = 'VIEW_3D'
     bl_context_mode = 'PAINT_GPENCIL'
@@ -660,8 +786,10 @@ def register_viewport_tools():
     bpy.utils.register_tool(SweepTool, after={OffsetTool.bl_idname})
     # Draw mode tools
     bpy.utils.register_tool(SmartFillTool, after={"builtin.circle"}, separator=True, group=True)
+    bpy.utils.register_tool(BooleanEraserTool, after={SmartFillTool.bl_idname})
 
 def unregister_viewport_tools():
     bpy.utils.unregister_tool(OffsetTool)
     bpy.utils.unregister_tool(SweepTool)
     bpy.utils.unregister_tool(SmartFillTool)
+    bpy.utils.unregister_tool(BooleanEraserTool)
