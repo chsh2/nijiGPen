@@ -355,17 +355,9 @@ class ImportLineImageOperator(bpy.types.Operator, ImportHelper):
                         point.vertex_color[2] = srgb_to_linear(denoised_mat[img_co[0], img_co[1], min(2, img_obj.channels-1)])
                 frame_strokes[-1].select = True
                 
-                # TODO: implement a standard smoothing function for different operators
                 if self.smooth_level > 0 and point_count > 2:
-                    kernel = np.array([1.0/3, 1.0/3, 1.0/3])
-                    attr_info = {'co':3, 'strength':1, 'pressure':1, 'vertex_color':4}
-                    for name in attr_info:
-                        attr_values = np.zeros( point_count * attr_info[name] )
-                        frame_strokes[-1].points.foreach_get(name, attr_values)
-                        for _ in range(self.smooth_level):
-                            for dim in range(attr_info[name]):
-                                attr_values[dim::attr_info[name]][1:-1] = np.convolve(attr_values[dim::attr_info[name]], kernel, mode='same')[1:-1]
-                        frame_strokes[-1].points.foreach_set(name, attr_values)
+                    smooth_stroke_attributes(frame_strokes[-1], self.smooth_level, 
+                                             {'co':3, 'strength':1, 'pressure':1, 'vertex_color':4})
 
         # Main processing loop
         processed_frame_numbers = []

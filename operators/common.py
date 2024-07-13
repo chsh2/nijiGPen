@@ -207,6 +207,24 @@ def copy_stroke_attributes(dst: bpy.types.GPencilStroke, srcs,
         for i in range(4):
             dst.vertex_color_fill[i] = color_fill[i] / n
     
+def smooth_stroke_attributes(stroke, smooth_level, attr_map = {'co':3, 'strength':1, 'pressure':1}):
+    """
+    Calculate average values of a stroke's vertex attributes along its path.
+    attr_map: {attribute: dimension}
+    """
+    import numpy as np
+    kernel = np.array([1.0/3, 1.0/3, 1.0/3])
+    num_point = len(stroke.points)
+    if num_point < 2:
+        return
+    for name in attr_map:
+        attr_values = np.zeros( num_point * attr_map[name] )
+        stroke.points.foreach_get(name, attr_values)
+        for _ in range(smooth_level):
+            for dim in range(attr_map[name]):
+                attr_values[dim::attr_map[name]][1:-1] = np.convolve(attr_values[dim::attr_map[name]], kernel, mode='same')[1:-1]
+        stroke.points.foreach_set(name, attr_values)
+    
 def get_generated_meshes(gp_obj):
     """Get a list of meshes generated from the given object"""
     generated_objects = set()

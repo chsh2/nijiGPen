@@ -4,7 +4,7 @@ from bpy_extras import view3d_utils
 from mathutils import *
 from .utils import *
 from .resources import *
-from .operators.common import ColorTintConfig, refresh_strokes
+from .operators.common import ColorTintConfig, refresh_strokes, smooth_stroke_attributes
 from .operators.operator_fill import lineart_triangulation
 
 class BooleanModalOperator(bpy.types.Operator):
@@ -29,6 +29,11 @@ class BooleanModalOperator(bpy.types.Operator):
         items=[('DIFFERENCE', 'Erase', ''),
                 ('UNION', 'Append', '')],
         default='DIFFERENCE'
+    )
+    smooth_level: bpy.props.IntProperty(
+            name='Smooth Level',
+            default=0, min=0, soft_max=10,
+            description='Perform smoothing to reduce the alias'
     )
 
     def boolean_eraser_setup(self, context):
@@ -63,6 +68,8 @@ class BooleanModalOperator(bpy.types.Operator):
 
     def boolean_eraser_finalize(self, context):
         # Execute Draw mode Boolean operator
+        if self.smooth_level > 0:
+            smooth_stroke_attributes(self._stroke, self.smooth_level, {'co':3, 'pressure':1})
         self._stroke.material_index = context.active_object.active_material_index
         refresh_strokes(context.active_object, [context.scene.frame_current])
         bpy.ops.gpencil.nijigp_bool_last(
@@ -601,8 +608,9 @@ class BooleanEraserTool(bpy.types.WorkSpaceTool):
         row = layout.row(align=True)
         row.prop(gp_settings.brush, "size", text="Radius")
         row.prop(props, "use_pressure", text="", icon='STYLUS_PRESSURE')
+        layout.prop(props, "smooth_level")
         layout.prop(props, "caps_type")
-        layout.prop(props, "operation_type")
+        layout.prop(props, "operation_type", expand=True)
         
         layout.label(text="Affected Strokes:")
         layout.prop(context.scene, "nijigp_draw_bool_material_constraint", text = "")
