@@ -13,31 +13,17 @@ def stroke_to_kdtree(co_list):
     kdt.balance()
     return kdt
 
-def fit_2d_strokes(strokes, search_radius, smoothness_factor = 1, pressure_delta = 0, closed = False, operator = None, t_mat = [], inv_mat = []):
+def fit_2d_strokes(fitter, strokes, frame_number=-1, search_radius=0, smoothness_factor=1, pressure_delta=0, resample=None, t_mat=[]):
     '''
     Fit points from multiple strokes to a single curve, by executing the following operations:
         1. Delaunay triangulation
         2. Euclidean minimum spanning tree
         3. Longest path in the tree
         4. Offset based on points in the neighborhood
-        5. Post-processing: vertex smooth or B-spline fitting
-
-    The function will return positions and attributes of points in the following sequence:
-        2D coordinates, accumulated pressure, base pressure, strength, vertex color
+        5. Fit and smooth points to a B-Spline
     '''
-    empty_result = None, None, None, None, None, None, None, None
-    try:
-        from scipy.interpolate import splprep, splev
-        from ..solvers.graph import TriangleMst
-    except:
-        if operator:
-            operator.report({"ERROR"}, "Please install Scipy in the Preferences panel.")
-        return empty_result
+    from ..solvers.graph import TriangleMst
 
-    if len(t_mat)<1:
-        t_mat, inv_mat = get_transformation_mat(mode=bpy.context.scene.nijigp_working_plane,
-                                                gp_obj=bpy.context.active_object,
-                                                strokes=strokes, operator=operator)
     poly_list, depth_list, _ = get_2d_co_from_strokes(strokes, t_mat, scale=False)
     
     total_point_count = 0
@@ -47,7 +33,7 @@ def fit_2d_strokes(strokes, search_radius, smoothness_factor = 1, pressure_delta
         total_point_count += len(stroke.points)
 
     if total_point_count<3:
-        return empty_result
+        return 1
     
     # Create a KDTree for point attribute lookup
     kdt = kdtree.KDTree(total_point_count)
@@ -90,7 +76,7 @@ def fit_2d_strokes(strokes, search_radius, smoothness_factor = 1, pressure_delta
     
     # The fitting method needs at least 4 points
     if len(path_whole)<4:
-        return empty_result
+        return 1
     
     # Get the points in the tree as the input of postprocessing
     co_raw = np.zeros((len(path_whole), 2))
@@ -100,10 +86,10 @@ def fit_2d_strokes(strokes, search_radius, smoothness_factor = 1, pressure_delta
         co_raw[i][1] = co[1]
 
     # Initialize lists of each point attributes
-    accumulated_pressure_raw = np.zeros(len(path_whole))
-    inherited_pressure_raw = np.zeros(len(path_whole))
-    inherited_strength_raw = np.zeros(len(path_whole))
-    inherited_depth_raw = np.zeros(len(path_whole))
+    accumulated_pressure = np.zeros(len(path_whole))
+    inherited_pressure = np.zeros(len(path_whole))
+    inherited_strength = np.zeros(len(path_whole))
+    inherited_depth = np.zeros(len(path_whole))
     inherited_color = np.zeros((len(path_whole), 4))
     inherited_uv_rotation = np.zeros(len(path_whole))
 
@@ -121,48 +107,37 @@ def fit_2d_strokes(strokes, search_radius, smoothness_factor = 1, pressure_delta
                 normal_dist = neighbor[0].xy - self_vec
                 normal_dist = normal_dist.dot(unit_normal_vector)
                 sum_normal_offset += normal_dist
-                accumulated_pressure_raw[i] += pressure_delta
+                accumulated_pressure[i] += pressure_delta
             # Inherit each attribute
-            inherited_pressure_raw[i] += kdt_point_list[neighbor[1]].pressure
-            inherited_strength_raw[i] += kdt_point_list[neighbor[1]].strength
-            inherited_depth_raw[i] += kdt_depth_list[neighbor[1]]
+            inherited_pressure[i] += kdt_point_list[neighbor[1]].pressure
+            inherited_strength[i] += kdt_point_list[neighbor[1]].strength
+            inherited_depth[i] += kdt_depth_list[neighbor[1]]
             inherited_color[i] += np.array(kdt_point_list[neighbor[1]].vertex_color)
             inherited_uv_rotation[i] += kdt_point_list[neighbor[1]].uv_rotation
 
         sum_normal_offset /= len(neighbors)
-        inherited_pressure_raw[i] /= len(neighbors)
-        inherited_strength_raw[i] /= len(neighbors)
-        inherited_depth_raw[i] /= len(neighbors)
+        inherited_pressure[i] /= len(neighbors)
+        inherited_strength[i] /= len(neighbors)
+        inherited_depth[i] /= len(neighbors)
         inherited_color[i] /= len(neighbors)
         inherited_uv_rotation[i] /= len(neighbors)
         co_raw[i] += unit_normal_vector * sum_normal_offset
 
-    # Postprocessing: B-spline fitting
-    if smoothness_factor is None:
-        return inv_mat, co_raw, accumulated_pressure_raw, inherited_pressure_raw, inherited_strength_raw, inherited_color, inherited_uv_rotation, inherited_depth_raw
-
-    attributes_index = np.linspace(0,1,len(path_whole))
-    if closed:
-        co_raw = np.append(co_raw, [co_raw[0]], axis=0)
-        attributes_index = np.append(attributes_index, 0)
-        accumulated_pressure_raw = np.append(accumulated_pressure_raw, accumulated_pressure_raw[0])
-        inherited_pressure_raw = np.append(inherited_pressure_raw, inherited_pressure_raw[0])
-        inherited_strength_raw = np.append(inherited_strength_raw, inherited_strength_raw[0])
-        inherited_depth_raw = np.append(inherited_depth_raw, inherited_depth_raw[0])
-        inherited_color = np.append(inherited_color, [inherited_color[0]], axis=0)
-        inherited_uv_rotation = np.append(inherited_uv_rotation, inherited_uv_rotation[0])
-    tck, u = splprep([co_raw[:,0], co_raw[:,1]], s=total_length**2 * smoothness_factor * 0.001, per=closed)
-    co_fit = np.array(splev(u, tck)).transpose()    
-    tck2, u2 = splprep([attributes_index, accumulated_pressure_raw], per=closed)
-    accumulated_pressure_fit = np.array(splev(u2, tck2))[1]
-    tck3, u3 = splprep([attributes_index, inherited_pressure_raw], per=closed)
-    inherited_pressure_fit = np.array(splev(u3, tck3))[1]
-    tck4, u4 = splprep([attributes_index, inherited_strength_raw], per=closed)
-    inherited_strength_fit = np.array(splev(u4, tck4))[1]
-    tck5, u5 = splprep([attributes_index, inherited_depth_raw], s=total_length**2 * smoothness_factor * 0.001, per=closed)
-    inherited_depth_fit = np.array(splev(u5, tck5))[1]
-
-    return inv_mat, co_fit, accumulated_pressure_fit, inherited_pressure_fit, inherited_strength_fit, inherited_color, inherited_uv_rotation, inherited_depth_fit
+    fitter.set_coordinates(frame_number, co_raw, total_length)
+    fitter.set_attribute_data(frame_number, 'pressure', inherited_pressure)
+    fitter.set_attribute_data(frame_number, 'extra_pressure', accumulated_pressure)
+    fitter.set_attribute_data(frame_number, 'strength', inherited_strength)
+    fitter.set_attribute_data(frame_number, 'depth', inherited_depth)
+    fitter.set_attribute_data(frame_number, 'r', inherited_color[:,0])
+    fitter.set_attribute_data(frame_number, 'g', inherited_color[:,1])
+    fitter.set_attribute_data(frame_number, 'b', inherited_color[:,2])
+    fitter.set_attribute_data(frame_number, 'a', inherited_color[:,3])
+    fitter.set_attribute_data(frame_number, 'uv_rotation', inherited_uv_rotation)
+    fitter.fit_spatial(smoothness_factor*0.001, smoothness_factor*10)
+    if resample is not None:
+        num_points = max(4, int(total_length / resample))
+        fitter.input_u[frame_number] = np.linspace(0, 1, num_points, endpoint=True)
+    return 0
 
 def distance_to_another_stroke(co_list1, co_list2, kdt2 = None, angular_tolerance = math.pi/4, correct_orientation = True):
     '''
@@ -269,7 +244,7 @@ class CommonFittingConfig:
     smooth_repeat: bpy.props.IntProperty(
             name='Smooth Repeat',
             description='',
-            default=2, min=1, max=1000
+            default=2, min=0, max=1000
     )
     inherited_attributes: bpy.props.EnumProperty(
         name='Inherited Attributes',
@@ -338,28 +313,38 @@ class FitSelectedOperator(CommonFittingConfig, bpy.types.Operator):
         box3.prop(self, "keep_original")
 
     def execute(self, context):
-
+        try:
+            from ..solvers.graph import TriangleMst
+            from ..solvers.fit import CurveFitter
+        except:
+            self.report({"ERROR"}, "Please install Scipy in the Preferences panel.")
+            return {'FINISHED'}
+                
         # Get input strokes
         gp_obj = context.object
         stroke_list = []
         frames_to_process = get_input_frames(gp_obj, multiframe=False)
         for frame in frames_to_process:
             stroke_list += get_input_strokes(gp_obj, frame)
+        t_mat, inv_mat = get_transformation_mat(mode=bpy.context.scene.nijigp_working_plane,
+                                                gp_obj=gp_obj, strokes=stroke_list)
         
         # Execute the fitting function
-        b_smoothness = self.b_smoothness if 'SPLPREP' in self.postprocessing_method else None
-        inv_mat, co_list, pressure_accumulation, pressure_list, strength_list, color_list, uv_list, depth_list = fit_2d_strokes(stroke_list, 
-                                                                            search_radius=self.line_sampling_size/LINE_WIDTH_FACTOR, 
-                                                                            smoothness_factor=b_smoothness,
-                                                                            pressure_delta=self.pressure_variance*0.01, 
-                                                                            closed = self.closed,
-                                                                            operator=self)
+        b_smoothness = self.b_smoothness if 'SPLPREP' in self.postprocessing_method else 0
+        resample_length = self.resample_length if 'RESAMPLE' in self.postprocessing_method else None
+        fitter = CurveFitter(self.closed)
+        ret = fit_2d_strokes(fitter, stroke_list, 
+                                search_radius=self.line_sampling_size/LINE_WIDTH_FACTOR, 
+                                smoothness_factor=b_smoothness,
+                                pressure_delta=self.pressure_variance*0.01, 
+                                resample=resample_length,
+                                t_mat=t_mat)
+        if ret != 0:
+            return {'FINISHED'}
+
+        co_fit, attr_fit = fitter.eval_spatial(-1)
         if not self.keep_original:
             bpy.ops.gpencil.delete()
-
-        if co_list is None:
-            bpy.ops.gpencil.select_all(action='DESELECT')
-            return {'FINISHED'}
 
         # Turn fitting output to a new stroke
         output_layer = gp_obj.data.layers.active
@@ -385,14 +370,14 @@ class FitSelectedOperator(CommonFittingConfig, bpy.types.Operator):
         copy_stroke_attributes(new_stroke, stroke_list,
                                copy_color = 'COLOR' in self.inherited_attributes,
                                copy_uv = 'UV' in self.inherited_attributes)
-        new_stroke.points.add(co_list.shape[0])
+        new_stroke.points.add(co_fit.shape[0])
         for i,point in enumerate(new_stroke.points):
-            point.co = restore_3d_co(co_list[i], depth_list[i], inv_mat)
-            point.pressure = pressure_list[i] if 'PRESSURE' in self.inherited_attributes else 1
-            point.strength = strength_list[i] if 'STRENGTH' in self.inherited_attributes else 1
-            point.uv_rotation = uv_list[i] if 'UV' in self.inherited_attributes else 0
-            point.vertex_color = color_list[i] if 'COLOR' in self.inherited_attributes else (0,0,0,0)
-            point.pressure *= (1 + min(pressure_accumulation[i], self.max_delta_pressure*0.01) )
+            point.co = restore_3d_co(co_fit[i], attr_fit['depth'][i], inv_mat)
+            point.pressure = attr_fit['pressure'][i] if 'PRESSURE' in self.inherited_attributes else 1
+            point.strength = attr_fit['strength'][i] if 'STRENGTH' in self.inherited_attributes else 1
+            point.uv_rotation = attr_fit['uv_rotation'][i] if 'UV' in self.inherited_attributes else 0
+            point.vertex_color = (attr_fit['r'][i], attr_fit['g'][i], attr_fit['b'][i], attr_fit['a'][i]) if 'COLOR' in self.inherited_attributes else (0,0,0,0)
+            point.pressure *= (1 + min(attr_fit['extra_pressure'][i], self.max_delta_pressure*0.01) )
         bpy.ops.gpencil.select_all(action='DESELECT')
         new_stroke.use_cyclic = self.closed
         new_stroke.select = True
@@ -400,8 +385,8 @@ class FitSelectedOperator(CommonFittingConfig, bpy.types.Operator):
 
         # Post-processing
         if 'RESAMPLE' in self.postprocessing_method:
-            bpy.ops.gpencil.stroke_sample(length=self.resample_length)
-            bpy.ops.gpencil.stroke_smooth(repeat=self.smooth_repeat, smooth_strength=True)
+            smooth_stroke_attributes(new_stroke, self.smooth_repeat, attr_map={'co':3, 'pressure':1, 'strength':1})
+        refresh_strokes(bpy.context.active_object)
 
         return {'FINISHED'}
     
@@ -715,6 +700,13 @@ class FitLastOperator(CommonFittingConfig, bpy.types.Operator):
         box3.prop(self, "max_delta_pressure")
 
     def execute(self, context):
+        try:
+            from ..solvers.graph import TriangleMst
+            from ..solvers.fit import CurveFitter
+        except:
+            self.report({"ERROR"}, "Please install Scipy in the Preferences panel.")
+            return {'FINISHED'}
+        
         # Get input and context
         gp_obj = context.object
         if len(self.reference_layer) > 0:
@@ -763,35 +755,37 @@ class FitLastOperator(CommonFittingConfig, bpy.types.Operator):
         
         # Execute the fitting function
         b_smoothness = self.b_smoothness
-        _, new_co_list, pressure_accumulation, _, _, _, _, _ = fit_2d_strokes(stroke_list, 
-                                                                        search_radius=self.line_sampling_size/LINE_WIDTH_FACTOR, 
-                                                                        smoothness_factor=b_smoothness,
-                                                                        pressure_delta=self.pressure_variance*0.01, 
-                                                                        closed=src_stroke.use_cyclic,
-                                                                        operator=self,
-                                                                        t_mat = t_mat,
-                                                                        inv_mat = inv_mat)
+        fitter = CurveFitter(src_stroke.use_cyclic)
+        ret = fit_2d_strokes(fitter, stroke_list, 
+                                search_radius=self.line_sampling_size/LINE_WIDTH_FACTOR, 
+                                smoothness_factor=b_smoothness,
+                                pressure_delta=self.pressure_variance*0.01, 
+                                t_mat = t_mat)
+        if ret != 0:
+            return {'FINISHED'}
+        co_fit, attr_fit = fitter.eval_spatial(-1)
+        
         # Orientation correction and trimming
         src_direction = Vector(src_co_list[-1]) - Vector(src_co_list[0])
-        new_direction = Vector(new_co_list[-1]) - Vector(new_co_list[0])
+        new_direction = Vector(co_fit[-1]) - Vector(co_fit[0])
         angle_diff = src_direction.angle(new_direction)
         if angle_diff > math.pi/2:
-            new_co_list = np.flipud(new_co_list)
+            co_fit = np.flipud(co_fit)
             
         if self.trim_ends:
-            start_idx, end_idx = 0, len(new_co_list)-1
-            for i,co in enumerate(new_co_list):
+            start_idx, end_idx = 0, len(co_fit)-1
+            for i,co in enumerate(co_fit):
                 vec = Vector(co)-Vector(src_co_list[0])
                 if vec.length < threshold:
                     start_idx = i
                     break
-            for i,co in enumerate(np.flipud(new_co_list)):
+            for i,co in enumerate(np.flipud(co_fit)):
                 vec = Vector(co)-Vector(src_co_list[-1])
                 if vec.length < threshold:
-                    end_idx = len(new_co_list)-i
+                    end_idx = len(co_fit)-i
                     break
             if start_idx < end_idx:
-                new_co_list = new_co_list[start_idx:end_idx]
+                co_fit = co_fit[start_idx:end_idx]
             
         # Remove the last drawn stroke and generate a new one
         new_stroke: bpy.types.GPencilStroke = drawing_layer.active_frame.strokes.new()
@@ -799,15 +793,15 @@ class FitLastOperator(CommonFittingConfig, bpy.types.Operator):
                             copy_hardness=True, copy_linewidth=True,
                             copy_cap=True, copy_cyclic=True,
                             copy_uv=True, copy_material=True, copy_color=True)
-        new_stroke.points.add(new_co_list.shape[0])
+        new_stroke.points.add(co_fit.shape[0])
         for i,point in enumerate(new_stroke.points):
-            point.co = restore_3d_co(new_co_list[i], depth_lookup_tree.get_depth(new_co_list[i]), inv_mat)
+            point.co = restore_3d_co(co_fit[i], depth_lookup_tree.get_depth(co_fit[i]), inv_mat)
             attr_idx = int( float(i) / (len(new_stroke.points)-1) * (len(src_stroke.points)-1) )
             point.pressure = src_stroke.points[attr_idx].pressure
             point.strength = src_stroke.points[attr_idx].strength
             point.vertex_color = src_stroke.points[attr_idx].vertex_color
             point.uv_rotation = src_stroke.points[attr_idx].uv_rotation
-            point.pressure *= (1 + min(pressure_accumulation[i], self.max_delta_pressure*0.01) )
+            point.pressure *= (1 + min(attr_fit['extra_pressure'][i], self.max_delta_pressure*0.01) )
 
         # Resample the generated stroke
         if self.resample_output:
