@@ -19,7 +19,6 @@ bl_info = {
     "blender" : (3, 3, 0),
     "version" : (0, 9, 0),
     "location" : "View3D > Sidebar > NijiGP, in specific modes of Grease Pencil objects",
-    "warning" : "This addon is still in an early stage of development",
     "doc_url": "https://chsh2.github.io/nijigp/",
     "wiki_url": "https://chsh2.github.io/nijigp/",
     "tracker_url": "https://github.com/chsh2/nijiGPen/issues",

@@ -187,7 +187,7 @@ class ImportLineImageOperator(bpy.types.Operator, ImportHelper):
             """
             Extract line art from a specific image and generate strokes in a given frame
             """
-            img_obj = image_utils.load_image(img_filepath, check_existing=True) # type: bpy.types.Image
+            img_obj = image_utils.load_image(img_filepath) # type: bpy.types.Image
             img_W = img_obj.size[0]
             img_H = img_obj.size[1]
             img_mat = np.array(img_obj.pixels).reshape(img_H,img_W, img_obj.channels)
@@ -380,21 +380,7 @@ class ImportLineImageOperator(bpy.types.Operator, ImportHelper):
         bpy.ops.object.mode_set(mode=current_mode)
         return {'FINISHED'}
 
-class ImportColorImageOperator(bpy.types.Operator, ImportHelper):
-    """Generate strokes from a raster image by quantizing its colors"""
-    bl_idname = "gpencil.nijigp_import_color_image"
-    bl_label = "Import Color Image"
-    bl_category = 'View'
-    bl_options = {'REGISTER', 'UNDO'}
-
-    directory: bpy.props.StringProperty(subtype='DIR_PATH')
-    files: bpy.props.CollectionProperty(type=bpy.types.OperatorFileListElement)
-    filepath = bpy.props.StringProperty(name="File Path", subtype='FILE_PATH')
-    filter_glob: bpy.props.StringProperty(
-        default='*.jpg;*.jpeg;*.png;*.tif;*.tiff;*.bmp',
-        options={'HIDDEN'}
-    )
-
+class ImportColorImageConfig:
     image_sequence: bpy.props.BoolProperty(
             name='Image Sequence',
             default=False,
@@ -407,7 +393,7 @@ class ImportColorImageOperator(bpy.types.Operator, ImportHelper):
     )  
     num_colors: bpy.props.IntProperty(
             name='Number of Colors',
-            default=8, min=2, max=32,
+            default=8, min=1, max=32,
             description='Color quantization in order to convert the image to Grease Pencil strokes'
     )
     median_radius: bpy.props.IntProperty(
@@ -425,9 +411,9 @@ class ImportColorImageOperator(bpy.types.Operator, ImportHelper):
             description='Where colors are picked for generated strokes'
     )
     reference_palette_name: bpy.props.StringProperty(
-        name='Reference Palette',
-        default='',
-        search=lambda self, context, edit_text: [palette.name for palette in bpy.data.palettes if palette]
+            name='Reference Palette',
+            default='',
+            search=lambda self, context, edit_text: [palette.name for palette in bpy.data.palettes if palette]
     )
     size: bpy.props.FloatProperty(
             name='Size',
@@ -454,7 +440,7 @@ class ImportColorImageOperator(bpy.types.Operator, ImportHelper):
             name='Color Mode',
             items=[ ('VERTEX', 'Vertex Color', ''),
                     ('MATERIAL', 'New Materials', '')],
-            default='VERTEX',
+            default='MATERIAL',
             description='Whether using an existing material with vertex colors, or creating new materials'
     )
     set_line_color: bpy.props.BoolProperty(
@@ -468,10 +454,25 @@ class ImportColorImageOperator(bpy.types.Operator, ImportHelper):
             description='Generate a new palette based on colors extracted from this image'
     )
     output_material: bpy.props.StringProperty(
-        name='Output Material',
-        description='Draw the new stroke using this material. If empty, use the active material',
-        default='',
-        search=lambda self, context, edit_text: [material.name for material in context.object.data.materials if material]
+            name='Output Material',
+            description='Draw the new stroke using this material. If empty, use the active material',
+            default='',
+            search=lambda self, context, edit_text: [material.name for material in context.object.data.materials if material]
+    )
+
+class ImportColorImageOperator(bpy.types.Operator, ImportHelper, ImportColorImageConfig):
+    """Generate strokes from a raster image by quantizing its colors"""
+    bl_idname = "gpencil.nijigp_import_color_image"
+    bl_label = "Import Color Image"
+    bl_category = 'View'
+    bl_options = {'REGISTER', 'UNDO'}
+
+    directory: bpy.props.StringProperty(subtype='DIR_PATH')
+    files: bpy.props.CollectionProperty(type=bpy.types.OperatorFileListElement)
+    filepath = bpy.props.StringProperty(name="File Path", subtype='FILE_PATH')
+    filter_glob: bpy.props.StringProperty(
+        default='*.jpg;*.jpeg;*.png;*.tif;*.tiff;*.bmp',
+        options={'HIDDEN'}
     )
 
     def draw(self, context):
@@ -542,7 +543,7 @@ class ImportColorImageOperator(bpy.types.Operator, ImportHelper):
             """
             Quantize colors of a specific image and generate strokes in a given frame
             """
-            img_obj = image_utils.load_image(img_filepath, check_existing=True) # type: bpy.types.Image
+            img_obj = image_utils.load_image(img_filepath) # type: bpy.types.Image
             img_W = img_obj.size[0]
             img_H = img_obj.size[1]
             img_mat = np.array(img_obj.pixels).reshape(img_H,img_W, img_obj.channels)
@@ -734,4 +735,175 @@ class ImportColorImageOperator(bpy.types.Operator, ImportHelper):
         gp_obj.data.use_multiedit = use_multiedit
         bpy.ops.object.mode_set(mode=current_mode)
 
+        return {'FINISHED'}
+    
+class RenderAndVectorizeOperator(bpy.types.Operator, ImportColorImageConfig):
+    """Render the current scene or objects inside it, and vectorize the image by quantizing the colors"""
+    bl_idname = "gpencil.nijigp_render_and_vectorize"
+    bl_label = "Render and Convert Scene/Mesh"
+    bl_category = 'View'
+    bl_options = {'REGISTER', 'UNDO'}
+
+    source_type: bpy.props.EnumProperty(            
+        name='Source Type',
+        items=[ ('SCENE', 'Scene', ''),
+                ('OBJECT', 'Object', ''),
+                ('COLLECTION', 'Collection', '')],
+        default='SCENE'
+    )
+    source_obj: bpy.props.StringProperty(
+        name='Object',
+        search=lambda self, context, edit_text: [object.name for object in context.scene.objects if object.type!='GPENCIL']
+    )
+    source_coll: bpy.props.StringProperty(
+        name='Collection',
+        search=lambda self, context, edit_text: [coll.name for coll in bpy.data.collections]
+    )
+    render_animation: bpy.props.BoolProperty(
+        name='Render Animation',
+        default=False,
+    )
+    frame_start: bpy.props.IntProperty(
+        name='Start Frame',
+        default=1, min=1,
+    )
+    frame_end: bpy.props.IntProperty(
+        name='End Frame',
+        default=1, min=1,
+    )
+    bake_lineart: bpy.props.BoolProperty(
+        name='Project and Bake Line Art',
+        default=False,
+        description='If there are Line Art modifiers on the same object/collection, project line arts to the same 2D plane as the color fills'
+    )
+    
+    def invoke(self, context, event):
+        return context.window_manager.invoke_props_dialog(self, width=400)
+    
+    def draw(self, context):
+        layout = self.layout
+        layout.label(text = "Input Options:")
+        box1 = layout.box()
+        box1.prop(self, "source_type")
+        if self.source_type == 'COLLECTION':
+            box1.prop(self, "source_coll", icon='OUTLINER_COLLECTION')
+        if self.source_type == 'OBJECT':
+            box1.prop(self, "source_obj", icon='OBJECT_DATA')
+        box1.prop(self, "render_animation")   
+        if self.render_animation:
+            split = box1.split(align=True)
+            split.prop(self, "frame_start", text="Start")
+            split.prop(self, "frame_end", text="End")  
+            split.prop(self, "frame_step", text="Step")  
+        
+        layout.label(text = "Image Options:")
+        box2 = layout.box()
+        box2.prop(self, "num_colors")
+        box2.prop(self, "median_radius")
+        
+        layout.label(text = "Stroke Options:")
+        box3 = layout.box()
+        box3.prop(self, "sample_length")
+        box3.prop(self, "min_area")
+        box3.prop(self, "color_mode")
+        if self.color_mode == 'VERTEX':
+            box3.prop(self, "output_material", text='Material', icon='MATERIAL')
+        box3.prop(self, "set_line_color")
+        layout.prop(self, "bake_lineart")
+        
+    def execute(self, context):
+        scene = bpy.context.scene
+        gp_obj = bpy.context.active_object
+                
+        # Save the current scene state
+        is_render_hidden = {}
+        for obj in scene.objects:
+            is_render_hidden[obj] = obj.hide_render
+        multiedit = gp_obj.data.use_multiedit 
+        is_background_transparent = scene.render.film_transparent
+        render_path = scene.render.filepath
+        frame_start = scene.frame_start
+        frame_end = scene.frame_end
+        
+        # Change scene setting and object visibility for rendering
+        bpy.ops.object.mode_set(mode='EDIT_GPENCIL')
+        bpy.context.space_data.region_3d.view_perspective = 'CAMERA'
+        scene.render.film_transparent = True
+        gp_obj.data.use_multiedit = False
+        scene.frame_start = self.frame_start if self.render_animation else scene.frame_current
+        scene.frame_end = self.frame_end if self.render_animation else scene.frame_current
+
+        for obj in scene.objects:
+            if obj.type in {'LIGHT', 'LIGHT_PROBE', 'CAMERA'}:
+                continue
+            if obj.type == 'GPENCIL':
+                obj.hide_render = True
+            if self.source_type == 'OBJECT' and obj.name != self.source_obj:
+                obj.hide_render = True
+            if self.source_type == 'COLLECTION' and (self.source_coll in bpy.data.collections) and (obj.name not in bpy.data.collections[self.source_coll].objects):
+                obj.hide_render = True
+                        
+        # Render and vectorize the mesh
+        op_filepath = None
+        op_files = []
+        frame_numbers = range(scene.frame_start, scene.frame_end + 1, self.frame_step)
+        for frame_number in frame_numbers:
+            scene.frame_set(frame_number)
+            img_path = f'{bpy.app.tempdir}/{str(frame_number).zfill(6)}.png'
+            scene.render.filepath = img_path
+            op_filepath = img_path
+            op_files.append({'name': f'{str(frame_number).zfill(6)}.png'})
+            bpy.ops.render.render(write_still=True)
+        scene.frame_set(scene.frame_start)
+        bpy.ops.gpencil.nijigp_import_color_image(filepath=op_filepath, directory=bpy.app.tempdir, files=op_files, 
+                                                num_colors=self.num_colors, median_radius=self.median_radius,
+                                                sample_length=self.sample_length, min_area=self.min_area,
+                                                color_mode=self.color_mode, output_material=self.output_material, set_line_color=self.set_line_color,
+                                                image_sequence=True, frame_step=self.frame_step, fit_to_camera=True)
+        
+        # Find line art modifiers: with the same source and being valid
+        if self.bake_lineart:
+            lineart_modifier = None
+            for modifier in gp_obj.grease_pencil_modifiers:
+                if self.source_type != modifier.source_type or not modifier.target_layer or not modifier.target_material:
+                    continue
+                if self.source_type == 'COLLECTION' and modifier.source_collection and self.source_coll == modifier.source_collection.name and not modifier.use_invert_collection:
+                    lineart_modifier = modifier
+                    break
+                if self.source_type == 'SCENE' or (self.source_type == 'OBJECT' and modifier.source_object and self.source_obj == modifier.source_object.name):
+                    lineart_modifier = modifier
+                    break
+                
+            if lineart_modifier is not None:
+                # Bake the line art and get all frames
+                lineart_layer = gp_obj.data.layers[modifier.target_layer]
+                if lineart_layer == gp_obj.data.layers.active:
+                    self.report({'WARNING'}, "Line Art modifier uses the same layer as color fills. Data may be overwritten. Please consider switching to another layer.")
+                bpy.ops.object.lineart_bake_strokes()
+                gp_obj.grease_pencil_modifiers.remove(lineart_modifier)
+                lineart_frames = {}
+                for frame in lineart_layer.frames:
+                    lineart_frames[int(frame.frame_number)] = frame
+                    
+                # Project the line art to the same plane, or delete the frame if not needed
+                frame_number_set = set(frame_numbers)
+                for frame_number in range(scene.frame_start, scene.frame_end + 1):
+                    scene.frame_set(frame_number)
+                    bpy.ops.gpencil.select_all(action='DESELECT')
+                    for stroke in lineart_frames[frame_number].strokes:
+                        stroke.select = True
+                    if frame_number in frame_number_set:
+                        bpy.ops.gpencil.reproject(type='VIEW')
+                    else:
+                        lineart_layer.frames.remove(lineart_frames[frame_number])
+
+        # Recover the scene state
+        for obj in scene.objects:
+            obj.hide_render = is_render_hidden[obj]
+        scene.render.film_transparent = is_background_transparent
+        scene.render.filepath = render_path
+        scene.frame_start = frame_start
+        scene.frame_end = frame_end
+        gp_obj.data.use_multiedit = multiedit
+                
         return {'FINISHED'}

@@ -361,7 +361,7 @@ class SweepModalOperator(bpy.types.Operator, ColorTintConfig):
             bpy.ops.ed.undo_push()
             return {'RUNNING_MODAL'}
         else:
-            self.report({'WARNING'}, "No active object, could not finish")
+            self.report({'WARNING'}, "No active object, could not finish.")
             return {'CANCELLED'}
 
 class OffsetModalOperator(bpy.types.Operator):
@@ -430,7 +430,7 @@ class OffsetModalOperator(bpy.types.Operator):
             #bpy.ops.gpencil.nijigp_offset_selected(offset_amount=0) 
             return {'RUNNING_MODAL'}
         else:
-            self.report({'WARNING'}, "No active object, could not finish")
+            self.report({'WARNING'}, "No active object, could not finish.")
             return {'CANCELLED'}
 
 class RollViewModalOperator(bpy.types.Operator):

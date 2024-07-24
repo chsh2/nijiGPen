@@ -1,7 +1,13 @@
 import bpy
 
+class RenderAndVectorizeMenu(bpy.types.Menu):
+    bl_label = "Render and Convert Scene/Mesh"
+    bl_idname = "NIJIGP_MT_render_and_vectorize"
+    def draw(self, context):
+        self.layout.operator("gpencil.nijigp_render_and_vectorize")
+
 # Panels that appear in more than one mode
-def draw_global_setting(panel, context):
+def panel_global_setting(panel, context):
     layout = panel.layout
     scene = context.scene
     row = layout.row()
@@ -11,7 +17,7 @@ def draw_global_setting(panel, context):
         row = layout.row()
         row.prop(scene, "nijigp_working_plane_layer_transform", text='Use Transform of Active Layer')
 
-def draw_io(panel, context):
+def panel_io(panel, context):
     layout = panel.layout
 
     layout.label(text="Paste from Clipboard:")
@@ -20,9 +26,11 @@ def draw_io(panel, context):
     row.operator("gpencil.nijigp_paste_swatch", text="Swatches", icon="PASTEDOWN")
 
     layout.label(text="Image Vectorization:")
-    row = layout.row()
+    row = layout.split()
     row.operator("gpencil.nijigp_import_lineart", text="Line Art", icon="LINE_DATA")
-    row.operator("gpencil.nijigp_import_color_image", text="Flat Color", icon="IMAGE")
+    sub_row = row.row(align=True)
+    sub_row.operator("gpencil.nijigp_import_color_image", text="Flat Color", icon="IMAGE")
+    sub_row.menu("NIJIGP_MT_render_and_vectorize", text="", icon="TRIA_DOWN")
 
     layout.label(text="Asset Import:")
     row = layout.row()
@@ -45,7 +53,7 @@ class NIJIGP_PT_draw_panel_setting(bpy.types.Panel):
     bl_order = 0
 
     def draw(self, context):
-        draw_global_setting(self, context)
+        panel_global_setting(self, context)
 
 class NIJIGP_PT_edit_panel_setting(bpy.types.Panel):
     bl_idname = 'NIJIGP_PT_edit_panel_setting'
@@ -57,7 +65,7 @@ class NIJIGP_PT_edit_panel_setting(bpy.types.Panel):
     bl_order = 0
 
     def draw(self, context):
-         draw_global_setting(self, context)
+        panel_global_setting(self, context)
 
 class NIJIGP_PT_weight_panel_setting(bpy.types.Panel):
     bl_idname = 'NIJIGP_PT_weight_panel_setting'
@@ -69,7 +77,7 @@ class NIJIGP_PT_weight_panel_setting(bpy.types.Panel):
     bl_order = 0
 
     def draw(self, context):
-        draw_global_setting(self, context)
+        panel_global_setting(self, context)
 
 class NIJIGP_PT_draw_panel_io(bpy.types.Panel):
     bl_idname = 'NIJIGP_PT_draw_panel_io'
@@ -81,7 +89,7 @@ class NIJIGP_PT_draw_panel_io(bpy.types.Panel):
     bl_order = 5
 
     def draw(self, context):
-        draw_io(self, context)
+        panel_io(self, context)
          
 class NIJIGP_PT_edit_panel_io(bpy.types.Panel):
     bl_idname = 'NIJIGP_PT_edit_panel_io'
@@ -93,7 +101,7 @@ class NIJIGP_PT_edit_panel_io(bpy.types.Panel):
     bl_order = 5
 
     def draw(self, context):
-        draw_io(self, context)
+        panel_io(self, context)
 
 class NIJIGP_PT_draw_panel_polygon(bpy.types.Panel):
     bl_idname = 'NIJIGP_PT_draw_panel_polygon'

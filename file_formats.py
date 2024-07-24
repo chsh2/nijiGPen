@@ -249,7 +249,7 @@ class BrushsetParser():
         # The images loaded in Blender here are just for extracting the pixels
         # Final brush textures are generated not from this parser, but the operator
         for path in tex_paths:
-            img_obj = image_utils.load_image(os.path.join(cache_dir, path), check_existing=True)
+            img_obj = image_utils.load_image(os.path.join(cache_dir, path))
             img_W = img_obj.size[0]
             img_H = img_obj.size[1]
             img_mat = np.array(img_obj.pixels).reshape(img_H,img_W, img_obj.channels)
@@ -336,7 +336,7 @@ class SutParser():
                 tmp_file.write(img_bytes[0][start_pos[-1]-1:end_pos[-1]+8])
             
             # Extract pixels from PNG to 3D array
-            img_obj = image_utils.load_image(tmp_filepath, check_existing=True)
+            img_obj = image_utils.load_image(tmp_filepath)
             img_W = img_obj.size[0]
             img_H = img_obj.size[1]
             img_mat = np.array(img_obj.pixels).reshape(img_H,img_W, img_obj.channels)
