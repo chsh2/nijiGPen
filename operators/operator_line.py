@@ -661,6 +661,7 @@ class ClusterAndFitOperator(CommonFittingConfig, bpy.types.Operator):
                 if (cluster_res[i]-1) not in cluster_drawing_seq:
                     cluster_drawing_seq[cluster_res[i]-1] = i
             cluster_sorted = sorted(list(cluster_drawing_seq), key=lambda _:cluster_drawing_seq[_])
+            cluster_sorted = [cluster_sorted.index(i) for i in range(len(cluster_sorted))]
 
             # Place strokes in clusters
             for i,stroke in enumerate(stroke_frame_map[frame_number]):

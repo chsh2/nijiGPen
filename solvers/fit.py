@@ -13,6 +13,7 @@ class CurveFitter:
     xy_tck:      dict                 # 1D fit parameters
     attr_tck:    dict[str, dict]
     input_u:     dict                 # 1D sampling positions
+    u_reversed:  dict[int, bool]
     x_surf:      dict      # 2D fit parameters: surfaces
     y_surf:      dict
     attr_surf:   dict[str, dict]
@@ -25,6 +26,7 @@ class CurveFitter:
         self.xy_tck = {}
         self.attr_tck = {}
         self.input_u = {}
+        self.u_reversed = {}
         self.attr_surf = {}
         
     def set_coordinates(self, frame_number, co_list, total_len):
@@ -72,10 +74,30 @@ class CurveFitter:
             res_attr[name] = np.array(splev(self.input_u[frame_number], tck[frame_number]))
         return res, res_attr
 
+    def correct_direction(self):
+        """
+        Compare strokes of adjacent keyframes to determine whether to reverse the direction
+        """
+        sorted_frames = sorted(self.xy_input)
+        last_frame = sorted_frames[0]
+        for t,frame in enumerate(sorted_frames):
+            if t == 0:
+                self.u_reversed[frame] = False
+            else:
+                start, end = np.array(splev([0, 1], self.xy_tck[frame])).transpose()
+                start0, end0 = np.array(splev([0, 1], self.xy_tck[last_frame])).transpose()
+                dist = np.linalg.norm(start - start0) + np.linalg.norm(end - end0)
+                dist_r = np.linalg.norm(start - end0) + np.linalg.norm(end - start0)
+                self.u_reversed[frame] = (dist > dist_r) ^ self.u_reversed[last_frame]
+                last_frame = frame
+
     def fit_temporal(self):
         """
         Resample spatial fitting results of multiple frames to perform temporal fitting
         """
+        if len(self.input_u) < 1:
+            return
+        self.correct_direction()
         # Determine the parameters of surface approximation
         size_u = 5
         size_t = 2  # Pad two data points in the time domain
@@ -88,13 +110,14 @@ class CurveFitter:
             max_frame = int(max(max_frame, frame))
         # Choose the frame with the most sampling points as size_u
         self.input_u[-1] = np.linspace(0, 1, size_u, endpoint=True)
-        
+
         # Prepare the dataset
         dataset_x = np.zeros((size_t, size_u, 3))
         dataset_y = np.zeros((size_t, size_u, 3))
         i = 1
         for frame, tck in self.xy_tck.items():
-            res = np.array(splev(self.input_u[-1], tck))
+            sample_points = np.flip(self.input_u[-1]) if self.u_reversed[frame] else self.input_u[-1]
+            res = np.array(splev(sample_points, tck))
             dataset_x[i, :, 0], dataset_x[i, :, 1], dataset_x[i, :, 2] = self.input_u[-1], frame, res[0]
             dataset_y[i, :, 0], dataset_y[i, :, 1], dataset_y[i, :, 2] = self.input_u[-1], frame, res[1]
             if frame == min_frame:
@@ -112,11 +135,12 @@ class CurveFitter:
             dataset_attr[name] = np.zeros((size_t, size_u, 3))
             i = 1
             for frame, tck in tck_map.items():
-                dataset_attr[name][i, :, 0], dataset_attr[name][i, :, 1], dataset_attr[name][i, :, 2] = self.input_u[-1], frame, np.array(splev(self.input_u[-1], tck))
+                sample_points = np.flip(self.input_u[-1]) if self.u_reversed[frame] else self.input_u[-1]
+                dataset_attr[name][i, :, 0], dataset_attr[name][i, :, 1], dataset_attr[name][i, :, 2] = self.input_u[-1], frame, np.array(splev(sample_points, tck))
                 if frame == min_frame:
-                    dataset_attr[name][0, :, 0], dataset_attr[name][0, :, 1], dataset_attr[name][0, :, 2] = self.input_u[-1], frame-1, np.array(splev(self.input_u[-1], tck))
+                    dataset_attr[name][0, :, 0], dataset_attr[name][0, :, 1], dataset_attr[name][0, :, 2] = self.input_u[-1], frame-1, np.array(splev(sample_points, tck))
                 if frame == max_frame:
-                    dataset_attr[name][-1, :, 0], dataset_attr[name][-1, :, 1], dataset_attr[name][-1, :, 2] = self.input_u[-1], frame+1, np.array(splev(self.input_u[-1], tck))
+                    dataset_attr[name][-1, :, 0], dataset_attr[name][-1, :, 1], dataset_attr[name][-1, :, 2] = self.input_u[-1], frame+1, np.array(splev(sample_points, tck))
                 i += 1
             dataset_attr[name] = np.reshape(dataset_attr[name], (size_t * size_u, 3))
         
