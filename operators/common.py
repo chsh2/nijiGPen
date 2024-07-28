@@ -221,8 +221,18 @@ def smooth_stroke_attributes(stroke, smooth_level, attr_map = {'co':3, 'strength
         attr_values = np.zeros( num_point * attr_map[name] )
         stroke.points.foreach_get(name, attr_values)
         for _ in range(smooth_level):
-            for dim in range(attr_map[name]):
-                attr_values[dim::attr_map[name]][1:-1] = np.convolve(attr_values[dim::attr_map[name]], kernel, mode='same')[1:-1]
+            step = attr_map[name]
+            for dim in range(step):
+                # Since convolution is not periodic, calculate the first and last points manually
+                if stroke.use_cyclic:
+                    new_start = np.dot(kernel, (attr_values[dim-step], attr_values[dim], attr_values[dim+step]))
+                    new_end = np.dot(kernel, (attr_values[dim-2*step], attr_values[dim-step], attr_values[dim]))
+                    
+                attr_values[dim::step][1:-1] = np.convolve(attr_values[dim::step], kernel, mode='same')[1:-1]
+                
+                if stroke.use_cyclic:
+                    attr_values[dim] = new_start
+                    attr_values[dim-step] = new_end
         stroke.points.foreach_set(name, attr_values)
     
 def get_generated_meshes(gp_obj):

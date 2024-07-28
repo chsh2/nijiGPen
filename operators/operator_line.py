@@ -361,7 +361,7 @@ class FitSelectedOperator(CommonFittingConfig, bpy.types.Operator):
         # Do spatial fit and (optional) temporal fit
         fitter.fit_spatial(self.b_smoothness*0.001, self.b_smoothness*10)
         has_temporal_fit = False
-        if self.is_sequence and gp_obj.data.use_multiedit:
+        if self.is_sequence and gp_obj.data.use_multiedit and len(frames_to_process) > 1:
             fitter.fit_temporal()
             has_temporal_fit = True
         

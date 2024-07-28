@@ -1,6 +1,17 @@
 import numpy as np
 from scipy.interpolate import splprep, splrep, splev, bisplrep, bisplev
 
+def shoelace_polygon_area(poly):
+    """
+    Calculate the signed area of a 2D polygon. Clipper library is not used here because it prefers integers.
+    TODO: Consider if there are other operators that should use this function
+    """
+    area = 0
+    for i,p in enumerate(poly):
+        p2 = poly[i-1]
+        area += p2[0] * p[1] - p2[1] * p[0]
+    return 0.5 * area
+
 class CurveFitter:
     """
     Fit coordinates {(x, y)} and any 1D attribute of stroke points to a parametrized curve x(u), y(u).
@@ -14,7 +25,7 @@ class CurveFitter:
     attr_tck:    dict[str, dict]
     input_u:     dict                 # 1D sampling positions
     u_reversed:  dict[int, bool]
-    x_surf:      dict      # 2D fit parameters: surfaces
+    x_surf:      dict                 # 2D fit parameters: surfaces
     y_surf:      dict
     attr_surf:   dict[str, dict]
     
@@ -83,21 +94,31 @@ class CurveFitter:
         for t,frame in enumerate(sorted_frames):
             if t == 0:
                 self.u_reversed[frame] = False
+                if self.is_periodic:
+                    path = np.array(splev(self.input_u[frame], self.xy_tck[frame])).transpose()
+                    last_area = shoelace_polygon_area(path)
             else:
-                start, end = np.array(splev([0, 1], self.xy_tck[frame])).transpose()
-                start0, end0 = np.array(splev([0, 1], self.xy_tck[last_frame])).transpose()
-                dist = np.linalg.norm(start - start0) + np.linalg.norm(end - end0)
-                dist_r = np.linalg.norm(start - end0) + np.linalg.norm(end - start0)
-                self.u_reversed[frame] = (dist > dist_r) ^ self.u_reversed[last_frame]
+                # For open stroke, compare the position of start/end points
+                if not self.is_periodic:
+                    start, end = np.array(splev([0, 1], self.xy_tck[frame])).transpose()
+                    start0, end0 = np.array(splev([0, 1], self.xy_tck[last_frame])).transpose()
+                    dist = np.linalg.norm(start - start0) + np.linalg.norm(end - end0)
+                    dist_r = np.linalg.norm(start - end0) + np.linalg.norm(end - start0)
+                    self.u_reversed[frame] = (dist > dist_r) ^ self.u_reversed[last_frame]
+                # For closed stroke, check if the shape is clockwise
+                else:
+                    path = np.array(splev(self.input_u[frame], self.xy_tck[frame])).transpose()
+                    area = shoelace_polygon_area(path)
+                    self.u_reversed[frame] = (area * last_area < 0) ^ self.u_reversed[last_frame]
+                    last_area = area
                 last_frame = frame
 
     def fit_temporal(self):
         """
-        Resample spatial fitting results of multiple frames to perform temporal fitting
+        Resample spatial fitting results of multiple frames and then perform spatio-temporal 2D fitting
         """
-        if len(self.input_u) < 1:
-            return
-        self.correct_direction()
+        if len(self.input_u) > 0:
+            self.correct_direction()
         # Determine the parameters of surface approximation
         size_u = 5
         size_t = 2  # Pad two data points in the time domain
@@ -145,8 +166,8 @@ class CurveFitter:
             dataset_attr[name] = np.reshape(dataset_attr[name], (size_t * size_u, 3))
         
         # Perform fitting
-        self.x_surf = bisplrep(dataset_x[:,0], dataset_x[:,1], dataset_x[:,2], s=self.total_len[frame]**2 * self.co_smoothness)
-        self.y_surf = bisplrep(dataset_y[:,0], dataset_y[:,1], dataset_y[:,2], s=self.total_len[frame]**2 * self.co_smoothness)
+        self.x_surf = bisplrep(dataset_x[:,0], dataset_x[:,1], dataset_x[:,2], s=self.co_smoothness)
+        self.y_surf = bisplrep(dataset_y[:,0], dataset_y[:,1], dataset_y[:,2], s=self.co_smoothness)
         for name, dataset in dataset_attr.items():
             self.attr_surf[name] = bisplrep(dataset[:,0], dataset[:,1], dataset[:,2], s=self.attr_smoothness)
 
