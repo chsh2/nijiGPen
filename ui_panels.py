@@ -22,7 +22,7 @@ def panel_io(panel, context):
 
     layout.label(text="Paste from Clipboard:")
     row = layout.row()
-    row.operator("gpencil.nijigp_paste_svg", text="SVG", icon="PASTEDOWN")
+    row.operator("gpencil.nijigp_paste_svg", text="SVG Code", icon="PASTEDOWN")
     row.operator("gpencil.nijigp_paste_swatch", text="Swatches", icon="PASTEDOWN")
 
     layout.label(text="Image Vectorization:")
