@@ -280,13 +280,16 @@ class CommonFittingConfig:
             description='Do not delete the original stroke'
     )
     
+nijigp_generated_fit_strokes = []  # Save the states across multiple operator calls for the clustering fit
 class FitSelectedOperator(CommonFittingConfig, bpy.types.Operator):
     """Fit select strokes or points to a new stroke"""
     bl_idname = "gpencil.nijigp_fit_selected"
     bl_label = "Single-Line Fit"
     bl_category = 'View'
     bl_options = {'REGISTER', 'UNDO'}    
-  
+
+    save_output_state: bpy.props.BoolProperty(default=False)
+
     def draw(self, context):
         layout = self.layout
         layout.label(text = "Input Options:")
@@ -420,6 +423,8 @@ class FitSelectedOperator(CommonFittingConfig, bpy.types.Operator):
                 point.pressure *= (1 + min(attr_fit['extra_pressure'][i], self.max_delta_pressure*0.01) )
             new_stroke.use_cyclic = self.closed
             new_stroke.select = True
+            if self.save_output_state:
+                nijigp_generated_fit_strokes.append(new_stroke)
 
             # Post-processing
             if self.smooth_repeat > 0:
@@ -672,6 +677,8 @@ class ClusterAndFitOperator(CommonFittingConfig, bpy.types.Operator):
                 cluster_map[cluster_idx].append(stroke)
 
         # Process each cluster one by one
+        global nijigp_generated_fit_strokes
+        nijigp_generated_fit_strokes = []
         for cluster in range(len(cluster_map)):
             # Set frame selection
             for layer_idx,layer in enumerate(gp_obj.data.layers):
@@ -695,7 +702,13 @@ class ClusterAndFitOperator(CommonFittingConfig, bpy.types.Operator):
                                             inherited_attributes = self.inherited_attributes,
                                             output_layer = self.output_layer,
                                             output_material = self.output_material,
-                                            keep_original = self.keep_original)
+                                            keep_original = self.keep_original,
+                                            save_output_state = True)
+        # Select all output strokes
+        bpy.ops.gpencil.select_all(action='DESELECT')
+        for stroke in nijigp_generated_fit_strokes:
+            stroke.select = True
+        nijigp_generated_fit_strokes = []
         return {'FINISHED'}
     
 class FitLastOperator(CommonFittingConfig, bpy.types.Operator):
