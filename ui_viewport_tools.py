@@ -57,7 +57,7 @@ class BooleanModalOperator(bpy.types.Operator):
             origin = context.scene.cursor.location
         self._raw_pressure.append(event.pressure if self.use_pressure else 1)
         self._stroke.points.add(1, pressure=self._raw_pressure[-1])
-        self._stroke.points[-1].co = view3d_utils.region_2d_to_location_3d(context.region,
+        self._stroke.points[-1].co = self._t_world @ view3d_utils.region_2d_to_location_3d(context.region,
                                     context.space_data.region_3d,
                                     (event.mouse_region_x, event.mouse_region_y), origin)
         # For taper mode, reshape the whole stroke 
@@ -102,6 +102,7 @@ class BooleanModalOperator(bpy.types.Operator):
         self._stroke = None
         self._raw_pressure = []
         self._last_x, self._last_y = -1, -1
+        self._t_world = context.object.data.layers.active.matrix_inverse_layer @ context.object.matrix_world.inverted_safe()
         context.scene.tool_settings.use_gpencil_draw_onback = False
         self.boolean_eraser_setup(context)
         context.window_manager.modal_handler_add(self)
@@ -164,9 +165,12 @@ class SmartFillModalOperator(bpy.types.Operator):
         if not self.output_frame:
             return 1
         # Solve the graph problem
-        mouse_global_co = view3d_utils.region_2d_to_location_3d(bpy.context.region,
+        origin = (0,0,0)
+        if bpy.context.scene.tool_settings.gpencil_stroke_placement_view3d == 'CURSOR':
+            origin = bpy.context.scene.cursor.location
+        mouse_global_co = self._t_world @ view3d_utils.region_2d_to_location_3d(bpy.context.region,
                                               bpy.context.space_data.region_3d,
-                                              mouse_region_co, (0,0,0))
+                                              mouse_region_co, origin)
         self.hint_points_co.append((self.t_mat @ mouse_global_co) * self.scale_factor)
         self.hint_points_label.append(label)
         self.smart_fill_clear()
@@ -294,6 +298,7 @@ class SmartFillModalOperator(bpy.types.Operator):
         self.smart_fill_setup()
         
         # Setup the handler for screen hint messages
+        self._t_world = context.object.data.layers.active.matrix_inverse_layer @ context.object.matrix_world.inverted_safe()
         self._screen_hint_points = {'+':[], '-':[]}
         args = (self, context)
         self._handle = bpy.types.SpaceView3D.draw_handler_add(

@@ -368,6 +368,7 @@ class FitSelectedOperator(CommonFittingConfig, bpy.types.Operator):
         # Input part finishes. Remove input strokes
         if not self.keep_original:
             bpy.ops.gpencil.delete(type='STROKES')
+        bpy.ops.gpencil.select_all(action='DESELECT')
 
         # Prepare for output
         output_layer = gp_obj.data.layers.active
