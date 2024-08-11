@@ -52,7 +52,7 @@ class BooleanModalOperator(bpy.types.Operator):
         self._stroke = stroke
 
     def boolean_eraser_update(self, context, event):
-        origin = (0,0,0)
+        origin = context.object.matrix_world.translation
         if context.scene.tool_settings.gpencil_stroke_placement_view3d == 'CURSOR':
             origin = context.scene.cursor.location
         self._raw_pressure.append(event.pressure if self.use_pressure else 1)
@@ -165,7 +165,7 @@ class SmartFillModalOperator(bpy.types.Operator):
         if not self.output_frame:
             return 1
         # Solve the graph problem
-        origin = (0,0,0)
+        origin = bpy.context.object.matrix_world.translation
         if bpy.context.scene.tool_settings.gpencil_stroke_placement_view3d == 'CURSOR':
             origin = bpy.context.scene.cursor.location
         mouse_global_co = self._t_world @ view3d_utils.region_2d_to_location_3d(bpy.context.region,

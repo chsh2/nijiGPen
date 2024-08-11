@@ -374,8 +374,6 @@ class ImportLineImageOperator(bpy.types.Operator, ImportHelper):
                     process_single_image(img_filepath, gp_layer.frames.new(target_frame_number))
                 processed_frame_numbers.append(target_frame_number)
         # Post-processing
-        if context.scene.tool_settings.gpencil_stroke_placement_view3d == 'CURSOR':
-            bpy.ops.transform.translate(value=context.scene.cursor.location)
         refresh_strokes(gp_obj, processed_frame_numbers)
         bpy.ops.object.mode_set(mode=current_mode)
         return {'FINISHED'}
@@ -728,8 +726,6 @@ class ImportColorImageOperator(bpy.types.Operator, ImportHelper, ImportColorImag
                 processed_frame_numbers.append(target_frame_number)
 
         # Post-processing and context recovery
-        if context.scene.tool_settings.gpencil_stroke_placement_view3d == 'CURSOR':
-            bpy.ops.transform.translate(value=context.scene.cursor.location)
         refresh_strokes(gp_obj, processed_frame_numbers)
         bpy.ops.gpencil.nijigp_hole_processing(rearrange=True, apply_holdout=False)
         gp_obj.data.use_multiedit = use_multiedit

@@ -533,8 +533,6 @@ class AppendSVGOperator(bpy.types.Operator, ImportHelper):
             for stroke in context.object.data.layers[0].active_frame.strokes:
                 for point in stroke.points:
                     point.co = inv_mat @ z_to_y_mat @ point.co
-            if context.scene.tool_settings.gpencil_stroke_placement_view3d == 'CURSOR':
-                bpy.ops.transform.translate(value=context.scene.cursor.location)
                         
             # Set animation data
             if self.image_sequence:
