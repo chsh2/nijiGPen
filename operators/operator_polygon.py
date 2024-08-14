@@ -842,7 +842,7 @@ class BoolLastOperator(bpy.types.Operator):
         stroke_info = [[clip_stroke, layer_index, stroke_index]]
         stroke_list = [clip_stroke]
         t_mat, inv_mat = get_transformation_mat(mode=context.scene.nijigp_working_plane,
-                                                strokes = stroke_list,
+                                                strokes=stroke_list,
                                                 gp_obj=current_gp_obj, operator=self)
         for j,stroke in enumerate(layer.active_frame.strokes):
             if j == stroke_index:
@@ -865,9 +865,16 @@ class BoolLastOperator(bpy.types.Operator):
             bpy.ops.object.mode_set(mode='PAINT_GPENCIL')
             return {'FINISHED'}
 
+        # Use two transform matrices: 
+        # The first is based on the newly drawn stroke for viewport projection; the second is based on existing strokes for depth correction
+        t_mat_mod, inv_mat_mod = get_transformation_mat(mode=context.scene.nijigp_working_plane,
+                                                        strokes=stroke_list[1:],
+                                                        gp_obj=current_gp_obj, operator=self)   
+        poly_list_tmp, depth_list_tmp, _ = get_2d_co_from_strokes(stroke_list[1:], t_mat_mod, scale=False, correct_orientation=False)
+        depth_correction_lookup = DepthLookupTree(poly_list_tmp, depth_list_tmp)
+
         poly_list, depth_list, poly_inverted, scale_factor = get_2d_co_from_strokes(stroke_list, t_mat,
                                                                      scale=True, correct_orientation=True, return_orientation=True)
-        
         # Convert line to poly shape if needed
         if self.clip_mode == 'LINE':
             clip_polys = get_2d_stroke_outline(poly_list[0], clip_stroke, scale_factor, poly_inverted[0])
@@ -890,7 +897,11 @@ class BoolLastOperator(bpy.types.Operator):
                                                                         rearrange = True, ref_stroke_mask = {not self.inherit_clip})
                     if self.operation_type == 'INTERSECTION':
                         new_stroke.use_cyclic = True
-
+                    # Depth correction
+                    for point in new_stroke.points:
+                        co_2d = t_mat_mod @ point.co
+                        new_depth = depth_correction_lookup.get_depth(co_2d)
+                        point.co = inv_mat_mod @ Vector((co_2d[0], co_2d[1], new_depth))
                     # Update the stroke index
                     for info in stroke_info:
                         if new_index <= info[2]:
@@ -903,7 +914,7 @@ class BoolLastOperator(bpy.types.Operator):
             layer_index = info[1]
             current_gp_obj.data.layers[layer_index].active_frame.strokes.remove(info[0])
 
-        refresh_strokes(current_gp_obj, [context.scene.frame_current])
+        refresh_strokes(current_gp_obj)
         bpy.ops.object.mode_set(mode='PAINT_GPENCIL')
         return {'FINISHED'}
     
