@@ -79,8 +79,13 @@ def mix_hsv(rgb1, rgb2, factor, ops = {}):
 def get_mixed_color(gp_obj, stroke, point_idx = None, to_linear = False):
     """Get the displayed color by jointly considering the material and vertex colors"""
     res = [0,0,0,1]
-    mat_gp = gp_obj.data.materials[stroke.material_index].grease_pencil
-    if point_idx == None:
+    mat = gp_obj.data.materials[stroke.material_index]
+
+    if not mat:
+        return res
+    mat_gp = mat.grease_pencil
+
+    if point_idx is None:
         # Case of fill color
         if gp_obj.data.materials[stroke.material_index].grease_pencil.show_fill:
             for i in range(4):
