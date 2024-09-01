@@ -94,16 +94,28 @@ class BooleanModalOperator(bpy.types.Operator):
         if event.type in {'LEFTMOUSE'} and event.value == 'RELEASE':
             self.boolean_eraser_finalize(context)
             context.scene.tool_settings.use_gpencil_draw_onback = self._onback
+            context.object.show_in_front = self._show_in_front
             return {'FINISHED'}
         return {'RUNNING_MODAL'}
 
     def invoke(self, context, event):
+        try:
+            import pyclipper
+        except:
+            self.report({"ERROR"}, "Please install PyClipper in the Preferences panel.")
+            return {'FINISHED'}
+        if is_layer_locked(context.object.data.layers.active):
+            self.report({"ERROR"}, "Active layer is locked or hidden.")
+            return {'FINISHED'}
+        
         self._onback = context.scene.tool_settings.use_gpencil_draw_onback
+        self._show_in_front = context.object.show_in_front
         self._stroke = None
         self._raw_pressure = []
         self._last_x, self._last_y = -1, -1
         self._t_world = context.object.data.layers.active.matrix_inverse_layer @ context.object.matrix_world.inverted_safe()
         context.scene.tool_settings.use_gpencil_draw_onback = False
+        context.object.show_in_front = True
         self.boolean_eraser_setup(context)
         context.window_manager.modal_handler_add(self)
         return {'RUNNING_MODAL'}  
@@ -257,10 +269,12 @@ class SmartFillModalOperator(bpy.types.Operator):
         if event.type in {'RET', 'NUMPAD_ENTER'}:
             bpy.types.SpaceView3D.draw_handler_remove(self._handle, 'WINDOW')
             self.smart_fill_finalize()
+            context.object.show_in_front = self._show_in_front
             return {'FINISHED'}
         if event.type == 'ESC':
             bpy.types.SpaceView3D.draw_handler_remove(self._handle, 'WINDOW')
             self.smart_fill_clear()
+            context.object.show_in_front = self._show_in_front
             return {'CANCELLED'}
         ret = None
         if event.type == 'LEFTMOUSE' and event.value == 'RELEASE':
@@ -272,6 +286,7 @@ class SmartFillModalOperator(bpy.types.Operator):
         if ret and ret > 0:
             self.report({"ERROR"}, "Cannot calculate the fill area. Please select a proper line art layer.")
             bpy.types.SpaceView3D.draw_handler_remove(self._handle, 'WINDOW')
+            context.object.show_in_front = self._show_in_front
             return {'FINISHED'}
         return {'RUNNING_MODAL'}
     
@@ -284,6 +299,10 @@ class SmartFillModalOperator(bpy.types.Operator):
         if is_layer_locked(context.object.data.layers.active):
             self.report({"ERROR"}, "Active layer is locked or hidden.")
             return {'FINISHED'}
+
+        self._t_world = context.object.data.layers.active.matrix_inverse_layer @ context.object.matrix_world.inverted_safe()
+        self._show_in_front = context.object.show_in_front
+        context.object.show_in_front = True
 
         # Setup the solver for calculations
         self.t_mat = Matrix()
@@ -298,7 +317,6 @@ class SmartFillModalOperator(bpy.types.Operator):
         self.smart_fill_setup()
         
         # Setup the handler for screen hint messages
-        self._t_world = context.object.data.layers.active.matrix_inverse_layer @ context.object.matrix_world.inverted_safe()
         self._screen_hint_points = {'+':[], '-':[]}
         args = (self, context)
         self._handle = bpy.types.SpaceView3D.draw_handler_add(
