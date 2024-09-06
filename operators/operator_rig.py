@@ -170,7 +170,7 @@ class PinRigOperator(bpy.types.Operator):
         t_mat, _ = get_transformation_mat(mode=context.scene.nijigp_working_plane,
                                                 gp_obj=gp_obj, strokes=hint_frame.strokes, operator=self)
         # Generate an armature
-        arm_data = bpy.data.armatures.new(gp_obj.name_full + '_pins')
+        arm_data = bpy.data.armatures.new(gp_obj.name + '_pins')
         arm_obj = bpy.data.objects.new(arm_data.name, arm_data)
         bpy.context.collection.objects.link(arm_obj)
         bpy.context.view_layer.objects.active = arm_obj
@@ -469,7 +469,7 @@ class TransferWeightOperator(bpy.types.Operator):
     source_coll: bpy.props.StringProperty(
         name='Collection',
         default='',
-        search=lambda self, context, edit_text: [coll.name_full for coll in bpy.context.scene.collection.children_recursive]
+        search=lambda self, context, edit_text: [coll.name for coll in bpy.context.scene.collection.children_recursive]
     ) 
     mapping_type: bpy.props.EnumProperty(            
         name='Mapping',
