@@ -204,7 +204,7 @@ class NijiGPAddonPreferences(bpy.types.AddonPreferences):
     captured_logs = []
     
     shortcut_button_enabled: bpy.props.BoolProperty(
-        name='Enable Shortcut Buttons',
+        name='Enable Viewport Gizmos',
         description='Add a group of buttons at the bottom of the 3D view that brings better touchscreen control',
         default=True
     )
@@ -231,10 +231,29 @@ class NijiGPAddonPreferences(bpy.types.AddonPreferences):
         description='The position of the shortcut buttons. Zero means buttons in the center. Positive/negative values means buttons in the right/left',
         default=(0,0), soft_min=-2000, soft_max=2000, size=2
     )
+    tool_shortcut_confirm: bpy.props.EnumProperty(
+            name='Confirm',
+            items=[ ('MIDDLEMOUSE', 'Middle Click', ''),
+                    ('BUTTON4MOUSE', 'Mouse4 (Back)', ''),
+                    ('BUTTON5MOUSE', 'Mouse5 (Forward)', ''),
+                    ('BUTTON6MOUSE', 'Mouse6', ''),
+                    ('BUTTON7MOUSE', 'Mouse7', '')],
+            default='BUTTON5MOUSE',
+            description='The mouse button to confirm the result of a viewport tool'
+    )
+    tool_shortcut_cancel: bpy.props.EnumProperty(
+            name='Cancel',
+            items=[ ('MIDDLEMOUSE', 'Middle Click', ''),
+                    ('BUTTON4MOUSE', 'Mouse4 (Back)', ''),
+                    ('BUTTON5MOUSE', 'Mouse5 (Forward)', ''),
+                    ('BUTTON6MOUSE', 'Mouse6', ''),
+                    ('BUTTON7MOUSE', 'Mouse7', '')],
+            default='BUTTON4MOUSE',
+            description='The mouse button to cancel the ongoing operation of a viewport tool'
+    )
 
     def draw(self, context):
         layout = self.layout
-        #wiki_url = "https://github.com/chsh2/nijiGPen/wiki/Dependency-Installation"
         wiki_url = "https://chsh2.github.io/nijigp/docs/get_started/installation/"
 
         # Dependency manager
@@ -298,22 +317,33 @@ class NijiGPAddonPreferences(bpy.types.AddonPreferences):
         layout.separator(factor=2)
         row = layout.row()
         row.label(text='UI Management', icon='PREFERENCES')
-        row.separator()
-        row.operator("gpencil.nijigp_refresh_gizmo", text='Apply', icon="FILE_REFRESH")
         box2 = layout.box()
         row = box2.row()
+        row.label(text='Navigation Shortcuts:', icon='DECORATE_KEYFRAME')
+        row.separator()
+        row.operator("gpencil.nijigp_refresh_gizmo", text='Apply', icon="FILE_REFRESH")
+        subbox = box2.box()
+        row = subbox.row()
         row.prop(self, 'shortcut_button_enabled')
         row.separator()
         row.prop(self, 'shortcut_button_style', text='')
         if self.shortcut_button_enabled:
-            row = box2.row()
+            row = subbox.row()
             row.label(text='Button Display:')
             row.separator()
             row.prop(self, 'shortcut_button_size', text='Size')
             row.prop(self, 'shortcut_button_spacing', text='Spacing')
-            row = box2.row()
+            row = subbox.row()
             row.prop(self, 'shortcut_button_location')
-
+            
+        row = box2.row()
+        row.label(text='Interactive Tool Keymap:', icon='DECORATE_KEYFRAME')
+        subbox = box2.box()
+        row = subbox.row()
+        row.prop(self, 'tool_shortcut_confirm')
+        row = subbox.row()
+        row.prop(self, 'tool_shortcut_cancel')
+        
         layout.separator(factor=2)
         row = layout.row()
         row.label(text='Cache Folder', icon='PREFERENCES')

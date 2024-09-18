@@ -1,11 +1,47 @@
-import bpy, blf
+import bpy, blf, gpu
 import math
 from bpy_extras import view3d_utils
+from gpu_extras.batch import batch_for_shader
 from mathutils import *
 from .utils import *
 from .resources import *
 from .operators.common import ColorTintConfig, refresh_strokes, smooth_stroke_attributes
 from .operators.operator_fill import lineart_triangulation
+
+def draw_button(x, y, width, height, color, text):
+    """Draw a rectangle button in the screen using the GPU module"""
+    # Draw rectangle background
+    positions = (
+        (x,  y), (x,  y+height),
+        (x+width, y+height), (x+width, y))
+    indices = ((0, 1, 2), (2, 3, 0))
+    if bpy.app.version >= (3, 4, 0):
+        shader = gpu.shader.from_builtin('UNIFORM_COLOR')
+    else:
+        shader = gpu.shader.from_builtin('2D_UNIFORM_COLOR')
+        shader.bind()
+    batch = batch_for_shader(shader, 'TRIS', {"pos": positions}, indices=indices)
+    shader.uniform_float("color", color)
+    batch.draw(shader)
+    
+    # Draw text
+    font_id = 0
+    blf.color(font_id, 1, 1, 1, 1)
+    if bpy.app.version > (3, 6, 0):
+        blf.size(font_id, height * 0.8)
+    else:
+        blf.size(font_id, height * 0.8, 72)
+    blf.position(font_id, x + height * 0.1, y + height * 0.1, 0)
+    blf.draw(font_id, text)
+
+def is_button_clicked(event, button_position, button_size):
+    if event.type != 'LEFTMOUSE':
+        return False
+    if event.mouse_region_x < button_position[0] or event.mouse_region_x > button_position[0] + button_size[0]:
+        return False
+    if event.mouse_region_y < button_position[1] or event.mouse_region_y > button_position[1] + button_size[1]:
+        return False
+    return True
 
 class BooleanModalOperator(bpy.types.Operator):
     """Use mouse or pen to draw shapes for Boolean operations"""
@@ -137,11 +173,20 @@ class SmartFillModalOperator(bpy.types.Operator):
         default=0.05, min=0.001, max=1,
         description='Treat points in proximity as one to speed up'
     )
+    mode: bpy.props.EnumProperty(
+        name='Mode',
+        items=[('INTERACTIVE', 'Interactive', 'The user can give multiple hints to adjust the fill until confirmed/canceled.'),
+                ('SINGLE', 'Single Click', 'Filling will finish instantly without further adjustments.')],
+        default='INTERACTIVE'
+    )
     incremental: bpy.props.BoolProperty(
             name='Incremental',
             default=True,
             description='If disabled, ignore all previously generated fills when painting a new one'
     )
+    _confirm_button = (150, 50)
+    _cancel_button = (350, 50)
+    _button_size = (150, 40)
     
     def smart_fill_setup(self):
         # Get line art strokes. Skip the whole operation if cannot find a proper frame
@@ -237,25 +282,27 @@ class SmartFillModalOperator(bpy.types.Operator):
         bpy.ops.object.mode_set(mode='PAINT_GPENCIL')
     
     def draw_callback_px(self, op, context):
+        preferences = context.preferences.addons[__package__].preferences     
+        hint_texts = ["[Interactive Fill Mode]",
+                      "Include Area - <Left Click>",
+                      "Exclude Area - <Right Click>",
+                      f"Confirm - <Enter> / <{preferences.tool_shortcut_confirm.title()}>",
+                      f"Cancel - <ESC> / <{preferences.tool_shortcut_cancel.title()}>",
+                      "------"]
+        hint_text_position = [150, 100]
         font_id = 0
         font_size = 18
-        blf.color(font_id, 0, 0, 0, 1)
-        blf.enable(font_id, blf.SHADOW)
-        blf.shadow(font_id, 3, 0.8, 0.8, 0.8, 0.95)
+        line_height = 22
+
+        # Draw hint texts in a box on the screen
+        draw_button(hint_text_position[0], hint_text_position[1], 350, line_height * len(hint_texts), (.95, .95, .95, 1), '')
+        blf.color(font_id, 0.1, 0.1, 0.1, 1)
         if bpy.app.version > (3, 6, 0):
             blf.size(font_id, font_size)
         else:
             blf.size(font_id, font_size, 72)
-            
-        # Draw hint texts on the screen
-        hint_texts = ["[Interactive Fill Mode]",
-                      "Left Click - Include Area",
-                      "Right Click - Exclude Area",
-                      "Enter - Confirm",
-                      "ESC - Abort"]
-        hint_text_position = [150, 100]
         for i,text in enumerate(reversed(hint_texts)):
-            blf.position(font_id, hint_text_position[0], hint_text_position[1] + font_size * 1.2 * i, 0)
+            blf.position(font_id, hint_text_position[0], hint_text_position[1] + line_height * i, 0)
             blf.draw(font_id, text)
             
         # Draw hint points according to user clicks
@@ -263,26 +310,43 @@ class SmartFillModalOperator(bpy.types.Operator):
             for co in self._screen_hint_points[symbol]:
                 blf.position(font_id, co[0] - font_size * .25, co[1] - font_size * .25, 0)
                 blf.draw(font_id, symbol)
+        
+        # Draw interactive buttons
+        draw_button(self._confirm_button[0], self._confirm_button[1], self._button_size[0], self._button_size[1], 
+                    (.24, .73, .58, 1), 'Confirm')
+        draw_button(self._cancel_button[0], self._cancel_button[1], self._button_size[0], self._button_size[1],
+                    (.75, .22, .34, 1), 'Cancel')
     
     def modal(self, context, event):
-        context.area.tag_redraw()   
-        if event.type in {'RET', 'NUMPAD_ENTER'}:
+        preferences = context.preferences.addons[__package__].preferences
+        context.area.tag_redraw()
+        # Process events that terminate the modal
+        if event.type in {'RET', 'NUMPAD_ENTER', preferences.tool_shortcut_confirm} or is_button_clicked(event, self._confirm_button, self._button_size):
             bpy.types.SpaceView3D.draw_handler_remove(self._handle, 'WINDOW')
             self.smart_fill_finalize()
             context.object.show_in_front = self._show_in_front
             return {'FINISHED'}
-        if event.type == 'ESC':
+        if event.type in {'ESC', preferences.tool_shortcut_cancel} or is_button_clicked(event, self._cancel_button, self._button_size):
             bpy.types.SpaceView3D.draw_handler_remove(self._handle, 'WINDOW')
             self.smart_fill_clear()
             context.object.show_in_front = self._show_in_front
             return {'CANCELLED'}
+
+        # Process user hints
         ret = None
         if event.type == 'LEFTMOUSE' and event.value == 'RELEASE':
             self._screen_hint_points['+'].append((event.mouse_region_x, event.mouse_region_y))
             ret = self.smart_fill_update((event.mouse_region_x, event.mouse_region_y), 1)
+            if self.mode == 'SINGLE':
+                bpy.types.SpaceView3D.draw_handler_remove(self._handle, 'WINDOW')
+                self.smart_fill_finalize()
+                context.object.show_in_front = self._show_in_front
+                return {'FINISHED'}
         if event.type == 'RIGHTMOUSE' and event.value == 'RELEASE':
             self._screen_hint_points['-'].append((event.mouse_region_x, event.mouse_region_y))
             ret = self.smart_fill_update((event.mouse_region_x, event.mouse_region_y), 0)
+
+        # Process error cases
         if ret and ret > 0:
             self.report({"ERROR"}, "Cannot calculate the fill area. Please select a proper line art layer.")
             bpy.types.SpaceView3D.draw_handler_remove(self._handle, 'WINDOW')
@@ -673,6 +737,7 @@ class SmartFillTool(bpy.types.WorkSpaceTool):
         # Other attributes
         layout.prop(props, "line_layer")
         layout.prop(props, "precision")
+        layout.prop(props, "mode")
         layout.prop(props, "incremental")
 
 class OffsetTool(bpy.types.WorkSpaceTool):
@@ -743,7 +808,7 @@ class ViewportShortcuts(bpy.types.GizmoGroup):
 
     def draw_prepare(self, context):
         preferences = context.preferences.addons[__package__].preferences
-        if not preferences.shortcut_button_enabled:
+        if not preferences.shortcut_button_enabled or not hasattr(self, "gizmo_list"):
             return
         region = context.region
         spacing = preferences.shortcut_button_spacing
