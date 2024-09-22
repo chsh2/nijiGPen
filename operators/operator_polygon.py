@@ -105,24 +105,32 @@ def generate_stroke_from_2d(new_co_list, inv_mat,
 
     return new_stroke, new_index, layer_index
 
-def overlapping_strokes(s1, s2, t_mat):
+def overlapping_strokes(s1, s2_outline, s2_bound_box, t_mat, scale_factor=1):
     """
-    Check if two strokes overlap with each other projected to given 2D plane.
+    Check if a stroke overlap with another projected to given 2D plane.
     Ignore the cases involving holes
     """
     # First, check if bound boxes overlap
-    if not stroke_bound_box_overlapping(s1, s2, t_mat):
+    s1_bound_box = get_2d_bound_box([s1], t_mat)
+    if (s1_bound_box[0]*scale_factor > s2_bound_box[2] or s2_bound_box[0] > s1_bound_box[2]*scale_factor or
+        s1_bound_box[1]*scale_factor > s2_bound_box[3] or s2_bound_box[1] > s1_bound_box[3]*scale_factor):
         return False
-    # Then check every pair of edge
+    
+    # Convert the first stroke to 2D path
+    path1 = []
     N1 = len(s1.points)
-    N2 = len(s2.points)
+    for i in range(N1):
+        path1.append(t_mat @ s1.points[i].co)
+        
+    path2 = []
+    for p in s2_outline:
+        path2.append(Vector(p) / scale_factor)
+    N2 = len(path2)
+            
+    # Check each pair of edges
     for i in range(N1):
         for j in range(N2):
-            p1 = t_mat @ s1.points[i].co
-            p2 = t_mat @ s1.points[(i+1)%N1].co
-            p3 = t_mat @ s2.points[j].co
-            p4 = t_mat @ s2.points[(j+1)%N2].co
-            if geometry.intersect_line_line_2d(p1[:2],p2[:2],p3[:2],p4[:2]):
+            if geometry.intersect_line_line_2d(path1[i][:2],path1[(i+1)%N1][:2],path2[j][:2],path2[(j+1)%N2][:2]):
                 return True
     return False
 
@@ -836,7 +844,6 @@ class BoolLastOperator(bpy.types.Operator):
             bpy.ops.object.mode_set(mode='PAINT_GPENCIL')
             return {'FINISHED'}   
         
-        # Check every stroke if it can be operated
         stroke_index = 0 if context.scene.tool_settings.use_gpencil_draw_onback else (len(layer.active_frame.strokes) - 1)
         clip_stroke = layer.active_frame.strokes[stroke_index]
         stroke_info = [[clip_stroke, layer_index, stroke_index]]
@@ -844,6 +851,19 @@ class BoolLastOperator(bpy.types.Operator):
         t_mat, inv_mat = get_transformation_mat(mode=context.scene.nijigp_working_plane,
                                                 strokes=stroke_list,
                                                 gp_obj=current_gp_obj, operator=self)
+        # Determine the clip shape
+        clip_polys, _, poly_inverted, scale_factor = get_2d_co_from_strokes(stroke_list, t_mat,
+                                                                     scale=True, correct_orientation=True, return_orientation=True)
+        if self.clip_mode == 'LINE':
+            clip_polys = get_2d_stroke_outline(clip_polys[0], clip_stroke, scale_factor, poly_inverted[0])
+            
+        clip_points = []
+        for poly in clip_polys:
+            clip_points += poly
+        clip_bound_box = [min(clip_points, key=lambda p: p[0])[0], min(clip_points, key=lambda p: p[1])[1],
+                          max(clip_points, key=lambda p: p[0])[0], max(clip_points, key=lambda p: p[1])[1]]
+
+        # Check each existing stroke if it can be operated
         for j,stroke in enumerate(layer.active_frame.strokes):
             if j == stroke_index:
                 continue
@@ -856,7 +876,7 @@ class BoolLastOperator(bpy.types.Operator):
                 continue
             if context.scene.nijigp_draw_bool_fill_constraint == 'FILL' and (not current_gp_obj.data.materials[stroke.material_index].grease_pencil.show_fill):
                 continue
-            if not overlapping_strokes(clip_stroke, stroke, t_mat):
+            if not overlapping_strokes(stroke, clip_points, clip_bound_box, t_mat, scale_factor):
                 continue
             stroke_list.append(stroke)
             stroke_info.append([stroke, layer_index, j])
@@ -866,20 +886,16 @@ class BoolLastOperator(bpy.types.Operator):
             return {'FINISHED'}
 
         # Use two transform matrices: 
-        # The first is based on the newly drawn stroke for viewport projection; the second is based on existing strokes for depth correction
+        #   - The first is based on the newly drawn stroke for viewport projection
+        #   - The second is based on existing strokes for depth correction
         t_mat_mod, inv_mat_mod = get_transformation_mat(mode=context.scene.nijigp_working_plane,
                                                         strokes=stroke_list[1:],
                                                         gp_obj=current_gp_obj, operator=self)   
         poly_list_tmp, depth_list_tmp, _ = get_2d_co_from_strokes(stroke_list[1:], t_mat_mod, scale=False, correct_orientation=False)
         depth_correction_lookup = DepthLookupTree(poly_list_tmp, depth_list_tmp)
 
-        poly_list, depth_list, poly_inverted, scale_factor = get_2d_co_from_strokes(stroke_list, t_mat,
-                                                                     scale=True, correct_orientation=True, return_orientation=True)
-        # Convert line to poly shape if needed
-        if self.clip_mode == 'LINE':
-            clip_polys = get_2d_stroke_outline(poly_list[0], clip_stroke, scale_factor, poly_inverted[0])
-        else:
-            clip_polys = [poly_list[0]]
+        poly_list, depth_list, poly_inverted, _ = get_2d_co_from_strokes(stroke_list, t_mat,
+                                                                     scale=True, correct_orientation=True, scale_factor=scale_factor, return_orientation=True)
 
         # Operate on the last stroke with any other stroke one by one
         for j in range(1, len(stroke_list)):

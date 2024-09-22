@@ -98,9 +98,13 @@ class BooleanModalOperator(bpy.types.Operator):
                                     (event.mouse_region_x, event.mouse_region_y), origin)
         # For taper mode, reshape the whole stroke 
         if self.caps_type == 'TAPER' and len(self._stroke.points) > 1:
+            seg_length = (self._stroke.points[-1].co - self._stroke.points[-2].co).length
+            self._segments_length.append(seg_length)
+            self._total_length += seg_length
+            factor = 0
             for i,point in enumerate(self._stroke.points):
-                factor = i / (len(self._stroke.points) - 1)
-                point.pressure = self._raw_pressure[i] * factor * (1-factor) * 4
+                factor += self._segments_length[i]
+                point.pressure = self._raw_pressure[i] * (factor/self._total_length) * (1-factor/self._total_length) * 4
 
     def boolean_eraser_finalize(self, context):
         # Execute Draw mode Boolean operator
@@ -148,6 +152,8 @@ class BooleanModalOperator(bpy.types.Operator):
         self._show_in_front = context.object.show_in_front
         self._stroke = None
         self._raw_pressure = []
+        self._segments_length = [0]
+        self._total_length = 0
         self._last_x, self._last_y = -1, -1
         self._t_world = context.object.data.layers.active.matrix_inverse_layer @ context.object.matrix_world.inverted_safe()
         context.scene.tool_settings.use_gpencil_draw_onback = False
@@ -675,7 +681,7 @@ class BooleanEraserTool(bpy.types.WorkSpaceTool):
     bl_idname = "nijigp.boolean_eraser_tool"
     bl_label = "Boolean Eraser"
     bl_description = (
-        "Use mouse or pen drawing to perform Boolean operations"
+        "Use mouse or pen drawing to perform Boolean operations. Hold CTRL to append, otherwise erase"
     )
     bl_icon = get_workspace_tool_icon('ops.nijigp.boolean_eraser_tool')
     bl_cursor = 'ERASER'
@@ -683,6 +689,8 @@ class BooleanEraserTool(bpy.types.WorkSpaceTool):
     bl_keymap = (
         ("gpencil.nijigp_boolean_modal", {"type": 'LEFTMOUSE', "value": 'PRESS'},
          {"properties": []}),
+        ("gpencil.nijigp_boolean_modal", {"type": 'LEFTMOUSE', "value": 'PRESS', "ctrl": True},
+         {"properties": [("operation_type", 'UNION')]}),
     )
     def draw_settings(context, layout, tool):
         props = tool.operator_properties("gpencil.nijigp_boolean_modal")
