@@ -125,6 +125,7 @@ class NIJIGP_PT_draw_panel_polygon(bpy.types.Panel):
         layout.label(text="Affected Strokes:")
         layout.prop(scene, "nijigp_draw_bool_material_constraint", text = "")
         layout.prop(scene, "nijigp_draw_bool_fill_constraint", text = "")
+        layout.prop(scene, "nijigp_draw_bool_selection_constraint", text = "Selected Only", icon = "GP_SELECT_STROKES")
 
 class NIJIGP_PT_edit_panel_polygon(bpy.types.Panel):
     bl_idname = 'NIJIGP_PT_edit_panel_polygon'

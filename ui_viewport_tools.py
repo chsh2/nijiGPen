@@ -112,10 +112,11 @@ class BooleanModalOperator(bpy.types.Operator):
             smooth_stroke_attributes(self._stroke, self.smooth_level, {'co':3, 'pressure':1})
         self._stroke.material_index = context.active_object.active_material_index
         refresh_strokes(context.active_object, [context.scene.frame_current])
-        bpy.ops.gpencil.nijigp_bool_last(
-            operation_type = self.operation_type,
-            clip_mode = 'LINE'
-        )
+        if len(self._stroke.points) > 0:
+            bpy.ops.gpencil.nijigp_bool_last(
+                operation_type = self.operation_type,
+                clip_mode = 'LINE'
+            )
         # If the newly drawn stroke still exist, remove it
         frame = context.active_object.data.layers.active.active_frame
         if self._stroke == frame.strokes[-1]:
@@ -709,7 +710,8 @@ class BooleanEraserTool(bpy.types.WorkSpaceTool):
         
         layout.label(text="Affected Strokes:")
         layout.prop(context.scene, "nijigp_draw_bool_material_constraint", text = "")
-        layout.prop(context.scene, "nijigp_draw_bool_fill_constraint", text = "")        
+        layout.prop(context.scene, "nijigp_draw_bool_fill_constraint", text = "")
+        layout.prop(context.scene, "nijigp_draw_bool_selection_constraint", text = "Selected Strokes Only", icon = "GP_SELECT_STROKES")     
 
 class SmartFillTool(bpy.types.WorkSpaceTool):
     bl_space_type = 'VIEW_3D'

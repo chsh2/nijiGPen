@@ -809,9 +809,6 @@ class BoolLastOperator(bpy.types.Operator):
         layout.prop(self, "keep_subjects", text = "Keep Affected Strokes")
 
     def execute(self, context):
-        bpy.ops.object.mode_set(mode='EDIT_GPENCIL')
-        bpy.ops.gpencil.select_all(action='DESELECT')
-
         # Import and configure Clipper
         try:
             import pyclipper
@@ -832,6 +829,7 @@ class BoolLastOperator(bpy.types.Operator):
 
         # Search operation targets only in active layer
         current_gp_obj = context.object
+        bpy.ops.object.mode_set(mode='EDIT_GPENCIL')
         layer_index = current_gp_obj.data.layers.active_index
         layer = current_gp_obj.data.layers[layer_index]
 
@@ -848,6 +846,7 @@ class BoolLastOperator(bpy.types.Operator):
         clip_stroke = layer.active_frame.strokes[stroke_index]
         stroke_info = [[clip_stroke, layer_index, stroke_index]]
         stroke_list = [clip_stroke]
+        selection_map = []
         t_mat, inv_mat = get_transformation_mat(mode=context.scene.nijigp_working_plane,
                                                 strokes=stroke_list,
                                                 gp_obj=current_gp_obj, operator=self)
@@ -867,6 +866,7 @@ class BoolLastOperator(bpy.types.Operator):
         for j,stroke in enumerate(layer.active_frame.strokes):
             if j == stroke_index:
                 continue
+            selection_map.append((stroke, stroke.select))
             if is_stroke_locked(stroke, current_gp_obj):
                 continue
             # Check the condition of each filter
@@ -876,6 +876,8 @@ class BoolLastOperator(bpy.types.Operator):
                 continue
             if context.scene.nijigp_draw_bool_fill_constraint == 'FILL' and (not current_gp_obj.data.materials[stroke.material_index].grease_pencil.show_fill):
                 continue
+            if context.scene.nijigp_draw_bool_selection_constraint and not stroke.select:
+                continue
             if not overlapping_strokes(stroke, clip_points, clip_bound_box, t_mat, scale_factor):
                 continue
             stroke_list.append(stroke)
@@ -884,7 +886,8 @@ class BoolLastOperator(bpy.types.Operator):
         if len(stroke_list) == 1:
             bpy.ops.object.mode_set(mode='PAINT_GPENCIL')
             return {'FINISHED'}
-
+        bpy.ops.gpencil.select_all(action='DESELECT')
+        
         # Use two transform matrices: 
         #   - The first is based on the newly drawn stroke for viewport projection
         #   - The second is based on existing strokes for depth correction
@@ -898,6 +901,7 @@ class BoolLastOperator(bpy.types.Operator):
                                                                      scale=True, correct_orientation=True, scale_factor=scale_factor, return_orientation=True)
 
         # Operate on the last stroke with any other stroke one by one
+        generated_strokes = []
         for j in range(1, len(stroke_list)):
             clipper.Clear()
             clipper.AddPath(poly_list[j], pyclipper.PT_SUBJECT, True)
@@ -922,7 +926,18 @@ class BoolLastOperator(bpy.types.Operator):
                     for info in stroke_info:
                         if new_index <= info[2]:
                             info[2] += 1
+                    generated_strokes.append(new_stroke)
 
+        # Select either the existing strokes or the new stroke, depending on options
+        for stroke in generated_strokes:
+            if self.keep_subjects and context.scene.nijigp_draw_bool_selection_constraint:
+                stroke.select = False
+            else:
+                stroke.select = True
+        if context.scene.nijigp_draw_bool_selection_constraint:
+            for stroke, selected in selection_map:
+                if stroke:
+                    stroke.select = selected
         # Delete old strokes
         for i,info in enumerate(stroke_info):
             if (i==0 and self.keep_clips) or (i>0 and self.keep_subjects):

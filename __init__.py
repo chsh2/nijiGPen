@@ -61,6 +61,10 @@ def register():
                         default='FILL',
                         description="Boolean operations in Draw mode apply to either all strokes or only strokes with fills"
                         )
+    bpy.types.Scene.nijigp_draw_bool_selection_constraint = bpy.props.BoolProperty(
+                        default=False, 
+                        description="Boolean operations in Draw mode apply to selected strokes only"
+                        )
     register_viewport_tools()
     
     custom_lib_path = bpy.context.preferences.addons[__package__].preferences.custom_lib_path
