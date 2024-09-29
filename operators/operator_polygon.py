@@ -855,6 +855,10 @@ class BoolLastOperator(bpy.types.Operator):
                                                                      scale=True, correct_orientation=True, return_orientation=True)
         if self.clip_mode == 'LINE':
             clip_polys = get_2d_stroke_outline(clip_polys[0], clip_stroke, scale_factor, poly_inverted[0])
+            clip_polys = [poly for poly in clip_polys if pyclipper.Area(poly) > 1]
+        if len(clip_polys) < 1:
+            bpy.ops.object.mode_set(mode='PAINT_GPENCIL')
+            return {'FINISHED'}
             
         clip_points = []
         for poly in clip_polys:

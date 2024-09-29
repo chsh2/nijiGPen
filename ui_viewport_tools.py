@@ -105,6 +105,7 @@ class BooleanModalOperator(bpy.types.Operator):
             for i,point in enumerate(self._stroke.points):
                 factor += self._segments_length[i]
                 point.pressure = self._raw_pressure[i] * (factor/self._total_length) * (1-factor/self._total_length) * 4
+                point.pressure = max(point.pressure, 1e-3)
 
     def boolean_eraser_finalize(self, context):
         # Execute Draw mode Boolean operator
