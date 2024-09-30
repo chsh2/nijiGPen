@@ -344,6 +344,13 @@ class HatchFillOperator(bpy.types.Operator, ColorTintConfig, NoiseConfig):
             default='DOODLE',
             description='The way of connecting points to one or multiple lines'
     )
+    style_doodle: bpy.props.EnumProperty(
+            name='Doodle',
+            items=[ ('Z', 'Z-Shape', ''),
+                    ('S', 'S-Shape', '')],
+            default='Z',
+            description='The way of connecting parallel lines to a doodle'
+    )
     style_tile: bpy.props.EnumProperty(
             name='Tile',
             items=[ ('RECT', 'Squares', ''),
@@ -403,6 +410,7 @@ class HatchFillOperator(bpy.types.Operator, ColorTintConfig, NoiseConfig):
         box2.prop(self, "angle")
         box2.prop(self, "style_line")
         box2.prop(self, "gap")
+        box2.prop(self, "style_doodle")
         box2.prop(self, "style_tile")
         row = box2.row()
         row.prop(self, "line_width")
@@ -493,10 +501,13 @@ class HatchFillOperator(bpy.types.Operator, ColorTintConfig, NoiseConfig):
 
                 # Connect gird points to generate hatch patterns
                 hatch_polys = []
+                to_reverse = False
                 if self.style_line == 'CONVEX':
                     hatch_polys.append([])
                     for u in range(grid_U):
-                        for v in range(grid_V):
+                        seq = reversed(range(grid_V)) if to_reverse else range(grid_V)
+                        to_reverse = not to_reverse if self.style_doodle == 'S' else False
+                        for v in seq:
                             if grid_points_inside[u][v]:
                                 hatch_polys[-1].append(grid_points[u][v])
                 else:             
@@ -520,17 +531,20 @@ class HatchFillOperator(bpy.types.Operator, ColorTintConfig, NoiseConfig):
                             current_seg = [u, start, end]
                             while True:
                                 # Doodle style: Greedy connects to a point in the next row
-                                for v in range(current_seg[1], current_seg[2]):
+                                seq = range(current_seg[2]-1, current_seg[1]-1, -1) if to_reverse else range(current_seg[1], current_seg[2])
+                                for v in seq:
                                     hatch_polys[-1].append(grid_points[current_seg[0]][v])
+                                to_reverse = not to_reverse if self.style_doodle == 'S' else False
                                 # Parallel line style: Never connect segments
                                 if self.style_line == 'PARA':
                                     break
                                 if current_seg[0] >= grid_U - 1:
                                     break
                                 for next_start,next_end in row_segments[current_seg[0]+1].values():
-                                    if not across_boundary(grid_points[current_seg[0]][end-1], 
-                                                           grid_points[current_seg[0]+1][next_start], 
-                                                           poly_list[0], scale_factor):
+                                    pair = (grid_points[current_seg[0]][current_seg[2]-1], grid_points[current_seg[0]+1][next_start]) if self.style_doodle == 'Z' else \
+                                           (grid_points[current_seg[0]][current_seg[2]-1], grid_points[current_seg[0]+1][next_end-1]) if to_reverse else \
+                                           (grid_points[current_seg[0]][current_seg[1]], grid_points[current_seg[0]+1][next_start])
+                                    if not across_boundary(pair[0], pair[1], poly_list[0], scale_factor):
                                         current_seg = [current_seg[0]+1, next_start, next_end]
                                         row_segments[current_seg[0]].pop(next_start)
                                         break
