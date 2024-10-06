@@ -6,14 +6,15 @@ NijiGPen is a [Blender](https://www.blender.org/) add-on that brings new feature
 
 - 2D algorithms for vector shapes and strokes (e.g., Boolean and Offset)
 - Refinement and cleanup of hand-drawn 2D strokes
-- Conversion from 2D shapes to 3D meshes
+- 3D mesh/shading generation from 2D shapes
 - Data exchange with other painting/designing tools
-
-Please note that the development of this add-on is still in an early stage. Bugs may exist and UI/operators may change frequently.
 
 ## Installation
 
-Requirement: Blender 3.3 or later
+Requirement: Blender 3.3 ~ 4.2
+
+> [!NOTE]
+> Currently, Blender 4.3 with Grease Pencil 3.0 is not supported. I am working on it and plan to add the support in the next major release. However, massive updates are required, and I expect it to take 1~2 months.
 
 Please follow the steps in [this page](https://chsh2.github.io/nijigp/docs/get_started/installation/) to finish the installation.
 
