@@ -1,4 +1,5 @@
 import bpy
+from .api_router import *
 
 class RenderAndVectorizeMenu(bpy.types.Menu):
     bl_label = "Render and Convert Scene/Mesh"
@@ -49,7 +50,7 @@ class NIJIGP_PT_draw_panel_setting(bpy.types.Panel):
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
     bl_category = "NijiGP"
-    bl_context = "greasepencil_paint"
+    bl_context = get_bl_context_str('paint')
     bl_order = 0
 
     def draw(self, context):
@@ -61,7 +62,7 @@ class NIJIGP_PT_edit_panel_setting(bpy.types.Panel):
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
     bl_category = "NijiGP"
-    bl_context = "greasepencil_edit"
+    bl_context = get_bl_context_str('edit')
     bl_order = 0
 
     def draw(self, context):
@@ -73,7 +74,7 @@ class NIJIGP_PT_weight_panel_setting(bpy.types.Panel):
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
     bl_category = "NijiGP"
-    bl_context = "greasepencil_weight"
+    bl_context = get_bl_context_str('weight')
     bl_order = 0
 
     def draw(self, context):
@@ -85,7 +86,7 @@ class NIJIGP_PT_draw_panel_io(bpy.types.Panel):
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
     bl_category = "NijiGP"
-    bl_context = "greasepencil_paint"
+    bl_context = get_bl_context_str('paint')
     bl_order = 5
 
     def draw(self, context):
@@ -97,7 +98,7 @@ class NIJIGP_PT_edit_panel_io(bpy.types.Panel):
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
     bl_category = "NijiGP"
-    bl_context = "greasepencil_edit"
+    bl_context = get_bl_context_str('edit')
     bl_order = 5
 
     def draw(self, context):
@@ -109,7 +110,7 @@ class NIJIGP_PT_draw_panel_polygon(bpy.types.Panel):
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
     bl_category = "NijiGP"
-    bl_context = "greasepencil_paint"
+    bl_context = get_bl_context_str('paint')
     bl_order = 2
 
     def draw(self, context):
@@ -133,7 +134,7 @@ class NIJIGP_PT_edit_panel_polygon(bpy.types.Panel):
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
     bl_category = "NijiGP"
-    bl_context = "greasepencil_edit"
+    bl_context = get_bl_context_str('edit')
     bl_order = 2
 
     def draw(self, context):
@@ -163,7 +164,7 @@ class NIJIGP_PT_edit_panel_mesh(bpy.types.Panel):
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
     bl_category = "NijiGP"
-    bl_context = "greasepencil_edit"
+    bl_context = get_bl_context_str('edit')
     bl_order = 3
 
     def draw(self, context):
@@ -186,7 +187,7 @@ class NIJIGP_PT_draw_panel_mesh(bpy.types.Panel):
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
     bl_category = "NijiGP"
-    bl_context = "greasepencil_paint"
+    bl_context = get_bl_context_str('paint')
     bl_order = 3
 
     def draw(self, context):
@@ -204,7 +205,7 @@ class NIJIGP_PT_edit_panel_line(bpy.types.Panel):
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
     bl_category = "NijiGP"
-    bl_context = "greasepencil_edit"
+    bl_context = get_bl_context_str('edit')
     bl_order = 1
 
     def draw(self, context):
@@ -227,7 +228,7 @@ class NIJIGP_PT_draw_panel_line(bpy.types.Panel):
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
     bl_category = "NijiGP"
-    bl_context = "greasepencil_paint"
+    bl_context = get_bl_context_str('paint')
     bl_order = 1
 
     def draw(self, context):
@@ -244,7 +245,7 @@ class NIJIGP_PT_weight_panel_rig(bpy.types.Panel):
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
     bl_category = "NijiGP"
-    bl_context = "greasepencil_weight"
+    bl_context = get_bl_context_str('weight')
     bl_order = 1
 
     def draw(self, context):
@@ -266,7 +267,7 @@ class NIJIGP_PT_edit_panel_misc(bpy.types.Panel):
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
     bl_category = "NijiGP"
-    bl_context = "greasepencil_edit"
+    bl_context = get_bl_context_str('edit')
     bl_order = 4
 
     def draw(self, context):
@@ -287,7 +288,7 @@ class NIJIGP_PT_edit_subpanel_palette(bpy.types.Panel):
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
     bl_category = "NijiGP"
-    bl_context = "greasepencil_edit"
+    bl_context = get_bl_context_str('edit')
     bl_parent_id = "NIJIGP_PT_edit_panel_misc"
     bl_options = {"DEFAULT_CLOSED"}
 

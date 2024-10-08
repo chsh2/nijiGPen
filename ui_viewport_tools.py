@@ -5,6 +5,7 @@ from gpu_extras.batch import batch_for_shader
 from mathutils import *
 from .utils import *
 from .resources import *
+from .api_router import *
 from .operators.common import ColorTintConfig, refresh_strokes, smooth_stroke_attributes
 from .operators.operator_fill import lineart_triangulation
 
@@ -679,7 +680,7 @@ class ArrangeModalOperator(bpy.types.Operator):
 
 class BooleanEraserTool(bpy.types.WorkSpaceTool):
     bl_space_type = 'VIEW_3D'
-    bl_context_mode = 'PAINT_GPENCIL'
+    bl_context_mode = get_mode_str('PAINT')
     bl_idname = "nijigp.boolean_eraser_tool"
     bl_label = "Boolean Eraser"
     bl_description = (
@@ -716,7 +717,7 @@ class BooleanEraserTool(bpy.types.WorkSpaceTool):
 
 class SmartFillTool(bpy.types.WorkSpaceTool):
     bl_space_type = 'VIEW_3D'
-    bl_context_mode = 'PAINT_GPENCIL'
+    bl_context_mode = get_mode_str('PAINT')
     bl_idname = "nijigp.smart_fill_tool"
     bl_label = "Interactive Smart Fill"
     bl_description = (
@@ -753,7 +754,7 @@ class SmartFillTool(bpy.types.WorkSpaceTool):
 
 class OffsetTool(bpy.types.WorkSpaceTool):
     bl_space_type = 'VIEW_3D'
-    bl_context_mode = 'EDIT_GPENCIL'
+    bl_context_mode = get_mode_str('EDIT')
 
     bl_idname = "nijigp.offset_tool"
     bl_label = "2D Offset"
@@ -779,7 +780,7 @@ class OffsetTool(bpy.types.WorkSpaceTool):
 
 class SweepTool(bpy.types.WorkSpaceTool):
     bl_space_type = 'VIEW_3D'
-    bl_context_mode = 'EDIT_GPENCIL'
+    bl_context_mode = get_mode_str('EDIT')
 
     bl_idname = "nijigp.sweep_tool"
     bl_label = "2D Sweep"
@@ -815,7 +816,7 @@ class ViewportShortcuts(bpy.types.GizmoGroup):
 
     @classmethod
     def poll(cls, context):
-        return (context.mode=='EDIT_GPENCIL' or context.mode=='PAINT_GPENCIL' or context.mode=='SCULPT_GPENCIL')
+        return (context.mode==get_mode_str('EDIT') or context.mode==get_mode_str('PAINT') or context.mode==get_mode_str('SCULPT'))
 
     def draw_prepare(self, context):
         preferences = context.preferences.addons[__package__].preferences
