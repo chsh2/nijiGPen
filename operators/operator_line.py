@@ -4,6 +4,7 @@ import numpy as np
 from mathutils import *
 from .common import *
 from ..utils import *
+from ..api_router import *
 
 def stroke_to_kdtree(co_list):
     n = len(co_list)
@@ -962,7 +963,7 @@ class PinchSelectedOperator(bpy.types.Operator):
         stroke_list = []
         stroke_frame_map = {}
         frames_to_process = get_input_frames(gp_obj,
-                                             multiframe = gp_obj.data.use_multiedit,
+                                             multiframe = multiedit_enabled(gp_obj),
                                              return_map = True)
         skipped_frames = []
         for frame_number, layer_frame_map in frames_to_process.items():
@@ -970,7 +971,7 @@ class PinchSelectedOperator(bpy.types.Operator):
             for _, item in layer_frame_map.items():
                 stroke_frame_map[frame_number] += get_input_strokes(gp_obj, item[0])
             stroke_frame_map[frame_number] = [stroke for stroke in stroke_frame_map[frame_number]
-                                                if len(stroke.points)>1 and not stroke.use_cyclic]
+                                                if len(stroke.points)>1 and not stroke.cyclic]
             if len(stroke_frame_map[frame_number])<2:
                 self.report({"INFO"}, "Please select at least two strokes in each frame, otherwise the frame will be skipped.")
                 skipped_frames.append(frame_number)
@@ -1004,7 +1005,7 @@ class PinchSelectedOperator(bpy.types.Operator):
                                 break
                             for point0 in [stroke0.points[0], stroke0.points[-1]]:
                                 # The case where two points are close and not paired
-                                if i<j and point0 not in point_offset and (trans2d(point0.co)-trans2d(point.co)).length < self.threshold:
+                                if i<j and point0 not in point_offset and (trans2d(point0.position)-trans2d(point.position)).length < self.threshold:
                                     # Assign the stroke to a chain
                                     if stroke0 in stroke_chain_idx and stroke in stroke_chain_idx:
                                         pass
@@ -1018,9 +1019,9 @@ class PinchSelectedOperator(bpy.types.Operator):
                                         num_chains += 1
 
                                     # Calculate the offset value
-                                    center = 0.5 * (trans2d(point0.co)+trans2d(point.co))
-                                    point_offset[point] = center - trans2d(point.co)
-                                    point_offset[point0] = center - trans2d(point0.co)
+                                    center = 0.5 * (trans2d(point0.position)+trans2d(point.position))
+                                    point_offset[point] = center - trans2d(point.position)
+                                    point_offset[point0] = center - trans2d(point0.position)
                                     break
                 # Padding zeros for ends without offsets
                 for i,stroke in enumerate(stroke_frame_map[frame_number]):
@@ -1037,10 +1038,10 @@ class PinchSelectedOperator(bpy.types.Operator):
                         J = len(stroke.points)-1
                         w1 = 1 - j/J/self.transition_length
                         w2 = 1 - (J-j)/J/self.transition_length
-                        new_co = trans2d(point.co)
+                        new_co = trans2d(point.position)
                         new_co += self.mix_factor * (point_offset[stroke.points[0]] * smoothstep(w1) 
                                                     + point_offset[stroke.points[-1]] * smoothstep(w2))
-                        point.co = restore_3d_co(new_co, depth_lookup_tree.get_depth(new_co), inv_mat)
+                        point.position = restore_3d_co(new_co, depth_lookup_tree.get_depth(new_co), inv_mat)
 
             # Detect and eliminate the gap between an endpoint and a non-endpoint
             def prolong_to_stroke(stroke, end_type, ray_length, stroke0):
@@ -1048,18 +1049,18 @@ class PinchSelectedOperator(bpy.types.Operator):
                 Add length to the end of a stroke to see if it crosses another stroke
                 '''
                 if end_type == 'start':
-                    p1 = trans2d(stroke.points[0].co)
-                    delta = (p1 - trans2d(stroke.points[1].co)).normalized() * ray_length
+                    p1 = trans2d(stroke.points[0].position)
+                    delta = (p1 - trans2d(stroke.points[1].position)).normalized() * ray_length
                 else:
-                    p1 = trans2d(stroke.points[-1].co)
-                    delta = (p1 - trans2d(stroke.points[-2].co)).normalized() * ray_length
+                    p1 = trans2d(stroke.points[-1].position)
+                    delta = (p1 - trans2d(stroke.points[-2].position)).normalized() * ray_length
                 min_dist = None
                 ret = None, None
                 for i,p3 in enumerate(stroke0.points):
                     if i==0:
                         continue
-                    p3 = trans2d(p3.co)
-                    p4 = trans2d(stroke0.points[i-1].co)
+                    p3 = trans2d(p3.position)
+                    p4 = trans2d(stroke0.points[i-1].position)
                     for p2 in (p1-delta, p1+delta):
                         intersect = geometry.intersect_line_line_2d(p1,p2,p3,p4)
                         if intersect:
@@ -1080,12 +1081,12 @@ class PinchSelectedOperator(bpy.types.Operator):
                             intersect, contact_idx = prolong_to_stroke(stroke, end_type, self.threshold, stroke0)
                             if intersect:
                                 # Move the end of the stroke immediately
-                                offset = intersect - trans2d(point.co)
+                                offset = intersect - trans2d(point.position)
                                 L = math.ceil((len(stroke.points)-1)*self.transition_length)
                                 for l in range(L+1):
                                     target_point = stroke.points[l] if end_type=='start' else stroke.points[-l-1]
-                                    new_co = trans2d(target_point.co) + offset * (1-l/L) * self.mix_factor
-                                    target_point.co = restore_3d_co(new_co, depth_lookup_tree.get_depth(new_co), inv_mat)
+                                    new_co = trans2d(target_point.position) + offset * (1-l/L) * self.mix_factor
+                                    target_point.position = restore_3d_co(new_co, depth_lookup_tree.get_depth(new_co), inv_mat)
 
                                 # Thicken the contact points
                                 contact_pressure = self.contact_pressure * self.mix_factor
@@ -1252,12 +1253,12 @@ class TaperSelectedOperator(bpy.types.Operator):
             # Apply final modification results
             for i,point in enumerate(stroke.points):
                 if 'PRESSURE' in self.target_attributes:
-                    point.pressure = point.pressure * factor_arr[i] if self.operation=='MULTIPLY' else factor_arr[i]
+                    point.radius = point.radius * factor_arr[i] if self.operation=='MULTIPLY' else factor_arr[i]
                 if 'STRENGTH' in self.target_attributes:
-                    point.strength = point.strength * factor_arr[i] if self.operation=='MULTIPLY' else factor_arr[i]
+                    point.opacity = point.opacity * factor_arr[i] if self.operation=='MULTIPLY' else factor_arr[i]
 
         gp_obj = context.object
-        frames_to_process = get_input_frames(gp_obj, gp_obj.data.use_multiedit)
+        frames_to_process = get_input_frames(gp_obj, multiedit_enabled(gp_obj))
         stroke_list = []
         for frame in frames_to_process:
             stroke_list += get_input_strokes(gp_obj, frame)

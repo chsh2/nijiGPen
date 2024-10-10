@@ -85,7 +85,7 @@ def load_stroke_selection(gp_obj, select_map):
                     else:
                         stroke.select = False
 
-def get_input_frames(gp_obj, multiframe=False, return_map=False, layers = None):
+def get_input_frames(gp_obj, multiframe=False, return_map=False, layers=None):
     """
     Get either active frames or all selected frames depending on the edit mode.
     Return either a list of frames, or a detailed map with the following format:
@@ -97,8 +97,8 @@ def get_input_frames(gp_obj, multiframe=False, return_map=False, layers = None):
     
     layer_active_frames_number = []
     for i,layer in enumerate(layers_to_process):
-        if layer.active_frame:
-            layer_active_frames_number.append(layer.active_frame.frame_number)
+        if layer.current_frame():
+            layer_active_frames_number.append(layer.current_frame().frame_number)
         else:
             layer_active_frames_number.append(None)            
 
@@ -130,8 +130,8 @@ def get_input_strokes(gp_obj, frame: bpy.types.GPencilFrame, select_all = False)
     Check each stroke in a frame if it belongs to the input
     """
     res = []
-    if hasattr(frame, 'strokes'):
-        for stroke in frame.strokes:
+    if hasattr(frame, 'drawing') and hasattr(frame.drawing, 'strokes') and frame.drawing.strokes:
+        for stroke in frame.drawing.strokes:
             if not is_stroke_locked(stroke, gp_obj) and (select_all or stroke.select):
                 res.append(stroke)
     return res

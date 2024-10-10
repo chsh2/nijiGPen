@@ -404,7 +404,7 @@ def get_transformation_mat(mode='VIEW', gp_obj=None, strokes=[], operator=None):
     view_matrix = bpy.context.space_data.region_3d.view_matrix.to_3x3()
     if gp_obj:
         obj_rotation = gp_obj.matrix_world.to_3x3().normalized()
-        layer_rotation = gp_obj.data.layers.active.matrix_layer.to_3x3().normalized()
+        layer_rotation = gp_obj.data.layers.active.matrix_local.to_3x3().normalized()
         view_matrix = view_matrix @ obj_rotation
         if bpy.context.scene.nijigp_working_plane_layer_transform:
             view_matrix = view_matrix @ layer_rotation
@@ -420,7 +420,7 @@ def get_transformation_mat(mode='VIEW', gp_obj=None, strokes=[], operator=None):
             data = []
             for stroke in strokes:
                 for point in stroke.points:
-                    data.append(point.co)
+                    data.append(point.position)
             if len(data) < 2:                           # PCA cannot handle. Use view plane instead.
                 break
             
@@ -467,7 +467,7 @@ def get_2d_co_from_strokes(stroke_list, t_mat, scale = False, correct_orientatio
         co_list = []
         depth_list = []
         for point in stroke.points:
-            transformed_co = t_mat @ point.co
+            transformed_co = t_mat @ point.position
             co_list.append([transformed_co[0],transformed_co[1]])
             depth_list.append(transformed_co[2])
             w_bound[0] = min(w_bound[0], co_list[-1][0])

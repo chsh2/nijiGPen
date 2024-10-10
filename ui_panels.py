@@ -274,8 +274,9 @@ class NIJIGP_PT_edit_panel_misc(bpy.types.Panel):
         layout = self.layout
         layout.label(text="Shape Preprocessing:")
         row = layout.row()
-        row.operator("gpencil.stroke_sample", text="Resample").length = 0.02
-        row.operator("gpencil.stroke_smooth", text="Smooth")
+        # TODO: implement a new resampling operator
+        #row.operator("gpencil.stroke_sample", text="Resample").length = 0.02
+        row.operator(get_ops_str("gpencil.stroke_smooth"), text="Smooth")
         
         layout.label(text="Color Utilities:")
         row = layout.row()

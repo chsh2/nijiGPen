@@ -831,7 +831,7 @@ class ViewportShortcuts(bpy.types.GizmoGroup):
                     gizmo.matrix_basis[0][3] = (region.width/2 + total_width/2
                                                 - self.button_size*spacing*(i+1) * context.preferences.view.ui_scale
                                                 + preferences.shortcut_button_location[0])
-                    gizmo.matrix_basis[1][3] = self.button_size*2 + preferences.shortcut_button_location[1]
+                    gizmo.matrix_basis[1][3] = self.button_size*2 + preferences.shortcut_button_location[1] + get_viewport_bottom_offset()
                 elif preferences.shortcut_button_style == 'TOP':
                     gizmo.matrix_basis[0][3] = (region.width/2 + total_width/2
                                                 - self.button_size*spacing*(i+1) * context.preferences.view.ui_scale
@@ -855,9 +855,9 @@ class ViewportShortcuts(bpy.types.GizmoGroup):
                                None,
                                {'op': 'gpencil.nijigp_roll_view_modal', 'icon': 'FILE_REFRESH'},
                                None,
-                               {'op': 'gpencil.stroke_arrange', 'icon': 'TRIA_UP_BAR', 'direction': 'TOP'},
+                               {'op': get_ops_str('gpencil.stroke_arrange'), 'icon': 'TRIA_UP_BAR', 'direction': 'TOP'},
                                {'op': 'gpencil.nijigp_arrange_modal' ,'icon': 'MOD_DISPLACE'},
-                               {'op': 'gpencil.stroke_arrange', 'icon': 'TRIA_DOWN_BAR', 'direction': 'BOTTOM'}
+                               {'op': get_ops_str('gpencil.stroke_arrange'), 'icon': 'TRIA_DOWN_BAR', 'direction': 'BOTTOM'}
                                ]
         self.button_size = preferences.shortcut_button_size 
         for profile in self.button_profile_list:
@@ -890,7 +890,7 @@ class RefreshGizmoOperator(bpy.types.Operator):
 
 def register_viewport_tools():
     # Edit mode tools
-    bpy.utils.register_tool(OffsetTool, after={"builtin.transform_fill"}, separator=True, group=True)
+    bpy.utils.register_tool(OffsetTool, after={"builtin.transform_fill", "builtin.texture_gradient"}, separator=True, group=True)
     bpy.utils.register_tool(SweepTool, after={OffsetTool.bl_idname})
     # Draw mode tools
     bpy.utils.register_tool(SmartFillTool, after={"builtin.circle"}, separator=True, group=True)
