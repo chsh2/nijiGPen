@@ -147,7 +147,7 @@ class BooleanModalOperator(bpy.types.Operator):
         except:
             self.report({"ERROR"}, "Please install PyClipper in the Preferences panel.")
             return {'FINISHED'}
-        if is_layer_locked(context.object.data.layers.active):
+        if is_layer_protected(context.object.data.layers.active):
             self.report({"ERROR"}, "Active layer is locked or hidden.")
             return {'FINISHED'}
         
@@ -369,7 +369,7 @@ class SmartFillModalOperator(bpy.types.Operator):
         except:
             self.report({"ERROR"}, "Please install Scikit-Image in the Preferences panel.")
             return {'FINISHED'}
-        if is_layer_locked(context.object.data.layers.active):
+        if is_layer_protected(context.object.data.layers.active):
             self.report({"ERROR"}, "Active layer is locked or hidden.")
             return {'FINISHED'}
 
@@ -651,10 +651,10 @@ class ArrangeModalOperator(bpy.types.Operator):
             delta = round((event.mouse_x - self.starting_mouse_x) * self.moving_rate)
             if delta > self.arrange_offset:
                 for i in range(delta-self.arrange_offset):
-                    bpy.ops.gpencil.stroke_arrange(direction='UP')
+                    op_arrange_stroke('UP')
             elif delta < self.arrange_offset:
                 for i in range(self.arrange_offset-delta):
-                    bpy.ops.gpencil.stroke_arrange(direction='DOWN')
+                    op_arrange_stroke('DOWN')
             self.arrange_offset = delta 
             context.area.header_text_set('Arrangement Offset: {:d}'.format(self.arrange_offset))
         elif event.type == 'LEFTMOUSE':

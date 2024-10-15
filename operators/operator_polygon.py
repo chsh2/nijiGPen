@@ -364,7 +364,7 @@ class OffsetSelectedOperator(bpy.types.Operator, ColorTintConfig):
                 # Consider the case where active_frame is None
                 if hasattr(frame, "strokes"):
                     for j,stroke in enumerate(frame.strokes):
-                        if stroke.select and not is_stroke_locked(stroke, current_gp_obj):
+                        if stroke.select and not is_stroke_protected(stroke, current_gp_obj):
                             stroke_info.append([stroke, i, j, frame])
                             stroke_list.append(stroke)
             t_mat, inv_mat = get_transformation_mat(mode=context.scene.nijigp_working_plane,
@@ -478,7 +478,7 @@ class FractureSelectedOperator(bpy.types.Operator):
                 layer = current_gp_obj.data.layers[i]
                 if hasattr(frame, "strokes"):
                     for j,stroke in enumerate(frame.strokes):
-                        if stroke.select and not is_stroke_locked(stroke, current_gp_obj):
+                        if stroke.select and not is_stroke_protected(stroke, current_gp_obj):
                             stroke_info.append([stroke, i, j, frame])
                             stroke_list.append(stroke)
                             select_seq_map[len(stroke_list) - 1] = select_map[layer][frame][stroke]
@@ -673,7 +673,7 @@ class BoolSelectedOperator(bpy.types.Operator):
                 layer = current_gp_obj.data.layers[i]
                 if hasattr(frame, "strokes"):
                     for j,stroke in enumerate(frame.strokes):
-                        if stroke.select and not is_stroke_locked(stroke, current_gp_obj):
+                        if stroke.select and not is_stroke_protected(stroke, current_gp_obj):
                             stroke_info.append([stroke, i, j, frame])
                             stroke_list.append(stroke)
                             select_seq_map[len(stroke_list) - 1] = select_map[layer][frame][stroke]
@@ -871,7 +871,7 @@ class BoolLastOperator(bpy.types.Operator):
             if j == stroke_index:
                 continue
             selection_map.append((stroke, stroke.select))
-            if is_stroke_locked(stroke, current_gp_obj):
+            if is_stroke_protected(stroke, current_gp_obj):
                 continue
             # Check the condition of each filter
             if context.scene.nijigp_draw_bool_material_constraint == 'SAME' and stroke.material_index != clip_stroke.material_index:
@@ -1048,7 +1048,7 @@ class SweepSelectedOperator(bpy.types.Operator, ColorTintConfig):
                 layer = current_gp_obj.data.layers[i]
                 if hasattr(frame, "strokes"):
                     for j,stroke in enumerate(frame.strokes):
-                        if stroke.select and not is_stroke_locked(stroke, current_gp_obj):
+                        if stroke.select and not is_stroke_protected(stroke, current_gp_obj):
                             stroke_info.append([stroke, i, j, frame])
                             stroke_list.append(stroke)
                             select_seq_map[len(stroke_list) - 1] = select_map[layer][frame][stroke]

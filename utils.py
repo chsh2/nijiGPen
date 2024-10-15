@@ -2,6 +2,7 @@ import math
 import bpy
 import numpy as np
 from mathutils import *
+from .api_router import *
 
 SCALE_CONSTANT = 8192
 LINE_WIDTH_FACTOR = 2000.0
@@ -314,7 +315,7 @@ def is_stroke_fill(stroke, gp_obj):
         return False
     return not material.grease_pencil.show_stroke
 
-def is_stroke_locked(stroke, gp_obj):
+def is_stroke_protected(stroke, gp_obj):
     """
     Check if a stroke has the material that is being locked or invisible
     """
@@ -334,11 +335,11 @@ def is_stroke_hole(stroke, gp_obj):
         return False
     return material.grease_pencil.use_fill_holdout
 
-def is_layer_locked(layer: bpy.types.GPencilLayer):
+def is_layer_protected(layer: bpy.types.GPencilLayer):
     """
     Check if a layer should be edited
     """
-    return layer.lock or layer.hide
+    return layer_locked(layer) or layer_hidden(layer)
 
 def get_stroke_length(stroke: bpy.types.GPencilStroke = None, co_list = None):
     """Calculate the total length of a stroke"""
@@ -404,7 +405,7 @@ def get_transformation_mat(mode='VIEW', gp_obj=None, strokes=[], operator=None):
     view_matrix = bpy.context.space_data.region_3d.view_matrix.to_3x3()
     if gp_obj:
         obj_rotation = gp_obj.matrix_world.to_3x3().normalized()
-        layer_rotation = gp_obj.data.layers.active.matrix_local.to_3x3().normalized()
+        layer_rotation = gp_obj.data.layers.active.matrix_layer.to_3x3().normalized()
         view_matrix = view_matrix @ obj_rotation
         if bpy.context.scene.nijigp_working_plane_layer_transform:
             view_matrix = view_matrix @ layer_rotation
@@ -420,7 +421,7 @@ def get_transformation_mat(mode='VIEW', gp_obj=None, strokes=[], operator=None):
             data = []
             for stroke in strokes:
                 for point in stroke.points:
-                    data.append(point.position)
+                    data.append(point.co)
             if len(data) < 2:                           # PCA cannot handle. Use view plane instead.
                 break
             
@@ -467,7 +468,7 @@ def get_2d_co_from_strokes(stroke_list, t_mat, scale = False, correct_orientatio
         co_list = []
         depth_list = []
         for point in stroke.points:
-            transformed_co = t_mat @ point.position
+            transformed_co = t_mat @ point.co
             co_list.append([transformed_co[0],transformed_co[1]])
             depth_list.append(transformed_co[2])
             w_bound[0] = min(w_bound[0], co_list[-1][0])

@@ -269,7 +269,7 @@ class ShadeSelectedOperator(bpy.types.Operator):
                         if ((self.ignore_mode == 'LINE' and is_stroke_line(stroke, current_gp_obj)) or
                             (self.ignore_mode == 'OPEN' and is_stroke_line(stroke, current_gp_obj) and not stroke.use_cyclic)):
                             continue
-                        if stroke.select and not is_stroke_locked(stroke, current_gp_obj):
+                        if stroke.select and not is_stroke_protected(stroke, current_gp_obj):
                             stroke_info.append([stroke, i, j, frame])
                             stroke_list.append(stroke)
                             
