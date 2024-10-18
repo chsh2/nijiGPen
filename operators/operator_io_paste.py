@@ -4,6 +4,7 @@ import numpy as np
 from mathutils import *
 from ..utils import *
 from ..resources import get_cache_folder
+from ..api_router import *
 
 def make_filename(text):
     """Convert a string provided by user to a legal file name"""

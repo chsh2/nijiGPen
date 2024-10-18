@@ -2,6 +2,7 @@ import bpy
 import numpy as np
 from .common import *
 from ..utils import *
+from ..api_router import *
 
 def generate_shading_stroke(co_list, inv_mat, scale_factor, gp_obj, ref_stroke_info, ref_kdtree: DepthLookupTree):
     """
@@ -38,7 +39,7 @@ def generate_shading_stroke(co_list, inv_mat, scale_factor, gp_obj, ref_stroke_i
     # Rearrange the new stroke
     current_index = len(frame.strokes) - 1
     new_index = stroke_index + 1
-    bpy.ops.gpencil.select_all(action='DESELECT')
+    op_deselect()
     new_stroke.select = True
     for i in range(current_index - new_index):
         bpy.ops.gpencil.stroke_arrange("EXEC_DEFAULT", direction='DOWN')
@@ -440,7 +441,7 @@ class ShadeSelectedOperator(bpy.types.Operator):
                                         info[2] += 1            
                                                                         
             # Single-frame post-processing
-            bpy.ops.gpencil.select_all(action='DESELECT')
+            op_deselect()
             for point in rim_terminator_points + shadow_terminator_points:
                 point.select = True
             bpy.ops.gpencil.stroke_smooth(repeat=self.smooth_repeat)
@@ -448,7 +449,7 @@ class ShadeSelectedOperator(bpy.types.Operator):
         # Overall post-processing
         bpy.context.scene.frame_set(current_frame)
         # Rim strokes
-        bpy.ops.gpencil.select_all(action='DESELECT')
+        op_deselect()
         for stroke in generated_rim_strokes:
             stroke.select = True
         bpy.ops.gpencil.nijigp_color_tint(tint_color=self.rim_tint_config.tint_color,
@@ -457,14 +458,14 @@ class ShadeSelectedOperator(bpy.types.Operator):
         # Shadow strokes
         num_levels = len(generated_shadow_strokes_multilevel)
         for shadow_level, generated_shadow_strokes in enumerate(generated_shadow_strokes_multilevel):
-            bpy.ops.gpencil.select_all(action='DESELECT')
+            op_deselect()
             for stroke in generated_shadow_strokes:
                 stroke.select = True
             bpy.ops.gpencil.nijigp_color_tint(tint_color=self.shadow_tint_config.tint_color,
                                             tint_color_factor=self.shadow_tint_config.tint_color_factor * (num_levels - shadow_level) / num_levels,
                                             tint_mode='FILL', blend_mode=self.shadow_tint_config.blend_mode)
         # All strokes
-        bpy.ops.gpencil.select_all(action='DESELECT')
+        op_deselect()
         for stroke in generated_rim_strokes + sum(generated_shadow_strokes_multilevel, []):
             stroke.select = True        
         refresh_strokes(current_gp_obj, list(frames_to_process.keys()))

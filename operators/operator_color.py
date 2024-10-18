@@ -2,6 +2,7 @@ import bpy
 import numpy as np
 from .common import *
 from ..utils import *
+from ..api_router import *
 
 def mix_color(rgb1, rgb2, factor, op):
     """Mixing either RGB or HSV colors"""

@@ -3,6 +3,7 @@ import math
 from mathutils import *
 from .common import *
 from ..utils import *
+from ..api_router import *
 
 def switch_to(objs):
     """Rig operations need frequent object re-selections"""
@@ -430,7 +431,7 @@ class MeshFromArmOperator(bpy.types.Operator):
                                           fill_layer = fill_layer.info,
                                           precision = 0.05,
                                           material_mode = 'HINT')
-        bpy.ops.gpencil.select_all(action='DESELECT')
+        op_deselect()
         for stroke in fill_frame.strokes:
             stroke.select = True
         bpy.ops.gpencil.nijigp_mesh_generation_normal(use_native_triangulation = True,

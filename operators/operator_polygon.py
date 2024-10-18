@@ -3,6 +3,7 @@ import math
 import numpy as np
 from .common import *
 from ..utils import *
+from ..api_router import *
 
 def generate_stroke_from_2d(new_co_list, inv_mat, 
                             poly_list, depth_list, 
@@ -98,10 +99,10 @@ def generate_stroke_from_2d(new_co_list, inv_mat,
     new_index = current_index
     if rearrange:
         new_index = stroke_index + 1 - arrange_offset
-        bpy.ops.gpencil.select_all(action='DESELECT')
+        op_deselect()
         new_stroke.select = True
         for i in range(current_index - new_index):
-            bpy.ops.gpencil.stroke_arrange("EXEC_DEFAULT", direction='DOWN')
+            op_arrange_stroke(direction='DOWN')
 
     return new_stroke, new_index, layer_index
 
@@ -227,7 +228,7 @@ class HoleProcessingOperator(bpy.types.Operator):
             # Iteratively process and exclude outmost strokes
             processed = set()
             while len(processed) < len(to_process):
-                bpy.ops.gpencil.select_all(action='DESELECT')
+                op_deselect()
                 idx_list = []
                 color_modified = set()
                 for i in range(len(to_process)):
@@ -242,7 +243,7 @@ class HoleProcessingOperator(bpy.types.Operator):
                         change_material(to_process[i])
                     color_modified.add(key)
                 if self.rearrange:
-                    bpy.ops.gpencil.stroke_arrange("EXEC_DEFAULT", direction='TOP')
+                    op_arrange_stroke(direction='TOP')
 
                 for color in color_modified:
                     is_hole_map[color] = not is_hole_map[color]
@@ -561,7 +562,7 @@ class FractureSelectedOperator(bpy.types.Operator):
 
         # Post-processing
         refresh_strokes(current_gp_obj, list(frames_to_process.keys()))
-        bpy.ops.gpencil.select_all(action='DESELECT')
+        op_deselect()
         for stroke in generated_strokes:
             stroke.select = True
 
@@ -756,7 +757,7 @@ class BoolSelectedOperator(bpy.types.Operator):
 
         # Post-processing
         refresh_strokes(current_gp_obj, list(frames_to_process.keys()))
-        bpy.ops.gpencil.select_all(action='DESELECT')
+        op_deselect()
         for stroke in generated_strokes:
             stroke.select = True
 
@@ -890,7 +891,7 @@ class BoolLastOperator(bpy.types.Operator):
         if len(stroke_list) == 1:
             bpy.ops.object.mode_set(mode='PAINT_GPENCIL')
             return {'FINISHED'}
-        bpy.ops.gpencil.select_all(action='DESELECT')
+        op_deselect()
         
         # Use two transform matrices: 
         #   - The first is based on the newly drawn stroke for viewport projection

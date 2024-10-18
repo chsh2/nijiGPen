@@ -283,11 +283,11 @@ class SmartFillModalOperator(bpy.types.Operator):
     def smart_fill_finalize(self):
         """Post-processing."""
         bpy.ops.object.mode_set(mode='EDIT_GPENCIL')
-        bpy.ops.gpencil.select_all(action='DESELECT')
+        op_deselect()
         for stroke in self.generated_strokes:
             stroke.select = True
         if bpy.context.scene.tool_settings.use_gpencil_draw_onback:
-            bpy.ops.gpencil.stroke_arrange(direction='BOTTOM')
+            op_arrange_stroke(direction='BOTTOM')
         bpy.ops.object.mode_set(mode='PAINT_GPENCIL')
     
     def draw_callback_px(self, op, context):
@@ -612,13 +612,13 @@ class ArrangeModalOperator(bpy.types.Operator):
         """
         Show the order of the active layer&frame by number
         """
-        if context.object and context.object.type=='GPENCIL':
+        if context.object and obj_is_gp(context.object):
             layers = context.object.data.layers
             if layers.active and not layers.active.hide and layers.active.active_frame:
                 strokes = layers.active.active_frame.strokes
-                if len(strokes)<self.max_display:
+                if len(strokes) < self.max_display:
                     for i,stroke in enumerate(strokes):
-                        if len(stroke.points)>0:
+                        if len(stroke.points) > 0:
                             # Render the number text on each stroke
                             # Mark the starting point for open stroke and center for closed/fill stroke
                             if is_stroke_line(stroke, context.object) and not stroke.use_cyclic:
@@ -628,7 +628,7 @@ class ArrangeModalOperator(bpy.types.Operator):
                             else:
                                 view_co = view3d_utils.location_3d_to_region_2d(context.region, 
                                                                                 context.space_data.region_3d, 
-                                                                                (stroke.bound_box_min+stroke.bound_box_max)*0.5)                                
+                                                                                (stroke.points[0].co + stroke.points[len(stroke.points)//3].co + stroke.points[len(stroke.points)*2//3].co) / 3)                                
                             if stroke.select:
                                 blf.color(self.font_id, 1, 0.5, 0.5, 1)
                             else:

@@ -372,7 +372,7 @@ class FitSelectedOperator(CommonFittingConfig, bpy.types.Operator):
         # Input part finishes. Remove input strokes
         if not self.keep_original:
             bpy.ops.gpencil.delete(type='STROKES')
-        bpy.ops.gpencil.select_all(action='DESELECT')
+        op_deselect()
 
         # Prepare for output
         output_layer = gp_obj.data.layers.active
@@ -686,7 +686,7 @@ class ClusterAndFitOperator(CommonFittingConfig, bpy.types.Operator):
                 for frame in layer.frames:
                     frame.select = (frame.frame_number in frames_to_process) and (layer_idx in frames_to_process[frame.frame_number])
             # Set stroke selection
-            bpy.ops.gpencil.select_all(action='DESELECT')
+            op_deselect()
             for stroke in cluster_map[cluster]:
                 stroke.select = True
             bpy.ops.gpencil.nijigp_fit_selected(line_sampling_size = self.line_sampling_size,
@@ -706,7 +706,7 @@ class ClusterAndFitOperator(CommonFittingConfig, bpy.types.Operator):
                                             keep_original = self.keep_original,
                                             save_output_state = True)
         # Select all output strokes
-        bpy.ops.gpencil.select_all(action='DESELECT')
+        op_deselect()
         for stroke in nijigp_generated_fit_strokes:
             stroke.select = True
         nijigp_generated_fit_strokes = []
@@ -1102,7 +1102,7 @@ class PinchSelectedOperator(bpy.types.Operator):
             # Apply join
             if self.end_to_end and self.join_strokes:
                 for i in range(num_chains):
-                    bpy.ops.gpencil.select_all(action='DESELECT')
+                    op_deselect()
                     for stroke in stroke_chain_idx:
                         if stroke_chain_idx[stroke]==i:
                             stroke.select = True
@@ -1261,7 +1261,7 @@ class TaperSelectedOperator(bpy.types.Operator):
                     point.strength = point.strength * factor_arr[i] if self.operation=='MULTIPLY' else factor_arr[i]
 
         gp_obj = context.object
-        frames_to_process = get_input_frames(gp_obj, multiedit_enabled(gp_obj))
+        frames_to_process = get_input_frames(gp_obj, gp_obj.data.use_multiedit)
         stroke_list = []
         for frame in frames_to_process:
             stroke_list += get_input_strokes(gp_obj, frame)

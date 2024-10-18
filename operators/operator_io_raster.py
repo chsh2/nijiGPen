@@ -6,6 +6,7 @@ from bpy_extras import image_utils
 from mathutils import *
 from .common import *
 from ..utils import *
+from ..api_router import *
 
 class CameraPlaneProjector:
     """
@@ -148,7 +149,7 @@ class ImportLineImageOperator(bpy.types.Operator, ImportHelper):
         gp_layer = gp_obj.data.layers.active
         current_mode = context.mode
         bpy.ops.object.mode_set(mode='EDIT_GPENCIL')
-        bpy.ops.gpencil.select_all(action='DESELECT')
+        op_deselect()
         t_mat, inv_mat = get_transformation_mat(mode=context.scene.nijigp_working_plane,
                                                 gp_obj=gp_obj)
         try:
@@ -517,7 +518,7 @@ class ImportColorImageOperator(bpy.types.Operator, ImportHelper, ImportColorImag
 
         gp_obj.data.use_multiedit = self.image_sequence
         bpy.ops.object.mode_set(mode='EDIT_GPENCIL')
-        bpy.ops.gpencil.select_all(action='DESELECT')
+        op_deselect()
 
         # Get or generate the starting frame
         if not gp_layer.active_frame:
@@ -885,7 +886,7 @@ class RenderAndVectorizeOperator(bpy.types.Operator, ImportColorImageConfig):
                 frame_number_set = set(frame_numbers)
                 for frame_number in range(scene.frame_start, scene.frame_end + 1):
                     scene.frame_set(frame_number)
-                    bpy.ops.gpencil.select_all(action='DESELECT')
+                    op_deselect()
                     for stroke in lineart_frames[frame_number].strokes:
                         stroke.select = True
                     if frame_number in frame_number_set:

@@ -40,19 +40,14 @@ def get_viewport_bottom_offset():
 
 
 #region [Wrapped APIs]
-def multiedit_enabled(gp_obj):
+def obj_is_gp(obj):
     if bpy.app.version >= (4, 3, 0):
-        return bpy.context.scene.tool_settings.use_grease_pencil_multi_frame_editing
+        return obj.type == "GREASEPENCIL"
     else:
-        return gp_obj.data.use_multiedit
-    
-def set_multiedit(gp_obj, enabled):
-    if bpy.app.version >= (4, 3, 0):
-        bpy.context.scene.tool_settings.use_grease_pencil_multi_frame_editing = enabled
-    else:
-        gp_obj.data.use_multiedit = enabled
+        return obj.type == "GPENCIL"
 
 def layer_locked(layer):
+    # TODO: Blender 4.3 API cannot process nested groups. Should look back when 4.4 comes out
     if bpy.app.version >= (4, 3, 0) and layer.parent_group:
         return layer.lock and layer.parent_group.lock
     else:
@@ -64,8 +59,19 @@ def layer_hidden(layer):
     else:
         return layer.hide
     
+def new_gp_brush(name):
+    """Copy an existing one if GPv2; create a new one if GPv3"""
+    if bpy.app.version >= (4, 3, 0):
+        res = bpy.data.brushes.new(name, mode=get_mode_str('PAINT'))
+        res.gpencil_settings.vertex_color_factor = 1
+    else:
+        src = [brush for brush in bpy.data.brushes if brush.use_paint_grease_pencil and brush.gpencil_tool=='DRAW'][0]
+        res = src.copy()
+        res.name = name
+    return res
+
 def set_absolute_pressure(point, value, line_width = None):
-    """GPv3 uses a single radius value to replace (line_width * pressure)"""
+    """GPv3 uses a single radius value that equals (line_width / 2000 * pressure) in GPv2"""
     if bpy.app.version >= (4, 3, 0):
         if not line_width:
             point.pressure = bpy.context.tool_settings.gpencil_paint.brush.unprojected_radius * value
@@ -79,6 +85,12 @@ def op_arrange_stroke(direction):
         bpy.ops.grease_pencil.reorder(direction=direction)
     else:
         bpy.ops.gpencil.stroke_arrange(direction=direction)
+        
+def op_deselect():
+    if bpy.app.version >= (4, 3, 0):
+        bpy.ops.grease_pencil.select_all(action='DESELECT')
+    else:
+        bpy.ops.gpencil.select_all(action='DESELECT')
 #endregion
 
 #region [Wrapper classes]
@@ -190,18 +202,26 @@ class LegacyStrokeRef:
             return 'ROUND' if self._drawing.strokes[self._index].start_cap == 0 else 'FLAT'
         elif name == 'end_cap_mode':
             return 'ROUND' if self._drawing.strokes[self._index].end_cap == 0 else 'FLAT'
+        elif name == 'vertex_color_fill':
+            return self._drawing.strokes[self._index].fill_color
+        
+        # The following properties do not exist in GPv3. Return a placeholder value instead.
         elif name == 'line_width':
             return 1
         elif name == 'is_nofill_stroke':
             return False
+        elif name == 'select_index':
+            return self._index
+        
         else:
             return getattr(self._drawing.strokes[self._index], name)
     
     def __setattr__(self, name, value):
-        writable = {'material_index', 'use_cyclic', 'vertex_color_fill', 'line_width', 'hardness', 'is_nofill_stroke', 'select',
-                    'uv_rotation', 'uv_translation', 'uv_scale', 
-                    'fill_opacity',                                     # New attribute that does not exist in GPv2
-                    'start_cap_mode', 'end_cap_mode'}
+        writable = {'select', 'use_cyclic', 'is_nofill_stroke',
+                    'material_index', 'vertex_color_fill', 'line_width', 'hardness',
+                    'uv_rotation', 'uv_translation', 'uv_scale', 'start_cap_mode', 'end_cap_mode',
+                    'fill_opacity',    # New attribute that does not exist in GPv2
+                    }
         if name not in writable:
             super().__setattr__(name, value)
             return
@@ -215,6 +235,8 @@ class LegacyStrokeRef:
             self._drawing.strokes[self._index].start_cap = 0 if value == 'ROUND' else 1
         elif name == 'end_cap_mode':
             self._drawing.strokes[self._index].end_cap = 0 if value == 'ROUND' else 1
+        elif name == 'vertex_color_fill':
+            self._drawing.strokes[self._index].fill_color = value
         else:
             setattr(self._drawing.strokes[self._index], name, value)
         
@@ -248,15 +270,20 @@ def register_alternative_api_paths():
     Create new APIs to make GPv3 compatible with GPv2
     """
     if bpy.app.version >= (4, 3, 0):
+        bpy.types.GreasePencilv3.use_multiedit = property(lambda self: bpy.context.scene.tool_settings.use_grease_pencil_multi_frame_editing,
+                                                        lambda self, value: setattr(bpy.context.scene.tool_settings, 'use_grease_pencil_multi_frame_editing', value))
         bpy.types.GreasePencilLayer.active_frame = property(lambda self: self.current_frame())
         bpy.types.GreasePencilLayer.matrix_layer = property(lambda self: self.matrix_local)
+        bpy.types.GreasePencilLayer.use_mask_layer = property(lambda self: self.use_masks)
         bpy.types.GreasePencilLayer.info = property(lambda self: self.name, lambda self, value: setattr(self, 'name', value))
         bpy.types.GreasePencilFrame.strokes = property(lambda self: LegacyStrokeCollection(self.drawing))
         
     
 def unregister_alternative_api_paths():
     if bpy.app.version >= (4, 3, 0):
+        delattr(bpy.types.GreasePencilv3, "use_multiedit")
         delattr(bpy.types.GreasePencilLayer, "active_frame")
         delattr(bpy.types.GreasePencilLayer, "matrix_layer")
+        delattr(bpy.types.GreasePencilLayer, "use_mask_layer")
         delattr(bpy.types.GreasePencilLayer, "info")
         delattr(bpy.types.GreasePencilFrame, "strokes")

@@ -2,6 +2,7 @@ import bpy
 import numpy as np
 from .common import *
 from ..utils import *
+from ..api_router import *
 
 def lineart_triangulation(stroke_list, t_mat, poly_list, scale_factor, resolution):
     """Using Blender native Delaunay method on line art strokes"""
@@ -157,7 +158,7 @@ class SmartFillOperator(bpy.types.Operator):
             self.clear_fill_layer = False
 
         bpy.ops.object.mode_set(mode='EDIT_GPENCIL')
-        bpy.ops.gpencil.select_all(action='DESELECT')
+        op_deselect()
 
         def fill_single_frame(line_frame, hint_frame, fill_frame):
             if len(line_frame.strokes) < 1:
@@ -573,7 +574,7 @@ class HatchFillOperator(bpy.types.Operator, ColorTintConfig, NoiseConfig):
                 if not self.keep_original:
                     frame.strokes.remove(stroke)
         # Post-processing
-        bpy.ops.gpencil.select_all(action='DESELECT')
+        op_deselect()
         for stroke in generated_strokes:
             stroke.select = True
         if self.vertex_color_mode != 'NONE':

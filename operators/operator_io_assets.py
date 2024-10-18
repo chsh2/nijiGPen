@@ -6,6 +6,7 @@ from mathutils import Color
 from ..file_formats import GbrParser, Abr1Parser, Abr6Parser, BrushsetParser, SutParser, PaletteParser
 from ..resources import get_cache_folder
 from ..utils import *
+from ..api_router import *
 
 class ImportBrushOperator(bpy.types.Operator, ImportHelper):
     """Extract textures of brushes exported from painting software and append them to the current file"""
@@ -61,7 +62,7 @@ class ImportBrushOperator(bpy.types.Operator, ImportHelper):
     template_brush: bpy.props.StringProperty(
             name='Template Brush',
             description='When creating new brushes, copy attributes from the selected brush',
-            default='Airbrush',
+            default='',
             search=lambda self, context, edit_text: [brush.name for brush in bpy.data.brushes if brush.use_paint_grease_pencil and brush.gpencil_tool=='DRAW']
     )
     uv_randomness: bpy.props.FloatProperty(
@@ -248,7 +249,11 @@ class ImportBrushOperator(bpy.types.Operator, ImportHelper):
                 
                 # Create GPencil draw brush
                 if self.texture_usage == 'BRUSH':
-                    new_brush: bpy.types.Brush = bpy.data.brushes[self.template_brush].copy()
+                    template_brush_name = self.template_brush
+                    if self.template_brush != '':
+                        new_brush = bpy.data.brushes[template_brush_name].copy()
+                    else:
+                        new_brush = new_gp_brush(brush_name)
                     new_brush.name = brush_name
                     new_brush.use_custom_icon = True
                     new_brush.gpencil_settings.use_material_pin = True
@@ -270,6 +275,11 @@ class ImportBrushOperator(bpy.types.Operator, ImportHelper):
                     icon_obj.save()
                     new_brush.icon_filepath = icon_filepath
                     bpy.data.images.remove(icon_obj)
+                    
+                    # Set asset information, necessary for Blender 4.3+
+                    new_brush.asset_generate_preview()
+                    new_brush.asset_mark()
+                    new_brush.asset_data.description = f'Original brush file: {f.name}'
                     
                 # Override parameters by parsing original Procreate brush data
                 if self.convert_orig_params and isinstance(parser, BrushsetParser) and orig_params:
@@ -524,7 +534,7 @@ class AppendSVGOperator(bpy.types.Operator, ImportHelper):
             bpy.ops.object.delete()
             context.view_layer.objects.active = current_gp_obj
             bpy.ops.object.mode_set(mode='EDIT_GPENCIL')
-            bpy.ops.gpencil.select_all(action='DESELECT')
+            op_deselect()
             current_gp_obj.select_set(True)
             
             # Transform the figure to the working 2D plane
