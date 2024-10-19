@@ -93,7 +93,8 @@ class BooleanModalOperator(bpy.types.Operator):
         if context.scene.tool_settings.gpencil_stroke_placement_view3d == 'CURSOR':
             origin = context.scene.cursor.location
         self._raw_pressure.append(event.pressure if self.use_pressure else 1)
-        self._stroke.points.add(1, pressure=self._raw_pressure[-1])
+        self._stroke.points.add(1)
+        self._stroke.points[-1].pressure = self._raw_pressure[-1]
         self._stroke.points[-1].co = self._t_world @ view3d_utils.region_2d_to_location_3d(context.region,
                                     context.space_data.region_3d,
                                     (event.mouse_region_x, event.mouse_region_y), origin)
@@ -158,7 +159,7 @@ class BooleanModalOperator(bpy.types.Operator):
         self._segments_length = [0]
         self._total_length = 0
         self._last_x, self._last_y = -1, -1
-        self._t_world = context.object.data.layers.active.matrix_inverse_layer @ context.object.matrix_world.inverted_safe()
+        self._t_world = context.object.data.layers.active.matrix_layer.inverted_safe() @ context.object.matrix_world.inverted_safe()
         context.scene.tool_settings.use_gpencil_draw_onback = False
         context.object.show_in_front = True
         self.boolean_eraser_setup(context)
@@ -373,7 +374,7 @@ class SmartFillModalOperator(bpy.types.Operator):
             self.report({"ERROR"}, "Active layer is locked or hidden.")
             return {'FINISHED'}
 
-        self._t_world = context.object.data.layers.active.matrix_inverse_layer @ context.object.matrix_world.inverted_safe()
+        self._t_world = context.object.data.layers.active.matrix_layer.inverted_safe() @ context.object.matrix_world.inverted_safe()
         self._show_in_front = context.object.show_in_front
         context.object.show_in_front = True
 
@@ -437,8 +438,8 @@ class SweepModalOperator(bpy.types.Operator, ColorTintConfig):
         elif event.type == 'LEFTMOUSE':
             # Fall back to the select operation if mouse is never moved
             if not self.mouse_moved:
-                bpy.ops.gpencil.select(location=(event.mouse_region_x, event.mouse_region_y),
-                                       extend=(self.style=='OUTER'))
+                op_select(location=(event.mouse_region_x, event.mouse_region_y),
+                            extend=(self.style=='OUTER'))
             context.area.header_text_set(None)
             return {'FINISHED'}
         
@@ -505,8 +506,8 @@ class OffsetModalOperator(bpy.types.Operator):
         elif event.type == 'LEFTMOUSE':
             # Fall back to the select operation if mouse is never moved
             if not self.mouse_moved:
-                bpy.ops.gpencil.select(location=(event.mouse_region_x, event.mouse_region_y),
-                                       extend=(self.end_type_mode=='ET_OPEN'))
+                op_select(location=(event.mouse_region_x, event.mouse_region_y),
+                            extend=(self.end_type_mode=='ET_OPEN'))
             context.area.header_text_set(None)
             return {'FINISHED'}
         

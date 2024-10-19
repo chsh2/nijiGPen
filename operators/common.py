@@ -180,37 +180,39 @@ def copy_stroke_attributes(dst: bpy.types.GPencilStroke, srcs,
         dst.use_cyclic = src.use_cyclic
     if copy_material:
         dst.material_index = src.material_index
+    if copy_uv:
+        dst.uv_scale = src.uv_scale
         
     # Average values
-    color_fill = [.0,.0,.0,.0]
-    uv_translation = [.0,.0]
-    uv_scale, uv_rotation = .0, .0
+    color_fill = Vector([.0,.0,.0,.0])
+    uv_translation = Vector([.0,.0])
+    uv_rotation = .0
     linewidth = 0
-    hardness = 0.0
+    hardness = .0
     for src in srcs:
         if copy_hardness:
             hardness += src.hardness
         if copy_linewidth:
             linewidth += src.line_width
         if copy_uv:
-            uv_scale += src.uv_scale
             uv_rotation += src.uv_rotation
-            uv_translation[0] += src.uv_translation[0]
-            uv_translation[1] += src.uv_translation[1]
+            uv_translation += Vector(src.uv_translation)
         if copy_color:
-            for i in range(4):
-                color_fill[i] += src.vertex_color_fill[i]
+            color_fill += Vector(src.vertex_color_fill)
     n = len(srcs)
     if copy_hardness:
         dst.hardness = hardness / n
     if copy_linewidth:
         dst.line_width = int(linewidth // n)
     if copy_uv:
-        dst.uv_rotation, dst.uv_scale = uv_rotation / n, uv_scale / n
-        dst.uv_translation[0],  dst.uv_translation[1] = uv_translation[0] / n, uv_translation[1] / n
+        dst.uv_rotation = uv_rotation / n
+        dst.uv_translation = uv_translation / n
     if copy_color:
-        for i in range(4):
-            dst.vertex_color_fill[i] = color_fill[i] / n
+        dst.vertex_color_fill = color_fill / n
+    # Check this attribute separately because it exists in GPv3 only
+    fill_opacity = .0        
+    if hasattr(dst, 'fill_opacity') and copy_color:
+        dst.fill_opacity = sum([src.fill_opacity for src in srcs]) / n
     
 def smooth_stroke_attributes(stroke, smooth_level, attr_map = {'co':3, 'strength':1, 'pressure':1}):
     """

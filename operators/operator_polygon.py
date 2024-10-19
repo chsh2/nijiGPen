@@ -93,7 +93,6 @@ def generate_stroke_from_2d(new_co_list, inv_mat,
         dst_point.uv_fill = src_point.uv_fill
         dst_point.uv_rotation = src_point.uv_rotation
         dst_point.vertex_color = src_point.vertex_color
-
     # Rearrange the new stroke
     current_index = len(frame.strokes) - 1
     new_index = current_index
