@@ -334,6 +334,9 @@ class FitSelectedOperator(CommonFittingConfig, bpy.types.Operator):
                 
         # Get input strokes frame by frame
         gp_obj = context.object
+        if not gp_obj.data.layers.active:
+            self.report({"INFO"}, "Please select a layer.")
+            return {'FINISHED'}
         stroke_frame_map = {}
         stroke_list = []
         frames_to_process = get_input_frames(gp_obj,
@@ -368,13 +371,13 @@ class FitSelectedOperator(CommonFittingConfig, bpy.types.Operator):
         if self.is_sequence and gp_obj.data.use_multiedit and len(frames_to_process) > 1:
             fitter.fit_temporal()
             has_temporal_fit = True
-        
-        # Input part finishes. Remove input strokes
-        if not self.keep_original:
+
+        # For GPv2, remove input strokes before generating new ones
+        if not self.keep_original and not is_gpv3():
             bpy.ops.gpencil.delete(type='STROKES')
-        op_deselect()
 
         # Prepare for output
+        op_deselect()
         output_layer = gp_obj.data.layers.active
         if len(self.output_layer) > 0:
             for i,layer in enumerate(gp_obj.data.layers):
@@ -399,12 +402,13 @@ class FitSelectedOperator(CommonFittingConfig, bpy.types.Operator):
                     target_frames.add(i)
             
         # Use fitting results of each frame to generate new strokes
+        stroke_set = set(stroke_list)
         for frame_number in target_frames:
             co_fit, attr_fit = fitter.eval_temporal(frame_number) if has_temporal_fit else fitter.eval_spatial(frame_number)
             if frame_number not in output_frames:
                 output_frame = output_layer.frames.new(frame_number)
             else:
-                output_frame = output_frames[frame_number]
+                output_frame = get_layer_frame_by_number(output_layer, frame_number)
             output_frame.select = True
             
             # Gather stroke attributes from input strokes
@@ -417,11 +421,17 @@ class FitSelectedOperator(CommonFittingConfig, bpy.types.Operator):
             new_stroke.points.add(co_fit.shape[0])
             for i,point in enumerate(new_stroke.points):
                 point.co = restore_3d_co(co_fit[i], attr_fit['depth'][i], inv_mat)
-                point.pressure = attr_fit['pressure'][i] if 'PRESSURE' in self.inherited_attributes else 1
                 point.strength = attr_fit['strength'][i] if 'STRENGTH' in self.inherited_attributes else 1
                 point.uv_rotation = attr_fit['uv_rotation'][i] if 'UV' in self.inherited_attributes else 0
                 point.vertex_color = (attr_fit['r'][i], attr_fit['g'][i], attr_fit['b'][i], attr_fit['a'][i]) if 'COLOR' in self.inherited_attributes else (0,0,0,0)
-                point.pressure *= (1 + min(attr_fit['extra_pressure'][i], self.max_delta_pressure*0.01) )
+                # Consider differences between GPv2 and GPv3 when processing pressure values
+                if 'PRESSURE' in self.inherited_attributes:
+                    new_pressure = attr_fit['pressure'][i]
+                    new_pressure *= (1 + min(attr_fit['extra_pressure'][i], self.max_delta_pressure*0.01) )
+                    point.pressure = new_pressure
+                else:
+                    new_pressure = 1 + min(attr_fit['extra_pressure'][i], self.max_delta_pressure*0.01)
+                    set_point_radius(point, new_pressure, self.line_width)
             new_stroke.use_cyclic = self.closed
             new_stroke.select = True
             if self.save_output_state:
@@ -430,7 +440,12 @@ class FitSelectedOperator(CommonFittingConfig, bpy.types.Operator):
             # Post-processing
             if self.smooth_repeat > 0:
                 smooth_stroke_attributes(new_stroke, self.smooth_repeat, attr_map={'co':3, 'pressure':1, 'strength':1})    
-            
+            # For GPv3, remove input strokes at the end
+            if not self.keep_original and is_gpv3():
+                to_remove = [stroke for stroke in output_frame.strokes if stroke in stroke_set]
+                for stroke in to_remove:
+                    output_frame.strokes.remove(stroke)
+                
         refresh_strokes(bpy.context.active_object)
         return {'FINISHED'}
     
@@ -616,7 +631,6 @@ class ClusterAndFitOperator(CommonFittingConfig, bpy.types.Operator):
                 stroke_frame_map[frame_number] += get_input_strokes(gp_obj, item[0])
                 
             if len(stroke_frame_map[frame_number])<2:
-                self.report({"INFO"}, "Please select at least two strokes in each frame, otherwise the frame will be skipped.")
                 skipped_frames.append(frame_number)
             else:
                 stroke_list += stroke_frame_map[frame_number]
@@ -790,6 +804,9 @@ class FitLastOperator(CommonFittingConfig, bpy.types.Operator):
         
         # Get input and context
         gp_obj = context.object
+        if not gp_obj.data.layers.active:
+            self.report({"INFO"}, "Please select a layer.")
+            return {'FINISHED'}
         if len(self.reference_layer) > 0:
             reference_layer = gp_obj.data.layers[self.reference_layer]
         else:
@@ -1256,7 +1273,7 @@ class TaperSelectedOperator(bpy.types.Operator):
                     if self.operation=='MULTIPLY':
                         point.pressure = point.pressure * factor_arr[i]
                     else:
-                        set_absolute_pressure(point, factor_arr[i], self.line_width)
+                        set_point_radius(point, factor_arr[i], self.line_width)
                 if 'STRENGTH' in self.target_attributes:
                     point.strength = point.strength * factor_arr[i] if self.operation=='MULTIPLY' else factor_arr[i]
 

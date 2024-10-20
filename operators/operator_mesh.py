@@ -311,7 +311,7 @@ class MeshGenerationByNormal(CommonMeshConfig, bpy.types.Operator):
             
             for layer_idx, item in layer_frame_map.items():
                 frame = item[0]
-                if hasattr(frame, "strokes"):
+                if is_frame_valid(frame):
                     for j,stroke in enumerate(frame.strokes):
                         if stroke.select:
                             if self.ignore_mode == 'LINE' and is_stroke_line(stroke, current_gp_obj):
@@ -868,7 +868,7 @@ class MeshGenerationByOffsetting(CommonMeshConfig, bpy.types.Operator):
             
             for layer_idx, item in layer_frame_map.items():
                 frame = item[0]
-                if hasattr(frame, "strokes"):
+                if is_frame_valid(frame):
                     for j,stroke in enumerate(frame.strokes):
                         if stroke.select:
                             if self.ignore_mode == 'LINE' and is_stroke_line(stroke, current_gp_obj):

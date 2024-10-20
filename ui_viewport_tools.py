@@ -94,10 +94,10 @@ class BooleanModalOperator(bpy.types.Operator):
             origin = context.scene.cursor.location
         self._raw_pressure.append(event.pressure if self.use_pressure else 1)
         self._stroke.points.add(1)
-        self._stroke.points[-1].pressure = self._raw_pressure[-1]
         self._stroke.points[-1].co = self._t_world @ view3d_utils.region_2d_to_location_3d(context.region,
                                     context.space_data.region_3d,
                                     (event.mouse_region_x, event.mouse_region_y), origin)
+        set_point_radius(self._stroke.points[-1], self._raw_pressure[-1])
         # For taper mode, reshape the whole stroke 
         if self.caps_type == 'TAPER' and len(self._stroke.points) > 1:
             seg_length = (self._stroke.points[-1].co - self._stroke.points[-2].co).length
@@ -106,8 +106,8 @@ class BooleanModalOperator(bpy.types.Operator):
             factor = 0
             for i,point in enumerate(self._stroke.points):
                 factor += self._segments_length[i]
-                point.pressure = self._raw_pressure[i] * (factor/self._total_length) * (1-factor/self._total_length) * 4
-                point.pressure = max(point.pressure, 1e-3)
+                adjusted_pressure = self._raw_pressure[i] * (factor/self._total_length) * (1-factor/self._total_length) * 4
+                set_point_radius(point, max(adjusted_pressure, 1e-3))
 
     def boolean_eraser_finalize(self, context):
         # Execute Draw mode Boolean operator
@@ -148,10 +148,13 @@ class BooleanModalOperator(bpy.types.Operator):
         except:
             self.report({"ERROR"}, "Please install PyClipper in the Preferences panel.")
             return {'FINISHED'}
+        if not context.object.data.layers.active:
+            self.report({"INFO"}, "Please select a layer.")
+            return {'FINISHED'}
         if is_layer_protected(context.object.data.layers.active):
             self.report({"ERROR"}, "Active layer is locked or hidden.")
             return {'FINISHED'}
-        
+                
         self._onback = context.scene.tool_settings.use_gpencil_draw_onback
         self._show_in_front = context.object.show_in_front
         self._stroke = None
@@ -681,7 +684,7 @@ class ArrangeModalOperator(bpy.types.Operator):
 
 class BooleanEraserTool(bpy.types.WorkSpaceTool):
     bl_space_type = 'VIEW_3D'
-    bl_context_mode = get_mode_str('PAINT')
+    bl_context_mode = get_ctx_mode_str('PAINT')
     bl_idname = "nijigp.boolean_eraser_tool"
     bl_label = "Boolean Eraser"
     bl_description = (
@@ -703,7 +706,7 @@ class BooleanEraserTool(bpy.types.WorkSpaceTool):
         
         # Brush setting panel imitating the native style
         row = layout.row(align=True)
-        row.popover(panel="TOPBAR_PT_gpencil_materials", text=active_material_name)
+        row.popover(panel=get_panel_str('TOPBAR_PT', 'materials'), text=active_material_name)
         row = layout.row(align=True)
         row.prop(gp_settings.brush, "size", text="Radius")
         row.prop(props, "use_pressure", text="", icon='STYLUS_PRESSURE')
@@ -718,7 +721,7 @@ class BooleanEraserTool(bpy.types.WorkSpaceTool):
 
 class SmartFillTool(bpy.types.WorkSpaceTool):
     bl_space_type = 'VIEW_3D'
-    bl_context_mode = get_mode_str('PAINT')
+    bl_context_mode = get_ctx_mode_str('PAINT')
     bl_idname = "nijigp.smart_fill_tool"
     bl_label = "Interactive Smart Fill"
     bl_description = (
@@ -737,7 +740,7 @@ class SmartFillTool(bpy.types.WorkSpaceTool):
         
         # Color/material setting panel imitating the native style
         row = layout.row(align=True)
-        row.popover(panel="TOPBAR_PT_gpencil_materials", text=active_material_name)
+        row.popover(panel=get_panel_str('TOPBAR_PT', 'materials'), text=active_material_name)
         row = layout.row(align=True)
         row.separator(factor=1.0)
         sub_row = row.row(align=True)
@@ -745,7 +748,7 @@ class SmartFillTool(bpy.types.WorkSpaceTool):
         sub_row.prop_enum(gp_settings, "color_mode", 'VERTEXCOLOR', text="", icon='VPAINT_HLT')
         sub_row = row.row(align=True)
         sub_row.enabled = gp_settings.color_mode == 'VERTEXCOLOR'
-        sub_row.prop_with_popover(gp_settings.brush, "color", text="", panel="TOPBAR_PT_gpencil_vertexcolor")
+        sub_row.prop_with_popover(gp_settings.brush, "color", text="", panel=get_panel_str('TOPBAR_PT', 'vertexcolor'))
         
         # Other attributes
         layout.prop(props, "line_layer")
@@ -755,7 +758,7 @@ class SmartFillTool(bpy.types.WorkSpaceTool):
 
 class OffsetTool(bpy.types.WorkSpaceTool):
     bl_space_type = 'VIEW_3D'
-    bl_context_mode = get_mode_str('EDIT')
+    bl_context_mode = get_ctx_mode_str('EDIT')
 
     bl_idname = "nijigp.offset_tool"
     bl_label = "2D Offset"
@@ -781,7 +784,7 @@ class OffsetTool(bpy.types.WorkSpaceTool):
 
 class SweepTool(bpy.types.WorkSpaceTool):
     bl_space_type = 'VIEW_3D'
-    bl_context_mode = get_mode_str('EDIT')
+    bl_context_mode = get_ctx_mode_str('EDIT')
 
     bl_idname = "nijigp.sweep_tool"
     bl_label = "2D Sweep"
@@ -817,7 +820,7 @@ class ViewportShortcuts(bpy.types.GizmoGroup):
 
     @classmethod
     def poll(cls, context):
-        return (context.mode==get_mode_str('EDIT') or context.mode==get_mode_str('PAINT') or context.mode==get_mode_str('SCULPT'))
+        return (context.mode==get_ctx_mode_str('EDIT') or context.mode==get_ctx_mode_str('PAINT') or context.mode==get_ctx_mode_str('SCULPT'))
 
     def draw_prepare(self, context):
         preferences = context.preferences.addons[__package__].preferences

@@ -241,7 +241,7 @@ def get_2d_stroke_outline(path_2d, stroke, scale_factor = 1, path_inverted = Fal
     clipper.PreserveCollinear = True
     clipper.StrictlySimple = True
 
-    radius_profile = [p.pressure * stroke.line_width / LINE_WIDTH_FACTOR * scale_factor for p in stroke.points]
+    radius_profile = [get_point_radius(p, stroke.line_width) * scale_factor for p in stroke.points]
     length_from_start = [0 for _ in range(len(stroke.points))]
     forwarding_normals = [None for _ in range(len(stroke.points) - 1)]
 

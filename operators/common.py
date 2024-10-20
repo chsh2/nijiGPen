@@ -142,8 +142,7 @@ def refresh_strokes(gp_obj, frame_numbers = None):
     When generating new strokes via scripting, sometimes the strokes do not have correct bound boxes and are not displayed correctly.
     This function recalculates the geometry data
     """
-    # GPv2 only
-    if bpy.app.version >= (4, 3, 0):
+    if is_gpv3():
         return
     
     current_mode = bpy.context.mode

@@ -16,12 +16,23 @@ def get_bl_context_str(mode: str):
     else:
         return 'greasepencil_' + mode.lower()
 
-def get_mode_str(mode: str):
+def get_ctx_mode_str(mode: str):
     if bpy.app.version >= (4, 3, 0):
         return mode.upper() + '_GREASE_PENCIL'
     else:
         return mode.upper() + '_GPENCIL'
-    
+
+def get_panel_str(prefix, suffix):
+    if bpy.app.version >= (4, 3, 0):
+        return f'{prefix.upper()}_grease_pencil_{suffix.lower()}'
+    else:
+        return f'{prefix.upper()}_gpencil_{suffix.lower()}'
+
+def get_obj_mode_str(mode: str): 
+    if bpy.app.version >= (4, 3, 0) and mode == 'EDIT':
+        return mode
+    return get_ctx_mode_str(mode)
+   
 def get_ops_str(ops: str):
     """Translate native GPv2 operator names to GPv3 ones"""
     if bpy.app.version >= (4, 3, 0) and bpy.app.version < (4, 4, 0) and ops == 'gpencil.stroke_sample':
@@ -39,11 +50,25 @@ def get_viewport_bottom_offset():
 
 
 #region [Wrapped APIs]
+def is_gpv3():
+    return bpy.app.version >= (4, 3, 0)
+    
 def obj_is_gp(obj):
     if bpy.app.version >= (4, 3, 0):
         return obj.type == "GREASEPENCIL"
     else:
         return obj.type == "GPENCIL"
+
+def new_gp_brush(name):
+    """Copy an existing one if GPv2, since files always have internal brushes; create a new one if GPv3 since it is easier"""
+    if bpy.app.version >= (4, 3, 0):
+        res = bpy.data.brushes.new(name, mode=get_ctx_mode_str('PAINT'))
+        res.gpencil_settings.vertex_color_factor = 1
+    else:
+        src = [brush for brush in bpy.data.brushes if brush.use_paint_grease_pencil and brush.gpencil_tool=='DRAW'][0]
+        res = src.copy()
+        res.name = name
+    return res
 
 def layer_locked(layer):
     # TODO: Blender 4.3 API cannot process nested groups. Should revisit when 4.4 comes out
@@ -57,19 +82,39 @@ def layer_hidden(layer):
         return layer.hide and layer.parent_group.hide
     else:
         return layer.hide
-    
-def new_gp_brush(name):
-    """Copy an existing one if GPv2, since files always have internal brushes; create a new one if GPv3 since it is easier"""
-    if bpy.app.version >= (4, 3, 0):
-        res = bpy.data.brushes.new(name, mode=get_mode_str('PAINT'))
-        res.gpencil_settings.vertex_color_factor = 1
-    else:
-        src = [brush for brush in bpy.data.brushes if brush.use_paint_grease_pencil and brush.gpencil_tool=='DRAW'][0]
-        res = src.copy()
-        res.name = name
-    return res
 
-def set_absolute_pressure(point, value, line_width = None):
+def get_active_layer_index(obj):
+    if bpy.app.version >= (4, 3, 0):
+        for i,layer in enumerate(obj.data.layers):
+            if obj.data.layers.active == layer:
+                return i
+        return -1
+    else:
+        return obj.data.layers.active_index
+    
+def set_active_layer_index(obj, index):
+    if bpy.app.version >= (4, 3, 0):
+        obj.data.layers.active == obj.data.layers[index]
+    else:
+        obj.data.layers.active_index = index
+
+def get_layer_frame_by_number(layer, frame_number):
+    if bpy.app.version >= (4, 3, 0):
+        return layer.get_frame_at(frame_number)
+    else:
+        res = None
+        for frame in layer.frames:
+            if frame.frame_number <= frame_number and (res == None or res.frame_number <= frame.frame_number):
+                res = frame
+        return res
+
+def is_frame_valid(frame):
+    if bpy.app.version >= (4, 3, 0):
+        return frame and hasattr(frame, "drawing") and frame.drawing
+    else:
+        return frame and hasattr(frame, "strokes")
+
+def set_point_radius(point, value, line_width = None):
     """GPv3 uses a single radius value that equals (line_width / 2000 * pressure) in GPv2"""
     if bpy.app.version >= (4, 3, 0):
         if not line_width:
@@ -78,6 +123,15 @@ def set_absolute_pressure(point, value, line_width = None):
             point.pressure = line_width / 2000.0 * value
     else:
         point.pressure = value
+
+def get_point_radius(point, line_width = None):
+    if bpy.app.version >= (4, 3, 0):
+        return point.pressure
+    else:
+        if not line_width:
+            return point.pressure * bpy.context.scene.tool_settings.gpencil_paint.brush.size / 2000.0
+        else:
+            return point.pressure * line_width / 2000.0
         
 def op_arrange_stroke(direction):
     if bpy.app.version >= (4, 3, 0):
@@ -158,11 +212,16 @@ class LegacyPointCollection:
     
     def add(self, count):
         self._stroke.update_index()
-        # Different from GPv2, a new stroke always has a point
+        # Different from GPv2, a new stroke always has a point, which should not be added again
+        real_count = count
         if self._drawing.attributes['.nijigp_new'].data[self._stroke._index].value:
             self._drawing.attributes['.nijigp_new'].data[self._stroke._index].value = False
-            count -= 1
-        self._drawing.resize_strokes([len(self) + count], indices=(self._stroke._index,))
+            real_count = count - 1
+        self._drawing.resize_strokes([len(self) + real_count], indices=(self._stroke._index,))
+        # Initialize attributes
+        for i in range(count):
+            self[-1-i].strength = 1.0
+            self[-1-i].vertex_color = (0, 0, 0, 0)
         
     def foreach_get(self, name, buffer):
         offset = self._stroke.get_offset()
@@ -187,8 +246,36 @@ class LegacyPointCollection:
             full_buffer = [0] * num_points * 4
             self._drawing.attributes['vertex_color'].data.foreach_get('color', full_buffer)
             buffer[:len(self)*4] = full_buffer[offset*4:offset*4+len(self)*4]
-    # def foreach_set
-
+            
+    def foreach_set(self, name, buffer):
+        offset = self._stroke.get_offset()
+        num_points = len(self._drawing.attributes['position'].data)
+        if name == 'co':
+            full_buffer = [0] * num_points * 3
+            self._drawing.attributes['position'].data.foreach_get('vector', full_buffer)
+            full_buffer[offset*3:offset*3+len(self)*3] = buffer
+            self._drawing.attributes['position'].data.foreach_set('vector', full_buffer)
+        elif name == 'pressure':
+            full_buffer = [0] * num_points
+            self._drawing.attributes['radius'].data.foreach_get('value', full_buffer)
+            full_buffer[offset:offset+len(self)] = buffer
+            self._drawing.attributes['radius'].data.foreach_set('value', full_buffer)
+        elif name == 'strength':
+            full_buffer = [0] * num_points
+            self._drawing.attributes['opacity'].data.foreach_get('value', full_buffer)
+            full_buffer[offset:offset+len(self)] = buffer
+            self._drawing.attributes['opacity'].data.foreach_set('value', full_buffer)
+        elif name == 'uv_rotation':
+            full_buffer = [0] * num_points
+            self._drawing.attributes['rotation'].data.foreach_get('value', full_buffer)
+            full_buffer[offset:offset+len(self)] = buffer
+            self._drawing.attributes['rotation'].data.foreach_set('value', full_buffer)
+        if name == 'vertex_color':
+            full_buffer = [0] * num_points * 4
+            self._drawing.attributes['vertex_color'].data.foreach_get('color', full_buffer)
+            full_buffer[offset*4:offset*4+len(self)*4] = buffer
+            self._drawing.attributes['vertex_color'].data.foreach_set('color', full_buffer)
+            
 #endregion
 
 #region [Stroke Wrapper Classes]            
@@ -226,7 +313,19 @@ class LegacyStrokeRef:
     @property
     def points(self):
         return LegacyPointCollection(self)
+    
+    @property
+    def bound_box_min(self):
+        buffer = [0] * len(self.get_slice().points) * 3
+        self.points.foreach_get('co', buffer)
+        return Vector((min(buffer[::3]), min(buffer[1::3]), min(buffer[2::3])))
 
+    @property
+    def bound_box_max(self):
+        buffer = [0] * len(self.get_slice().points) * 3
+        self.points.foreach_get('co', buffer)
+        return Vector((max(buffer[::3]), max(buffer[1::3]), max(buffer[2::3])))
+    
     def __eq__(self, other):
         return (self._drawing == other._drawing) and (self._hash == other._hash)
     
@@ -298,9 +397,6 @@ class LegacyStrokeRef:
             return
         else:
             setattr(self._drawing.strokes[self._index], name, value)
-            
-    #def bound_box_max
-    #def bound_box_min
         
 class LegacyStrokeCollection:
     """
@@ -322,6 +418,14 @@ class LegacyStrokeCollection:
         if 'fill_opacity' not in frame.drawing.attributes:
             attr = frame.drawing.attributes.new("fill_opacity", 'FLOAT', 'CURVE')
             attr.data.foreach_set('value', [1.0] * len(attr.data))
+        if 'uv_rotation' not in frame.drawing.attributes:
+            attr = frame.drawing.attributes.new("uv_rotation", 'FLOAT', 'CURVE')
+        if 'uv_scale' not in frame.drawing.attributes:
+            attr = frame.drawing.attributes.new("uv_scale", 'FLOAT2', 'CURVE')
+            attr.data.foreach_set('vector', [1.0] * len(attr.data) * 2)
+        if 'uv_translation' not in frame.drawing.attributes:
+            attr = frame.drawing.attributes.new("uv_translation", 'FLOAT2', 'CURVE')
+            attr.data.foreach_set('vector', [1.0] * len(attr.data) * 2)
         if 'vertex_color' not in frame.drawing.attributes:
             attr = frame.drawing.attributes.new("vertex_color", 'FLOAT_COLOR', 'POINT')
             attr.data.foreach_set('color', [0] * len(attr.data) * 4)

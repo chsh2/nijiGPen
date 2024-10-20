@@ -362,7 +362,7 @@ class OffsetSelectedOperator(bpy.types.Operator, ColorTintConfig):
             for i,item in layer_frame_map.items():
                 frame = item[0]
                 # Consider the case where active_frame is None
-                if hasattr(frame, "strokes"):
+                if is_frame_valid(frame):
                     for j,stroke in enumerate(frame.strokes):
                         if stroke.select and not is_stroke_protected(stroke, current_gp_obj):
                             stroke_info.append([stroke, i, j, frame])
@@ -476,7 +476,7 @@ class FractureSelectedOperator(bpy.types.Operator):
             for i,item in layer_frame_map.items():
                 frame = item[0]
                 layer = current_gp_obj.data.layers[i]
-                if hasattr(frame, "strokes"):
+                if is_frame_valid(frame):
                     for j,stroke in enumerate(frame.strokes):
                         if stroke.select and not is_stroke_protected(stroke, current_gp_obj):
                             stroke_info.append([stroke, i, j, frame])
@@ -671,7 +671,7 @@ class BoolSelectedOperator(bpy.types.Operator):
             for i,item in layer_frame_map.items():
                 frame = item[0]
                 layer = current_gp_obj.data.layers[i]
-                if hasattr(frame, "strokes"):
+                if is_frame_valid(frame):
                     for j,stroke in enumerate(frame.strokes):
                         if stroke.select and not is_stroke_protected(stroke, current_gp_obj):
                             stroke_info.append([stroke, i, j, frame])
@@ -829,11 +829,14 @@ class BoolLastOperator(bpy.types.Operator):
 
         # Search operation targets only in active layer
         current_gp_obj = context.object
-        bpy.ops.object.mode_set(mode='EDIT_GPENCIL')
-        layer_index = current_gp_obj.data.layers.active_index
+        if not current_gp_obj.data.layers.active:
+            self.report({"INFO"}, "Please select a layer.")
+            return {'FINISHED'}
+        bpy.ops.object.mode_set(mode=get_obj_mode_str('EDIT'))
+        layer_index = get_active_layer_index(current_gp_obj)
         layer = current_gp_obj.data.layers[layer_index]
 
-        if layer.lock:
+        if layer_locked(layer):
             self.report({"INFO"}, "Please select an unlocked layer.")
             bpy.ops.object.mode_set(mode='PAINT_GPENCIL')
             return {'FINISHED'}
@@ -857,7 +860,7 @@ class BoolLastOperator(bpy.types.Operator):
             clip_polys = get_2d_stroke_outline(clip_polys[0], clip_stroke, scale_factor, poly_inverted[0])
             clip_polys = [poly for poly in clip_polys if pyclipper.Area(poly) > 1]
         if len(clip_polys) < 1:
-            bpy.ops.object.mode_set(mode='PAINT_GPENCIL')
+            bpy.ops.object.mode_set(mode=get_obj_mode_str('PAINT'))
             return {'FINISHED'}
             
         clip_points = []
@@ -888,7 +891,7 @@ class BoolLastOperator(bpy.types.Operator):
             stroke_info.append([stroke, layer_index, j])
 
         if len(stroke_list) == 1:
-            bpy.ops.object.mode_set(mode='PAINT_GPENCIL')
+            bpy.ops.object.mode_set(mode=get_obj_mode_str('PAINT'))
             return {'FINISHED'}
         op_deselect()
         
@@ -950,7 +953,7 @@ class BoolLastOperator(bpy.types.Operator):
             current_gp_obj.data.layers[layer_index].active_frame.strokes.remove(info[0])
 
         refresh_strokes(current_gp_obj)
-        bpy.ops.object.mode_set(mode='PAINT_GPENCIL')
+        bpy.ops.object.mode_set(mode=get_obj_mode_str('PAINT'))
         return {'FINISHED'}
     
 class SweepSelectedOperator(bpy.types.Operator, ColorTintConfig):
@@ -1046,7 +1049,7 @@ class SweepSelectedOperator(bpy.types.Operator, ColorTintConfig):
             for i,item in layer_frame_map.items():
                 frame = item[0]
                 layer = current_gp_obj.data.layers[i]
-                if hasattr(frame, "strokes"):
+                if is_frame_valid(frame):
                     for j,stroke in enumerate(frame.strokes):
                         if stroke.select and not is_stroke_protected(stroke, current_gp_obj):
                             stroke_info.append([stroke, i, j, frame])
