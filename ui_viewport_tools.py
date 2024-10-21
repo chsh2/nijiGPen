@@ -197,9 +197,10 @@ class SmartFillModalOperator(bpy.types.Operator):
             default=True,
             description='If disabled, ignore all previously generated fills when painting a new one'
     )
-    _confirm_button = (150, 50)
-    _cancel_button = (350, 50)
-    _button_size = (150, 40)
+    _hint_text_position = [150, 100 + get_viewport_bottom_offset()]
+    _confirm_button = [150, 50 + get_viewport_bottom_offset()]
+    _cancel_button = [350, 50 + get_viewport_bottom_offset()]
+    _button_size = [150, 40]
     
     def smart_fill_setup(self):
         # Get line art strokes. Skip the whole operation if cannot find a proper frame
@@ -272,6 +273,7 @@ class SmartFillModalOperator(bpy.types.Operator):
                 new_stroke.points.add(len(c))
                 for i,co in enumerate(c):
                     new_stroke.points[i].co = restore_3d_co(co, self.depth_lookup_tree.get_depth(co), inv_mat, self.scale_factor)
+                    set_point_radius(new_stroke.points[i], 1)
                     if gp_settings.color_mode == 'VERTEXCOLOR':
                         new_stroke.points[i].vertex_color = [srgb_to_linear(color) for color in gp_settings.brush.color] + [1]
                 self.generated_strokes.append(new_stroke)
@@ -286,13 +288,13 @@ class SmartFillModalOperator(bpy.types.Operator):
 
     def smart_fill_finalize(self):
         """Post-processing."""
-        bpy.ops.object.mode_set(mode='EDIT_GPENCIL')
+        bpy.ops.object.mode_set(mode=get_obj_mode_str('EDIT'))
         op_deselect()
         for stroke in self.generated_strokes:
             stroke.select = True
         if bpy.context.scene.tool_settings.use_gpencil_draw_onback:
             op_arrange_stroke(direction='BOTTOM')
-        bpy.ops.object.mode_set(mode='PAINT_GPENCIL')
+        bpy.ops.object.mode_set(mode=get_obj_mode_str('PAINT'))
     
     def draw_callback_px(self, op, context):
         preferences = context.preferences.addons[__package__].preferences     
@@ -302,20 +304,19 @@ class SmartFillModalOperator(bpy.types.Operator):
                       f"Confirm - <Enter> / <{preferences.tool_shortcut_confirm.title()}>",
                       f"Cancel - <ESC> / <{preferences.tool_shortcut_cancel.title()}>",
                       "------"]
-        hint_text_position = [150, 100]
         font_id = 0
         font_size = 18
         line_height = 22
 
         # Draw hint texts in a box on the screen
-        draw_button(hint_text_position[0], hint_text_position[1], 350, line_height * len(hint_texts), (.95, .95, .95, 1), '')
+        draw_button(self._hint_text_position[0], self._hint_text_position[1], 350, line_height * len(hint_texts), (.95, .95, .95, 1), '')
         blf.color(font_id, 0.1, 0.1, 0.1, 1)
         if bpy.app.version > (3, 6, 0):
             blf.size(font_id, font_size)
         else:
             blf.size(font_id, font_size, 72)
         for i,text in enumerate(reversed(hint_texts)):
-            blf.position(font_id, hint_text_position[0], hint_text_position[1] + line_height * i, 0)
+            blf.position(font_id, self._hint_text_position[0], self._hint_text_position[1] + line_height * i, 0)
             blf.draw(font_id, text)
             
         # Draw hint points according to user clicks

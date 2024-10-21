@@ -24,6 +24,8 @@ def get_ctx_mode_str(mode: str):
 
 def get_panel_str(prefix, suffix):
     if bpy.app.version >= (4, 3, 0):
+        if suffix == 'vertexcolor':
+            suffix = 'vertex_color'
         return f'{prefix.upper()}_grease_pencil_{suffix.lower()}'
     else:
         return f'{prefix.upper()}_gpencil_{suffix.lower()}'
@@ -138,7 +140,15 @@ def op_arrange_stroke(direction):
         bpy.ops.grease_pencil.reorder(direction=direction)
     else:
         bpy.ops.gpencil.stroke_arrange(direction=direction)
-        
+
+def op_stroke_smooth(repeat):
+    if repeat < 1:
+        return
+    if bpy.app.version >= (4, 3, 0):
+        bpy.ops.grease_pencil.stroke_smooth(iterations=repeat, keep_shape=True)
+    else:
+        bpy.ops.gpencil.stroke_smooth(repeat=repeat)
+
 def op_deselect():
     if bpy.app.version >= (4, 3, 0):
         bpy.ops.grease_pencil.select_all(action='DESELECT')
@@ -426,6 +436,9 @@ class LegacyStrokeCollection:
         if 'uv_translation' not in frame.drawing.attributes:
             attr = frame.drawing.attributes.new("uv_translation", 'FLOAT2', 'CURVE')
             attr.data.foreach_set('vector', [1.0] * len(attr.data) * 2)
+        if 'fill_color' not in frame.drawing.attributes:
+            attr = frame.drawing.attributes.new("fill_color", 'FLOAT_COLOR', 'CURVE')
+            attr.data.foreach_set('color', [0] * len(attr.data) * 4)
         if 'vertex_color' not in frame.drawing.attributes:
             attr = frame.drawing.attributes.new("vertex_color", 'FLOAT_COLOR', 'POINT')
             attr.data.foreach_set('color', [0] * len(attr.data) * 4)

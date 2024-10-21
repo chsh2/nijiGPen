@@ -157,7 +157,7 @@ class SmartFillOperator(bpy.types.Operator):
         if self.fill_layer == self.hint_layer and not self.use_boundary_strokes:
             self.clear_fill_layer = False
 
-        bpy.ops.object.mode_set(mode='EDIT_GPENCIL')
+        bpy.ops.object.mode_set(mode=get_obj_mode_str('EDIT'))
         op_deselect()
 
         def fill_single_frame(line_frame, hint_frame, fill_frame):
@@ -569,7 +569,7 @@ class HatchFillOperator(bpy.types.Operator, ColorTintConfig, NoiseConfig):
                         point.strength = self.strength
                         point.co = restore_3d_co(co_list[i] + self.gap * self.random_pos * co_noise.xy , depth, inv_mat @ rot_mat.transposed(), 1)  
                         point.uv_rotation = math.pi * self.random_uv * co_noise.z
-                        point.pressure += self.random_radius * noise.noise(co_noise)
+                        set_point_radius(point, 1 + self.random_radius * noise.noise(co_noise), self.line_width)
                     generated_strokes.append(new_stroke)   
                 if not self.keep_original:
                     frame.strokes.remove(stroke)
