@@ -147,8 +147,8 @@ class ImportLineImageOperator(bpy.types.Operator, ImportHelper):
     def execute(self, context):
         gp_obj = context.object
         gp_layer = gp_obj.data.layers.active
-        current_mode = context.mode
-        bpy.ops.object.mode_set(mode='EDIT_GPENCIL')
+        current_mode = gp_obj.mode
+        bpy.ops.object.mode_set(mode=get_obj_mode_str('EDIT'))
         op_deselect()
         t_mat, inv_mat = get_transformation_mat(mode=context.scene.nijigp_working_plane,
                                                 gp_obj=gp_obj)
@@ -327,6 +327,7 @@ class ImportLineImageOperator(bpy.types.Operator, ImportHelper):
             scale_factor = min(img_H, img_W) / self.size
             line_thickness = dist_mat.max()
             dist_mat /= line_thickness
+            line_thickness = int(line_thickness / scale_factor * LINE_WIDTH_FACTOR)
 
             for line in segments:
                 if len(line) < self.min_length:
@@ -336,7 +337,7 @@ class ImportLineImageOperator(bpy.types.Operator, ImportHelper):
                     point_count += 1
 
                 frame_strokes.new()
-                frame_strokes[-1].line_width = int(line_thickness / scale_factor * LINE_WIDTH_FACTOR)
+                frame_strokes[-1].line_width = line_thickness
                 frame_strokes[-1].material_index = output_material_idx
                 frame_strokes[-1].points.add(point_count)
 
@@ -346,7 +347,7 @@ class ImportLineImageOperator(bpy.types.Operator, ImportHelper):
                         point.co = plane_projector.get_co(img_co[1]/img_W, 1-img_co[0]/img_H)
                     else:                    
                         point.co = restore_3d_co((img_co[1]-img_W/2, -img_co[0]+img_H/2, 0), 0, inv_mat, scale_factor)
-                    point.pressure = dist_mat[img_co]
+                    set_point_radius(point, dist_mat[img_co], line_thickness)
                     if self.generate_strength:
                         point.strength = 1 - denoised_lumi_mat[img_co]
                     if self.generate_color:
@@ -504,7 +505,7 @@ class ImportColorImageOperator(bpy.types.Operator, ImportHelper, ImportColorImag
     def execute(self, context):
         gp_obj: bpy.types.Object = context.object
         gp_layer = gp_obj.data.layers.active
-        current_mode = context.mode
+        current_mode = gp_obj.mode
         use_multiedit = gp_obj.data.use_multiedit
         t_mat, inv_mat = get_transformation_mat(mode=context.scene.nijigp_working_plane,
                                                 gp_obj=gp_obj)
@@ -517,7 +518,7 @@ class ImportColorImageOperator(bpy.types.Operator, ImportHelper, ImportColorImag
             return {'FINISHED'}
 
         gp_obj.data.use_multiedit = self.image_sequence
-        bpy.ops.object.mode_set(mode='EDIT_GPENCIL')
+        bpy.ops.object.mode_set(mode=get_obj_mode_str('EDIT'))
         op_deselect()
 
         # Get or generate the starting frame
@@ -663,8 +664,9 @@ class ImportColorImageOperator(bpy.types.Operator, ImportHelper, ImportColorImag
                         output_material_idx.append(len(gp_obj.material_slots)-1)
 
             # Generate strokes
-            line_width = context.tool_settings.gpencil_paint.brush.size
-            strength = context.tool_settings.gpencil_paint.brush.gpencil_settings.pen_strength
+            active_brush = context.tool_settings.gpencil_paint.brush
+            line_width = active_brush.size if active_brush else 20
+            strength = active_brush.gpencil_settings.pen_strength if active_brush else 1.0
             frame_strokes = frame.strokes
             scale_factor = min(img_H, img_W) / self.size
             plane_projector = CameraPlaneProjector(gp_obj, bpy.context.scene.camera, bpy.context.scene) \
@@ -688,6 +690,7 @@ class ImportColorImageOperator(bpy.types.Operator, ImportHelper, ImportColorImag
                     else:
                         point.co = restore_3d_co((path[i][1]-img_W/2, -path[i][0]+img_H/2, 0), 0, inv_mat, scale_factor)
                     point.strength = strength
+                    set_point_radius(point, 1)
                     if self.color_mode == 'VERTEX' and self.set_line_color:
                         point.vertex_color = [srgb_to_linear(color[0]),
                                               srgb_to_linear(color[1]),
@@ -823,7 +826,7 @@ class RenderAndVectorizeOperator(bpy.types.Operator, ImportColorImageConfig):
         frame_end = scene.frame_end
         
         # Change scene setting and object visibility for rendering
-        bpy.ops.object.mode_set(mode='EDIT_GPENCIL')
+        bpy.ops.object.mode_set(mode=get_obj_mode_str('EDIT'))
         bpy.context.space_data.region_3d.view_perspective = 'CAMERA'
         scene.render.film_transparent = True
         gp_obj.data.use_multiedit = False
@@ -861,7 +864,7 @@ class RenderAndVectorizeOperator(bpy.types.Operator, ImportColorImageConfig):
         # Find line art modifiers: with the same source and being valid
         if self.bake_lineart:
             lineart_modifier = None
-            for modifier in gp_obj.grease_pencil_modifiers:
+            for modifier in get_gp_modifiers(gp_obj):
                 if self.source_type != modifier.source_type or not modifier.target_layer or not modifier.target_material:
                     continue
                 if self.source_type == 'COLLECTION' and modifier.source_collection and self.source_coll == modifier.source_collection.name and not modifier.use_invert_collection:
@@ -877,7 +880,7 @@ class RenderAndVectorizeOperator(bpy.types.Operator, ImportColorImageConfig):
                 if lineart_layer == gp_obj.data.layers.active:
                     self.report({'WARNING'}, "Line Art modifier uses the same layer as color fills. Data may be overwritten. Please consider switching to another layer.")
                 bpy.ops.object.lineart_bake_strokes()
-                gp_obj.grease_pencil_modifiers.remove(lineart_modifier)
+                get_gp_modifiers(gp_obj).remove(lineart_modifier)
                 lineart_frames = {}
                 for frame in lineart_layer.frames:
                     lineart_frames[int(frame.frame_number)] = frame
@@ -890,9 +893,9 @@ class RenderAndVectorizeOperator(bpy.types.Operator, ImportColorImageConfig):
                     for stroke in lineart_frames[frame_number].strokes:
                         stroke.select = True
                     if frame_number in frame_number_set:
-                        bpy.ops.gpencil.reproject(type='VIEW')
+                        op_reproject()
                     else:
-                        lineart_layer.frames.remove(lineart_frames[frame_number])
+                        remove_frame(lineart_layer.frames, lineart_frames[frame_number])
 
         # Recover the scene state
         for obj in scene.objects:

@@ -132,7 +132,7 @@ class SmartFillOperator(bpy.types.Operator):
 
     def execute(self, context):
         gp_obj = context.object
-        current_mode = context.mode
+        current_mode = gp_obj.mode
         try:
             from ..solvers.graph import SmartFillSolver
         except:

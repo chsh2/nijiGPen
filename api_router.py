@@ -31,6 +31,7 @@ def get_panel_str(prefix, suffix):
         return f'{prefix.upper()}_gpencil_{suffix.lower()}'
 
 def get_obj_mode_str(mode: str): 
+    """Basically the same as context mode, except the EDIT mode"""
     if bpy.app.version >= (4, 3, 0) and mode == 'EDIT':
         return mode
     return get_ctx_mode_str(mode)
@@ -60,6 +61,12 @@ def obj_is_gp(obj):
         return obj.type == "GREASEPENCIL"
     else:
         return obj.type == "GPENCIL"
+
+def get_gp_modifiers(obj):
+    if bpy.app.version >= (4, 3, 0):
+        return obj.modifiers
+    else:
+        return obj.grease_pencil_modifiers
 
 def new_gp_brush(name):
     """Copy an existing one if GPv2, since files always have internal brushes; create a new one if GPv3 since it is easier"""
@@ -116,11 +123,18 @@ def is_frame_valid(frame):
     else:
         return frame and hasattr(frame, "strokes")
 
+def remove_frame(frames, frame):
+    if bpy.app.version >= (4, 3, 0):
+        frames.remove(frame.frame_number)
+    else:
+        frames.remove(frame)
+
 def set_point_radius(point, value, line_width = None):
     """GPv3 uses a single radius value that equals (line_width / 2000 * pressure) in GPv2"""
     if bpy.app.version >= (4, 3, 0):
         if not line_width:
-            point.pressure = bpy.context.tool_settings.gpencil_paint.brush.unprojected_radius * value
+            active_brush = bpy.context.tool_settings.gpencil_paint.brush
+            point.pressure = active_brush.unprojected_radius * value if active_brush else 0.02 * value
         else:
             point.pressure = line_width / 2000.0 * value
     else:
@@ -134,12 +148,36 @@ def get_point_radius(point, line_width = None):
             return point.pressure * bpy.context.scene.tool_settings.gpencil_paint.brush.size / 2000.0
         else:
             return point.pressure * line_width / 2000.0
-        
+
+def op_layer_merge(mode):
+    if bpy.app.version >= (4, 3, 0):
+        bpy.ops.grease_pencil.layer_merge(mode=mode)
+    else:
+        bpy.ops.gpencil.layer_merge(mode=mode)
+            
 def op_arrange_stroke(direction):
     if bpy.app.version >= (4, 3, 0):
         bpy.ops.grease_pencil.reorder(direction=direction)
     else:
         bpy.ops.gpencil.stroke_arrange(direction=direction)
+
+def op_join_strokes():
+    if bpy.app.version >= (4, 3, 0):
+        bpy.ops.grease_pencil.join_selection(type='JOIN')
+    else:
+        bpy.ops.gpencil.stroke_join()
+
+def op_copy_strokes():
+    if bpy.app.version >= (4, 3, 0):
+        bpy.ops.grease_pencil.copy()
+    else:
+        bpy.ops.gpencil.copy()
+
+def op_paste_strokes():
+    if bpy.app.version >= (4, 3, 0):
+        bpy.ops.grease_pencil.paste()
+    else:
+        bpy.ops.gpencil.paste()
 
 def op_stroke_smooth(repeat):
     if repeat < 1:
@@ -149,6 +187,18 @@ def op_stroke_smooth(repeat):
     else:
         bpy.ops.gpencil.stroke_smooth(repeat=repeat)
 
+def op_reproject():
+    if bpy.app.version >= (4, 3, 0):
+        bpy.ops.grease_pencil.reproject(type='VIEW')
+    else:
+        bpy.ops.gpencil.reproject(type='VIEW')
+
+def op_select_all():
+    if bpy.app.version >= (4, 3, 0):
+        bpy.ops.grease_pencil.select_all(action='SELECT')
+    else:
+        bpy.ops.gpencil.select_all(action='SELECT')
+                
 def op_deselect():
     if bpy.app.version >= (4, 3, 0):
         bpy.ops.grease_pencil.select_all(action='DESELECT')
@@ -160,6 +210,14 @@ def op_select(location, extend):
         bpy.ops.view3d.select(location=location, extend=extend)
     else:
         bpy.ops.gpencil.select(location=location, extend=extend)
+        
+def op_import_svg(filepath, directory, files, resolution, scale):
+    if bpy.app.version >= (4, 3, 0):
+        bpy.ops.wm.grease_pencil_import_svg("EXEC_DEFAULT", filepath=filepath, directory=directory, files=files, resolution=resolution, scale=scale)
+    elif bpy.app.version > (3, 3, 0):
+        bpy.ops.wm.gpencil_import_svg("EXEC_DEFAULT", filepath=filepath, directory=directory, files=files, resolution=resolution, scale=scale)
+    else:
+        bpy.ops.wm.gpencil_import_svg("EXEC_DEFAULT", filepath=filepath, resolution=resolution, scale=scale)
 #endregion
 
 #region [Point Wrapper Classes]
@@ -213,7 +271,8 @@ class LegacyPointCollection:
         self._stroke = stroke
         
     def __getitem__(self, key):
-        self._stroke.update_index()
+        if key >= len(self):
+            raise IndexError()
         return LegacyPointRef(self._drawing, self._stroke._index, key)    
     
     def __len__(self):
@@ -285,6 +344,13 @@ class LegacyPointCollection:
             self._drawing.attributes['vertex_color'].data.foreach_get('color', full_buffer)
             full_buffer[offset*4:offset*4+len(self)*4] = buffer
             self._drawing.attributes['vertex_color'].data.foreach_set('color', full_buffer)
+    
+    # TODO
+    def weight_get(self, vertex_group_index, point_index):
+        return 0.0
+        
+    def weight_set(vertex_group_index, point_index, weight):
+        return
             
 #endregion
 
@@ -303,7 +369,6 @@ class LegacyStrokeRef:
         """Before any access, check if the stroke index has been changed. Index -1 means removal"""
         hashes = self._drawing.attributes['.nijigp_hash'].data
         if self._index < 0 or self._index >= len(hashes) or hashes[self._index] != self._hash:
-            # TODO: Improve search efficiency
             for i, attr in enumerate(hashes):
                 if attr.value == self._hash:
                     self._index = i
@@ -444,6 +509,8 @@ class LegacyStrokeCollection:
             attr.data.foreach_set('color', [0] * len(attr.data) * 4)
                         
     def __getitem__(self, key):
+        if key >= len(self):
+            raise IndexError()
         hash_attr = self._drawing.attributes['.nijigp_hash']
         return LegacyStrokeRef(self._drawing, hash_attr.data[key].value, key)
 

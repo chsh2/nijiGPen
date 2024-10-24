@@ -63,7 +63,7 @@ def append_material(context, mesh_type, material_name, reuse = True, operator = 
     
     # Record the status before appending to check what is appended later
     material_set = set(bpy.data.materials[:])
-    mode = context.mode
+    mode = context.object.mode
     bpy.ops.object.mode_set(mode='OBJECT')
 
     file_path = get_library_blend_file()
@@ -87,7 +87,7 @@ def append_geometry_nodes(context, node_tree_name='NijiGP Stop Motion'):
     if node_tree_name in bpy.data.node_groups:
         return bpy.data.node_groups[node_tree_name]
     
-    mode = context.mode
+    mode = context.object.mode
     bpy.ops.object.mode_set(mode='OBJECT')
 
     file_path = get_library_blend_file()

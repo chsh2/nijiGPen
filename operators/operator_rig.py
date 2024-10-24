@@ -397,7 +397,7 @@ class MeshFromArmOperator(bpy.types.Operator):
         if self.source_arm not in bpy.context.scene.objects:
             return {'FINISHED'}
         gp_obj: bpy.types.Object = context.object
-        current_mode = context.mode
+        current_mode = gp_obj.mode
         gp_obj_inv_mat = gp_obj.matrix_world.inverted_safe()
         t_mat, _ = get_transformation_mat(mode=context.scene.nijigp_working_plane,
                                                 gp_obj=gp_obj, operator=self)

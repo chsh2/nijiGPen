@@ -670,9 +670,9 @@ class MeshGenerationByNormal(CommonMeshConfig, bpy.types.Operator):
                 new_object.data.transform(mb)
                 applied_offset = Vector(new_object.location)
                 gp_layer = current_gp_obj.data.layers[stroke_info[i][1]]
-                new_object.location = gp_layer.location
-                new_object.rotation_euler = gp_layer.rotation
-                new_object.scale = gp_layer.scale
+                new_object.location = gp_layer.matrix_layer.to_translation()
+                new_object.rotation_euler = gp_layer.matrix_layer.to_euler()
+                new_object.scale = gp_layer.matrix_layer.to_scale()
                 
                 # Assign material
                 if mesh_material:
@@ -712,7 +712,7 @@ class MeshGenerationByNormal(CommonMeshConfig, bpy.types.Operator):
             bpy.ops.object.select_all(action='DESELECT')
             current_gp_obj.select_set(True)
             context.view_layer.objects.active = current_gp_obj
-            bpy.ops.object.mode_set(mode='EDIT_GPENCIL')
+            bpy.ops.object.mode_set(mode=get_obj_mode_str('EDIT'))
             
         bpy.ops.object.mode_set(mode='OBJECT') 
         context.scene.frame_set(current_frame_number)
@@ -961,7 +961,6 @@ class MeshGenerationByOffsetting(CommonMeshConfig, bpy.types.Operator):
                                 bm.edges.new([ bm.verts[vert_idx_list[j][k][0]], bm.verts[vert_idx_list[j][k][1] - 1] ]) 
                                 )
 
-
                     connect_edge_manually = False
                     # STEP style only: connect extruding edges
                     if self.slope_style=='STEP' and j%2 > 0:
@@ -1062,9 +1061,9 @@ class MeshGenerationByOffsetting(CommonMeshConfig, bpy.types.Operator):
                 new_object.data.transform(mb)
                 applied_offset = Vector(new_object.location)
                 gp_layer = current_gp_obj.data.layers[stroke_info[i][1]]
-                new_object.location = gp_layer.location
-                new_object.rotation_euler = gp_layer.rotation
-                new_object.scale = gp_layer.scale
+                new_object.location = gp_layer.matrix_layer.to_translation()
+                new_object.rotation_euler = gp_layer.matrix_layer.to_euler()
+                new_object.scale = gp_layer.matrix_layer.to_scale()
 
                 # Assign material
                 if mesh_material:
@@ -1113,7 +1112,7 @@ class MeshGenerationByOffsetting(CommonMeshConfig, bpy.types.Operator):
                 for info in stroke_info:
                     info[3].strokes.remove(info[0])
             context.view_layer.objects.active = current_gp_obj
-            bpy.ops.object.mode_set(mode='EDIT_GPENCIL')
+            bpy.ops.object.mode_set(mode=get_obj_mode_str('EDIT'))
             
         bpy.ops.object.mode_set(mode='OBJECT')
         context.scene.frame_set(current_frame_number)

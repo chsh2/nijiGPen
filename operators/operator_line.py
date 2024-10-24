@@ -1008,21 +1008,21 @@ class PinchSelectedOperator(bpy.types.Operator):
             trans2d = lambda co: (t_mat @ co).xy
             
             # Detect and eliminate the gap between two end points
-            point_processed = set()
+            point_processed = set()     # key: (stroke, point_index)
             if self.end_to_end:
                 num_chains = 0
-                stroke_chain_idx = {}
-                point_offset = {}
+                stroke_chain_idx = {}   # key: stroke
+                point_offset = {}       # key: (stroke, point_index)
                 for i,stroke in enumerate(stroke_frame_map[frame_number]):
-                    for point in [stroke.points[0], stroke.points[-1]]:
-                        if point in point_offset:
+                    for p_idx in (0, -1):
+                        if (stroke, p_idx) in point_offset:
                             continue
+                        point = stroke.points[p_idx]
+                        
                         for j,stroke0 in enumerate(stroke_frame_map[frame_number]):
-                            if point in point_offset:
-                                break
-                            for point0 in [stroke0.points[0], stroke0.points[-1]]:
-                                # The case where two points are close and not paired
-                                if i<j and point0 not in point_offset and (trans2d(point0.co)-trans2d(point.co)).length < self.threshold:
+                            for p_idx0 in (0, -1):
+                                point0 = stroke0.points[p_idx0]
+                                if i<j and (stroke0, p_idx0) not in point_offset and (trans2d(point0.co)-trans2d(point.co)).length < self.threshold:
                                     # Assign the stroke to a chain
                                     if stroke0 in stroke_chain_idx and stroke in stroke_chain_idx:
                                         pass
@@ -1037,17 +1037,16 @@ class PinchSelectedOperator(bpy.types.Operator):
 
                                     # Calculate the offset value
                                     center = 0.5 * (trans2d(point0.co)+trans2d(point.co))
-                                    point_offset[point] = center - trans2d(point.co)
-                                    point_offset[point0] = center - trans2d(point0.co)
-                                    break
+                                    point_offset[(stroke, p_idx)] = center - trans2d(point.co)
+                                    point_offset[(stroke0, p_idx0)] = center - trans2d(point0.co)
+                                    break                                 
                 # Padding zeros for ends without offsets
                 for i,stroke in enumerate(stroke_frame_map[frame_number]):
-                    for point in [stroke.points[0], stroke.points[-1]]:
-                        if point not in point_offset:
-                            point_offset[point] = Vector((0,0))
+                    for p_idx in (0, -1):
+                        if (stroke, p_idx) not in point_offset:
+                            point_offset[(stroke, p_idx)] = Vector((0,0))
                         else:
-                            point_processed.add(point)
-
+                            point_processed.add((stroke, p_idx))
                 # Apply offsets
                 for i,stroke in enumerate(stroke_frame_map[frame_number]):
                     for j,point in enumerate(stroke.points):
@@ -1056,8 +1055,8 @@ class PinchSelectedOperator(bpy.types.Operator):
                         w1 = 1 - j/J/self.transition_length
                         w2 = 1 - (J-j)/J/self.transition_length
                         new_co = trans2d(point.co)
-                        new_co += self.mix_factor * (point_offset[stroke.points[0]] * smoothstep(w1) 
-                                                    + point_offset[stroke.points[-1]] * smoothstep(w2))
+                        new_co += self.mix_factor * (point_offset[(stroke, 0)] * smoothstep(w1) 
+                                                    + point_offset[(stroke, -1)] * smoothstep(w2))
                         point.co = restore_3d_co(new_co, depth_lookup_tree.get_depth(new_co), inv_mat)
 
             # Detect and eliminate the gap between an endpoint and a non-endpoint
@@ -1089,9 +1088,10 @@ class PinchSelectedOperator(bpy.types.Operator):
 
             if self.end_to_intermediate:
                 for i,stroke in enumerate(stroke_frame_map[frame_number]):
-                    for end_type, point in {'start':stroke.points[0], 'end':stroke.points[-1]}.items():
-                        if point in point_processed:
+                    for end_type, p_idx in {'start':0, 'end':-1}.items():
+                        if (stroke, p_idx) in point_processed:
                             continue
+                        point = stroke.points[p_idx]
                         for j,stroke0 in enumerate(stroke_frame_map[frame_number]):
                             if i==j:
                                 continue
@@ -1107,15 +1107,15 @@ class PinchSelectedOperator(bpy.types.Operator):
 
                                 # Thicken the contact points
                                 contact_pressure = self.contact_pressure * self.mix_factor
-                                stroke0.points[contact_idx].pressure += contact_pressure
-                                (stroke.points[0] if end_type=='start' else stroke.points[-1]).pressure += contact_pressure
+                                stroke0.points[contact_idx].pressure *= (1+contact_pressure)
+                                (stroke.points[0] if end_type=='start' else stroke.points[-1]).pressure *= (1+contact_pressure)
                                 for delta_idx in range(1, self.contact_length):
                                     for idx in (contact_idx+delta_idx, contact_idx-delta_idx):
                                         if idx>=0 and idx<len(stroke0.points):
-                                            stroke0.points[idx].pressure += contact_pressure*(1-delta_idx/self.contact_length)
+                                            stroke0.points[idx].pressure *= (1+contact_pressure*(1-delta_idx/self.contact_length))
                                     idx = delta_idx if end_type=='start' else len(stroke.points)-1-delta_idx
                                     if idx>=0 and idx<len(stroke.points):
-                                        stroke.points[idx].pressure += contact_pressure*(1-delta_idx/self.contact_length)
+                                        stroke.points[idx].pressure *= (1+contact_pressure*(1-delta_idx/self.contact_length))
             # Apply join
             if self.end_to_end and self.join_strokes:
                 for i in range(num_chains):
@@ -1123,7 +1123,7 @@ class PinchSelectedOperator(bpy.types.Operator):
                     for stroke in stroke_chain_idx:
                         if stroke_chain_idx[stroke]==i:
                             stroke.select = True
-                    bpy.ops.gpencil.stroke_join()
+                    op_join_strokes()
 
         return {'FINISHED'}
     
