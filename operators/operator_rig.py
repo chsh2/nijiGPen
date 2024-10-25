@@ -47,13 +47,13 @@ class VertexGroupClearOperator(bpy.types.Operator):
         # Check each modifier
         if self.remove_modifiers:
             mods_to_remove = []
-            for mod in context.object.grease_pencil_modifiers:
-                if mod.type == 'GP_ARMATURE':
+            for mod in get_gp_modifiers(context.object):
+                if mod.type == get_modifier_str('ARMATURE'):
                     mods_to_remove.append(mod)
                 elif hasattr(mod, 'vertex_group') and len(mod.vertex_group) > 0:
                     mods_to_remove.append(mod)
             for mod in mods_to_remove:
-                context.object.grease_pencil_modifiers.remove(mod)
+                get_gp_modifiers(context.object).remove(mod)
 
         return {'FINISHED'}
 
@@ -222,7 +222,7 @@ class PinRigOperator(bpy.types.Operator):
         gp_group_indices = []
         for i in range(num_pins):
             for group in gp_obj.vertex_groups:
-                if group.name == bones[i].name:
+                if group.name == arm_data.edit_bones[i].name:
                     gp_group_indices.append(group.index)
                     break
             else:
@@ -344,6 +344,7 @@ class PinRigOperator(bpy.types.Operator):
 
         # Get target layers and frames
         bpy.ops.object.mode_set(mode='OBJECT')
+        switch_to([gp_obj])
         target_layers = get_output_layers(gp_obj, self.target_mode)
         target_layers = [gp_obj.data.layers[i] for i in target_layers]
         if not self.rig_hints and gp_obj.data.layers[self.hint_layer] in target_layers:
@@ -353,21 +354,28 @@ class PinRigOperator(bpy.types.Operator):
                                              layers = target_layers,
                                              return_map = True)
         # Set weights for each frame number
+        weight_helper = GPv3WeightHelper(gp_obj)
+        current_frame_number = context.scene.frame_current
         for frame_number, layer_frame_map in frames_to_process.items():
+            context.scene.frame_set(frame_number)
             strokes_to_process = []
             for i,item in layer_frame_map.items():
                 frame = item[0]
                 strokes_to_process += list(frame.strokes)
+            weight_helper.setup()
             set_weights(strokes_to_process)
+            weight_helper.commit()
+        context.scene.frame_set(current_frame_number)
         
         # Add modifiers
-        mod = gp_obj.grease_pencil_modifiers.new(name='nijigp_Pins', type='GP_ARMATURE')
+        bpy.ops.object.mode_set(mode='OBJECT')
+        mod = get_gp_modifiers(gp_obj).new(name='nijigp_Pins', type=get_modifier_str('ARMATURE'))
         mod.object = arm_obj
         mod.use_vertex_groups = True
         switch_to([arm_obj, gp_obj])
         bpy.ops.object.parent_set(type='OBJECT')
         switch_to([gp_obj])
-        bpy.ops.object.mode_set(mode='WEIGHT_GPENCIL')
+        bpy.ops.object.mode_set(mode=get_obj_mode_str('WEIGHT'))
         return {'FINISHED'}
 
 class MeshFromArmOperator(bpy.types.Operator):
@@ -405,9 +413,9 @@ class MeshFromArmOperator(bpy.types.Operator):
 
         # Generate temporary layers for fills and hints
         fill_layer = gp_obj.data.layers.new("tmp_fill", set_active=False)
-        fill_frame = fill_layer.frames.new(context.scene.frame_current, active=True)
+        fill_frame = new_active_frame(fill_layer.frames, context.scene.frame_current)
         hint_layer = gp_obj.data.layers.new("tmp_hint", set_active=False)
-        hint_frame = hint_layer.frames.new(context.scene.frame_current, active=True)
+        hint_frame = new_active_frame(hint_layer.frames, context.scene.frame_current)
 
         # Convert bones to hint strokes
         arm_trans = gp_obj_inv_mat @ arm.matrix_world
@@ -419,9 +427,10 @@ class MeshFromArmOperator(bpy.types.Operator):
             for i in range(self.resolution):
                 factor = i / (self.resolution - 1.0)
                 stroke.points[i].co = head * (1 - factor) + tail * factor
-        bpy.ops.object.mode_set(mode='EDIT_GPENCIL')
-        bpy.ops.gpencil.select_all(action='SELECT')
-        bpy.ops.gpencil.recalc_geometry()
+        bpy.ops.object.mode_set(mode=get_obj_mode_str('EDIT'))
+        op_select_all()
+        if not is_gpv3():
+            bpy.ops.gpencil.recalc_geometry()
 
         # Generate fills and meshes using other operators
         multiframe = gp_obj.data.use_multiedit
@@ -539,11 +548,11 @@ class TransferWeightOperator(bpy.types.Operator):
 
         # Remove conflicting modifiers
         mods_to_remove = []
-        for mod in gp_obj.grease_pencil_modifiers:
+        for mod in get_gp_modifiers(gp_obj):
             if mod.type == 'GP_ARMATURE' and mod.object == arm:
                 mods_to_remove.append(mod)
         for mod in mods_to_remove:
-            gp_obj.grease_pencil_modifiers.remove(mod)        
+            get_gp_modifiers(gp_obj).remove(mod)        
                 
         # Get all source objects
         if self.source_type == 'THIS':
@@ -597,7 +606,11 @@ class TransferWeightOperator(bpy.types.Operator):
                                              multiframe = gp_obj.data.use_multiedit,
                                              layers = target_layers)
         # Transfer weights
+        weight_helper = GPv3WeightHelper(gp_obj)
+        current_frame_number = context.scene.frame_current
         for frame in frames_to_process:
+            context.scene.frame_set(frame.frame_number)
+            weight_helper.setup()
             for stroke in frame.strokes:
                 for i,p in enumerate(stroke.points):
                     key = xy0(t_mat @ p.co) if self.mapping_type == '2D' else p.co
@@ -609,12 +622,14 @@ class TransferWeightOperator(bpy.types.Operator):
                             stroke.points.weight_set(vertex_group_index=gp_group_map[name], 
                                                      point_index=i, 
                                                      weight=group.weight)
+            weight_helper.commit()
+        context.scene.frame_set(current_frame_number)
         
         # Add a new modifier
         mod = gp_obj.grease_pencil_modifiers.new(name='nijigp_FromMesh', type='GP_ARMATURE')
         mod.object = arm
         mod.use_vertex_groups = True
-
+        
         if self.adjust_parenting:
             if self.source_type == 'THIS':
                 switch_to([gp_obj]+src_objs)
@@ -623,7 +638,7 @@ class TransferWeightOperator(bpy.types.Operator):
             bpy.ops.object.parent_set(type='OBJECT')
             switch_to([gp_obj])
 
-        bpy.ops.object.mode_set(mode='WEIGHT_GPENCIL')
+        bpy.ops.object.mode_set(mode=get_obj_mode_str('WEIGHT'))
         return {'FINISHED'}
 
 class BakeRiggingOperator(bpy.types.Operator):
@@ -720,7 +735,7 @@ class BakeRiggingOperator(bpy.types.Operator):
 
         # Get all armature modifiers
         target_modifiers = []
-        for mod in gp_obj.grease_pencil_modifiers:
+        for mod in get_gp_modifiers(gp_obj):
             if mod.type == 'GP_ARMATURE' and mod.object:
                 target_modifiers.append(mod.name)
                 

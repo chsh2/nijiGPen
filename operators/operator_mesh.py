@@ -298,6 +298,8 @@ class MeshGenerationByNormal(CommonMeshConfig, bpy.types.Operator):
         excluded_group_idx = -1
         if self.excluded_group in current_gp_obj.vertex_groups:
             excluded_group_idx = current_gp_obj.vertex_groups[self.excluded_group].index
+        weight_helper = GPv3WeightHelper(current_gp_obj)
+            
         frames_to_process = get_input_frames(current_gp_obj,
                                              multiframe = current_gp_obj.data.use_multiedit,
                                              return_map = True)
@@ -308,6 +310,8 @@ class MeshGenerationByNormal(CommonMeshConfig, bpy.types.Operator):
             mask_info, mask_list = [], []
             mesh_names = []
             context.scene.frame_set(frame_number)
+            if excluded_group_idx >= 0:
+                weight_helper.setup()
             
             for layer_idx, item in layer_frame_map.items():
                 frame = item[0]
@@ -565,6 +569,8 @@ class MeshGenerationByNormal(CommonMeshConfig, bpy.types.Operator):
 
                 # Attribute interpolation based on 2D distance
                 fill_color = get_mixed_color(current_gp_obj, stroke_list[i])
+                if hasattr(stroke_list[i], 'fill_opacity'):
+                    fill_color[3] *= stroke_list[i].fill_opacity
                 maxmin_dist = 0.
                 depth_offset = np.cos(self.max_vertical_angle) / np.sqrt(1 + 
                                                                 (self.vertical_scale**2 - 1) *
@@ -713,6 +719,7 @@ class MeshGenerationByNormal(CommonMeshConfig, bpy.types.Operator):
             current_gp_obj.select_set(True)
             context.view_layer.objects.active = current_gp_obj
             bpy.ops.object.mode_set(mode=get_obj_mode_str('EDIT'))
+            weight_helper.commit(abort=True)
             
         bpy.ops.object.mode_set(mode='OBJECT') 
         context.scene.frame_set(current_frame_number)

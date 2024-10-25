@@ -1,6 +1,7 @@
 import bpy
 import random
 import numpy as np
+from .resources import append_geometry_nodes
 from mathutils import *
 
 #region [Constants & Names]
@@ -44,7 +45,13 @@ def get_ops_str(ops: str):
         return ops_trans_map[ops]
     else:
         return ops
-    
+
+def get_modifier_str(name: str):
+    if bpy.app.version >= (4, 3, 0):
+        return 'GREASE_PENCIL_' + name.upper()
+    else:
+        return 'GP_' + name.upper()   
+
 def get_viewport_bottom_offset():
     """Blender 4.3 adds an asset shelf region at the viewport bottom, therefore gizmos need an additional offset"""
     return 100 if bpy.app.version >= (4, 3, 0) else 0
@@ -128,6 +135,12 @@ def remove_frame(frames, frame):
         frames.remove(frame.frame_number)
     else:
         frames.remove(frame)
+
+def new_active_frame(frames, frame_number):
+    if bpy.app.version >= (4, 3, 0):
+        return frames.new(frame_number)
+    else:
+        return frames.new(frame_number, active=True)
 
 def set_point_radius(point, value, line_width = None):
     """GPv3 uses a single radius value that equals (line_width / 2000 * pressure) in GPv2"""
@@ -345,13 +358,88 @@ class LegacyPointCollection:
             full_buffer[offset*4:offset*4+len(self)*4] = buffer
             self._drawing.attributes['vertex_color'].data.foreach_set('color', full_buffer)
     
-    # TODO
     def weight_get(self, vertex_group_index, point_index):
-        return 0.0
+        """Must set up a GPv3WeightHelper for the object first"""
+        offset = self._stroke.get_offset()
+        group_name = f'.nijigp_weight_proxy_{vertex_group_index}'
+        if group_name not in self._drawing.attributes:
+            return 0.0
+        return self._drawing.attributes[group_name].data[offset + point_index].value
         
-    def weight_set(vertex_group_index, point_index, weight):
-        return
-            
+    def weight_set(self, vertex_group_index, point_index, weight):
+        offset = self._stroke.get_offset()
+        group_name = f'.nijigp_weight_proxy_{vertex_group_index}'
+        if group_name not in self._drawing.attributes:
+            return
+        self._drawing.attributes[group_name].data[offset + point_index].value = weight
+
+class GPv3WeightHelper:
+    def __init__(self, gp_obj):
+        self.gp_obj: bpy.types.Object = gp_obj
+        self.groups = []
+        self.on = False
+    
+    def setup(self):
+        """
+        Use Geometry Nodes to mirror all group weights to a new attribute
+        """
+        if not is_gpv3():
+            return
+        modifiers = get_gp_modifiers(self.gp_obj)
+        mod_name = 'nijigp_WeightProxy'
+        current_mode = self.gp_obj.mode
+        bpy.ops.object.mode_set(mode='OBJECT')
+        
+        for i,group in enumerate(self.gp_obj.vertex_groups):
+            self.groups.append(group.name)
+            # Create attributes for each frame in the object
+            proxy = f'.nijigp_weight_proxy_{i}'
+            for layer in self.gp_obj.data.layers:
+                for frame in layer.frames:
+                    frame.drawing.attributes.new(proxy, 'FLOAT', 'POINT')
+            # Apply Geometry Nodes
+            # TODO: Currently, the modifier cannot be applied to all frames at once. May revisit in the future
+            mod = modifiers.new(name=mod_name, type='NODES')
+            mod.node_group = append_geometry_nodes(bpy.context, 'NijiGP Weight Proxy')
+            mod['Input_2'] = group.name
+            mod['Input_3'] = proxy
+            bpy.ops.object.modifier_apply("EXEC_DEFAULT", modifier=mod.name)
+        bpy.ops.object.mode_set(mode=current_mode)    
+        self.on = True
+
+    def commit(self, abort=False):
+        """
+        Copy weights from the proxy attribute to the actual group, and clean up the proxy
+        """
+        if not is_gpv3() or not self.on:
+            return
+        modifiers = get_gp_modifiers(self.gp_obj)
+        mod_name = 'nijigp_WeightProxy'
+        current_mode = self.gp_obj.mode
+        bpy.ops.object.mode_set(mode='OBJECT')
+        
+        for i,group in enumerate(self.groups):
+            proxy = f'.nijigp_weight_proxy_{i}'
+            # Apply Geometry Nodes to write values back
+            if not abort:
+                mod = modifiers.new(name=mod_name, type='NODES')
+                mod.node_group = append_geometry_nodes(bpy.context, 'NijiGP Weight Proxy')
+                mod['Input_2'] = proxy
+                mod['Input_3'] = group
+                bpy.ops.object.modifier_apply("EXEC_DEFAULT", modifier=mod.name)
+            # Remove added attributes
+            for layer in self.gp_obj.data.layers:
+                for frame in layer.frames:
+                    attr = frame.drawing.attributes[proxy]
+                    frame.drawing.attributes.remove(attr)  
+        bpy.ops.object.mode_set(mode=current_mode)
+        self.groups = []
+        self.on = False
+    
+    def __del__(self):
+        self.commit(True)
+        pass
+        
 #endregion
 
 #region [Stroke Wrapper Classes]            
