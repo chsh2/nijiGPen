@@ -131,7 +131,7 @@ def get_input_strokes(gp_obj, frame: bpy.types.GPencilFrame, select_all = False)
     Check each stroke in a frame if it belongs to the input
     """
     res = []
-    if hasattr(frame, 'strokes'):
+    if is_frame_valid(frame):
         for stroke in frame.nijigp_strokes:
             if not is_stroke_protected(stroke, gp_obj) and (select_all or stroke.select):
                 res.append(stroke)

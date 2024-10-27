@@ -549,7 +549,7 @@ class TransferWeightOperator(bpy.types.Operator):
         # Remove conflicting modifiers
         mods_to_remove = []
         for mod in get_gp_modifiers(gp_obj):
-            if mod.type == 'GP_ARMATURE' and mod.object == arm:
+            if mod.type == get_modifier_str('ARMATURE') and mod.object == arm:
                 mods_to_remove.append(mod)
         for mod in mods_to_remove:
             get_gp_modifiers(gp_obj).remove(mod)        
@@ -626,7 +626,7 @@ class TransferWeightOperator(bpy.types.Operator):
         context.scene.frame_set(current_frame_number)
         
         # Add a new modifier
-        mod = gp_obj.grease_pencil_modifiers.new(name='nijigp_FromMesh', type='GP_ARMATURE')
+        mod = get_gp_modifiers(gp_obj).new(name='nijigp_FromMesh', type=get_modifier_str('ARMATURE'))
         mod.object = arm
         mod.use_vertex_groups = True
         
@@ -736,7 +736,7 @@ class BakeRiggingOperator(bpy.types.Operator):
         # Get all armature modifiers
         target_modifiers = []
         for mod in get_gp_modifiers(gp_obj):
-            if mod.type == 'GP_ARMATURE' and mod.object:
+            if mod.type == get_modifier_str('ARMATURE') and mod.object:
                 target_modifiers.append(mod.name)
                 
         # Process by frame number
