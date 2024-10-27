@@ -69,7 +69,7 @@ def save_stroke_selection(gp_obj):
         select_map[layer] = {}
         for frame in layer.frames:
             select_map[layer][frame] = {}
-            for stroke in frame.strokes:
+            for stroke in frame.nijigp_strokes:
                 select_map[layer][frame][stroke] = stroke.select_index
     return select_map
 
@@ -80,7 +80,7 @@ def load_stroke_selection(gp_obj, select_map):
     for layer in gp_obj.data.layers:
         for frame in layer.frames:
             if frame in select_map[layer]:
-                for stroke in frame.strokes:
+                for stroke in frame.nijigp_strokes:
                     if stroke in select_map[layer][frame]:
                         stroke.select = (select_map[layer][frame][stroke] > 0)
                     else:
@@ -132,7 +132,7 @@ def get_input_strokes(gp_obj, frame: bpy.types.GPencilFrame, select_all = False)
     """
     res = []
     if hasattr(frame, 'strokes'):
-        for stroke in frame.strokes:
+        for stroke in frame.nijigp_strokes:
             if not is_stroke_protected(stroke, gp_obj) and (select_all or stroke.select):
                 res.append(stroke)
     return res

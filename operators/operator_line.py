@@ -297,7 +297,7 @@ class FitSelectedOperator(CommonFittingConfig, bpy.types.Operator):
         box1 = layout.box()
         box1.prop(self, "line_sampling_size")
         box1.prop(self, "closed")
-        if context.active_object.data.use_multiedit:
+        if get_multiedit(context.active_object):
             box1.prop(self, "is_sequence")
             if self.is_sequence:
                 row = box1.row()
@@ -340,7 +340,7 @@ class FitSelectedOperator(CommonFittingConfig, bpy.types.Operator):
         stroke_frame_map = {}
         stroke_list = []
         frames_to_process = get_input_frames(gp_obj,
-                                             multiframe = gp_obj.data.use_multiedit,
+                                             multiframe = get_multiedit(gp_obj),
                                              return_map = True)
         for frame_number, layer_frame_map in frames_to_process.items():
             stroke_frame_map[frame_number] = []
@@ -368,7 +368,7 @@ class FitSelectedOperator(CommonFittingConfig, bpy.types.Operator):
         # Do spatial fit and (optional) temporal fit
         fitter.fit_spatial(self.b_smoothness*0.001, self.b_smoothness*10)
         has_temporal_fit = False
-        if self.is_sequence and gp_obj.data.use_multiedit and len(frames_to_process) > 1:
+        if self.is_sequence and get_multiedit(gp_obj) and len(frames_to_process) > 1:
             fitter.fit_temporal()
             has_temporal_fit = True
 
@@ -393,7 +393,7 @@ class FitSelectedOperator(CommonFittingConfig, bpy.types.Operator):
             output_frames[int(frame.frame_number)] = frame
             
         # Get output frame numbers
-        if not gp_obj.data.use_multiedit:
+        if not get_multiedit(gp_obj):
             target_frames = [context.scene.frame_current] if context.scene.frame_current in frame_with_output else []
         else:
             target_frames = frame_with_output.copy()
@@ -412,7 +412,7 @@ class FitSelectedOperator(CommonFittingConfig, bpy.types.Operator):
             output_frame.select = True
             
             # Gather stroke attributes from input strokes
-            new_stroke: bpy.types.GPencilStroke = output_frame.strokes.new()
+            new_stroke: bpy.types.GPencilStroke = output_frame.nijigp_strokes.new()
             new_stroke.material_index = output_material_idx
             new_stroke.line_width = self.line_width
             copy_stroke_attributes(new_stroke, stroke_list,
@@ -442,9 +442,9 @@ class FitSelectedOperator(CommonFittingConfig, bpy.types.Operator):
                 smooth_stroke_attributes(new_stroke, self.smooth_repeat, attr_map={'co':3, 'pressure':1, 'strength':1})    
             # For GPv3, remove input strokes at the end
             if not self.keep_original and is_gpv3():
-                to_remove = [stroke for stroke in output_frame.strokes if stroke in stroke_set]
+                to_remove = [stroke for stroke in output_frame.nijigp_strokes if stroke in stroke_set]
                 for stroke in to_remove:
-                    output_frame.strokes.remove(stroke)
+                    output_frame.nijigp_strokes.remove(stroke)
                 
         refresh_strokes(bpy.context.active_object)
         return {'FINISHED'}
@@ -486,7 +486,7 @@ class SelectSimilarOperator(bpy.types.Operator):
 
     def execute(self, context):
         gp_obj: bpy.types.Object = context.object
-        frames_to_process = get_input_frames(gp_obj, gp_obj.data.use_multiedit)
+        frames_to_process = get_input_frames(gp_obj, get_multiedit(gp_obj))
         
         def process_one_frame(frame):
             stroke_list = get_input_strokes(gp_obj, frame)
@@ -501,7 +501,7 @@ class SelectSimilarOperator(bpy.types.Operator):
             # Add new strokes to selection whenever possible
             while True:
                 new_strokes = []
-                for stroke in frame.strokes:
+                for stroke in frame.nijigp_strokes:
                     tmp, _, _ = get_2d_co_from_strokes([stroke], t_mat, scale = False)
                     co_list = tmp[0]
                     kdt = stroke_to_kdtree(co_list)
@@ -583,7 +583,7 @@ class ClusterAndFitOperator(CommonFittingConfig, bpy.types.Operator):
         box1 = layout.box()
         box1.prop(self, "line_sampling_size")
         box1.prop(self, "closed")
-        if context.active_object.data.use_multiedit:
+        if get_multiedit(context.active_object):
             box1.prop(self, "is_sequence")
             if self.is_sequence:
                 row = box1.row()
@@ -622,7 +622,7 @@ class ClusterAndFitOperator(CommonFittingConfig, bpy.types.Operator):
         stroke_list = []
         stroke_frame_map = {}
         frames_to_process = get_input_frames(gp_obj,
-                                             multiframe = gp_obj.data.use_multiedit,
+                                             multiframe = get_multiedit(gp_obj),
                                              return_map = True)
         skipped_frames = []
         for frame_number, layer_frame_map in frames_to_process.items():
@@ -820,10 +820,10 @@ class FitLastOperator(CommonFittingConfig, bpy.types.Operator):
             return {'FINISHED'}  
                  
         # Get stroke information from the input
-        if not drawing_layer.active_frame or len(drawing_layer.active_frame.strokes)<1:
+        if not drawing_layer.active_frame or len(drawing_layer.active_frame.nijigp_strokes)<1:
             return {'FINISHED'} 
         stroke_index = 0 if context.scene.tool_settings.use_gpencil_draw_onback else -1
-        src_stroke: bpy.types.GPencilStroke = drawing_layer.active_frame.strokes[stroke_index]
+        src_stroke: bpy.types.GPencilStroke = drawing_layer.active_frame.nijigp_strokes[stroke_index]
         
         t_mat, inv_mat = get_transformation_mat(mode=context.scene.nijigp_working_plane,
                                                 gp_obj=gp_obj, operator=self)
@@ -837,7 +837,7 @@ class FitLastOperator(CommonFittingConfig, bpy.types.Operator):
         stroke_list = []
         threshold = (self.cluster_dist if self.cluster_criterion == 'DIST' else
                      self.cluster_ratio / 100.0 * src_stroke_length)
-        for stroke in reference_layer.active_frame.strokes:
+        for stroke in reference_layer.active_frame.nijigp_strokes:
             if not stroke_bound_box_overlapping(stroke, src_stroke, t_mat):
                 continue
             tmp, _, _ = get_2d_co_from_strokes([stroke], t_mat, scale=False)
@@ -887,7 +887,7 @@ class FitLastOperator(CommonFittingConfig, bpy.types.Operator):
                 co_fit = co_fit[start_idx:end_idx]
             
         # Remove the last drawn stroke and generate a new one
-        new_stroke: bpy.types.GPencilStroke = drawing_layer.active_frame.strokes.new()
+        new_stroke: bpy.types.GPencilStroke = drawing_layer.active_frame.nijigp_strokes.new()
         copy_stroke_attributes(new_stroke, [src_stroke],
                             copy_hardness=True, copy_linewidth=True,
                             copy_cap=True, copy_cyclic=True,
@@ -901,7 +901,7 @@ class FitLastOperator(CommonFittingConfig, bpy.types.Operator):
             point.vertex_color = src_stroke.points[attr_idx].vertex_color
             point.uv_rotation = src_stroke.points[attr_idx].uv_rotation
             point.pressure *= (1 + min(attr_fit['extra_pressure'][i], self.max_delta_pressure*0.01) )
-        drawing_layer.active_frame.strokes.remove(src_stroke)
+        drawing_layer.active_frame.nijigp_strokes.remove(src_stroke)
         
         # Post-processing
         if self.smooth_repeat > 0:
@@ -980,7 +980,7 @@ class PinchSelectedOperator(bpy.types.Operator):
         stroke_list = []
         stroke_frame_map = {}
         frames_to_process = get_input_frames(gp_obj,
-                                             multiframe = gp_obj.data.use_multiedit,
+                                             multiframe = get_multiedit(gp_obj),
                                              return_map = True)
         skipped_frames = []
         for frame_number, layer_frame_map in frames_to_process.items():
@@ -1278,7 +1278,7 @@ class TaperSelectedOperator(bpy.types.Operator):
                     point.strength = point.strength * factor_arr[i] if self.operation=='MULTIPLY' else factor_arr[i]
 
         gp_obj = context.object
-        frames_to_process = get_input_frames(gp_obj, gp_obj.data.use_multiedit)
+        frames_to_process = get_input_frames(gp_obj, get_multiedit(gp_obj))
         stroke_list = []
         for frame in frames_to_process:
             stroke_list += get_input_strokes(gp_obj, frame)

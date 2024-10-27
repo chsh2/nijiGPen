@@ -485,11 +485,11 @@ class AppendSVGOperator(bpy.types.Operator, ImportHelper):
         current_gp_obj = context.object
         current_material_idx = context.object.active_material_index
         current_frame_number = context.scene.frame_current
-        use_multiedit = current_gp_obj.data.use_multiedit
+        use_multiedit = get_multiedit(current_gp_obj)
         t_mat, inv_mat = get_transformation_mat(mode=context.scene.nijigp_working_plane, gp_obj=current_gp_obj)
 
         frame_number = current_frame_number
-        current_gp_obj.data.use_multiedit = False
+        set_multiedit(current_gp_obj, False)
         target_layer = None
         multiframe_svg_name = None
         for f in self.files:
@@ -558,7 +558,7 @@ class AppendSVGOperator(bpy.types.Operator, ImportHelper):
             # TODO: transform point handles for GPv3 Bezier curves
             z_to_y_mat = Matrix([(1,0,0), (0,0,1), (0,1,0)])
             if not is_gpv3():
-                for stroke in context.object.data.layers.active.active_frame.strokes:
+                for stroke in context.object.data.layers.active.active_frame.nijigp_strokes:
                     for point in stroke.points:
                         point.co = inv_mat @ z_to_y_mat @ point.co
                                                 
@@ -572,16 +572,16 @@ class AppendSVGOperator(bpy.types.Operator, ImportHelper):
             if self.image_sequence and i > 0:
                 break
             for frame in context.object.data.layers[-i-1].frames:
-                for stroke in frame.strokes:
+                for stroke in frame.nijigp_strokes:
                     stroke.select = True
         
         if self.auto_holdout:
-            current_gp_obj.data.use_multiedit = self.image_sequence
+            set_multiedit(current_gp_obj, self.image_sequence)
             bpy.ops.gpencil.nijigp_hole_processing(rearrange=True, separate_colors=True)
         
         # Recover the state
         context.object.active_material_index = current_material_idx
         context.scene.frame_set(current_frame_number)
-        current_gp_obj.data.use_multiedit = use_multiedit
+        set_multiedit(current_gp_obj, use_multiedit)
 
         return {'FINISHED'}

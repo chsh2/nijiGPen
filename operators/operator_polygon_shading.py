@@ -15,7 +15,7 @@ def generate_shading_stroke(co_list, inv_mat, scale_factor, gp_obj, ref_stroke_i
     if len(ref_stroke_info) > 3:
         frame = ref_stroke_info[3]
     # Create a stroke
-    new_stroke = frame.strokes.new()
+    new_stroke = frame.nijigp_strokes.new()
     copy_stroke_attributes(new_stroke, [ref_stroke],
                            copy_hardness=True, copy_linewidth=True,
                            copy_cap=True, copy_cyclic=False,
@@ -37,7 +37,7 @@ def generate_shading_stroke(co_list, inv_mat, scale_factor, gp_obj, ref_stroke_i
         new_stroke.points[i].uv_rotation = ref_stroke.points[ref_i].uv_rotation
         new_stroke.points[i].vertex_color = ref_stroke.points[ref_i].vertex_color
     # Rearrange the new stroke
-    current_index = len(frame.strokes) - 1
+    current_index = len(frame.nijigp_strokes) - 1
     new_index = stroke_index + 1
     op_deselect()
     new_stroke.select = True
@@ -245,7 +245,7 @@ class ShadeSelectedOperator(bpy.types.Operator):
 
         # Get a list of layers / frames to process
         frames_to_process = get_input_frames(current_gp_obj,
-                                             multiframe = current_gp_obj.data.use_multiedit,
+                                             multiframe = get_multiedit(current_gp_obj),
                                              return_map = True)
 
         select_map = save_stroke_selection(current_gp_obj)
@@ -266,7 +266,7 @@ class ShadeSelectedOperator(bpy.types.Operator):
                 frame = item[0]
                 layer = current_gp_obj.data.layers[i]
                 if is_frame_valid(frame):
-                    for j,stroke in enumerate(frame.strokes):
+                    for j,stroke in enumerate(frame.nijigp_strokes):
                         if ((self.ignore_mode == 'LINE' and is_stroke_line(stroke, current_gp_obj)) or
                             (self.ignore_mode == 'OPEN' and is_stroke_line(stroke, current_gp_obj) and not stroke.use_cyclic)):
                             continue

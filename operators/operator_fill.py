@@ -161,10 +161,10 @@ class SmartFillOperator(bpy.types.Operator):
         op_deselect()
 
         def fill_single_frame(line_frame, hint_frame, fill_frame):
-            if len(line_frame.strokes) < 1:
+            if len(line_frame.nijigp_strokes) < 1:
                 return
             # Get points of line frame
-            stroke_list = [stroke for stroke in line_frame.strokes]
+            stroke_list = [stroke for stroke in line_frame.nijigp_strokes]
             t_mat, inv_mat = get_transformation_mat(mode=context.scene.nijigp_working_plane,
                                                     gp_obj=gp_obj, strokes=stroke_list, operator=self)
             poly_list, depth_list, scale_factor = get_2d_co_from_strokes(stroke_list, t_mat, scale=True)
@@ -178,7 +178,7 @@ class SmartFillOperator(bpy.types.Operator):
             # Extract colors/materials from hint strokes to label the triangle node graph
             # Label 0 is reserved for transparent regions
             labels_info, label_map = [(None, None, False)], {}
-            for stroke in reversed(hint_frame.strokes):
+            for stroke in reversed(hint_frame.nijigp_strokes):
                 if self.use_boundary_strokes and not stroke.is_nofill_stroke:
                     continue
                 hint_points_co, hint_points_label = [], []
@@ -233,9 +233,9 @@ class SmartFillOperator(bpy.types.Operator):
                     item[1] = len(gp_obj.material_slots)-1
 
             if self.clear_fill_layer:
-                for stroke in list(fill_frame.strokes):
+                for stroke in list(fill_frame.nijigp_strokes):
                     if not stroke.is_nofill_stroke:
-                        fill_frame.strokes.remove(stroke)
+                        fill_frame.nijigp_strokes.remove(stroke)
 
             # Generate new strokes from contours of the filled regions
             contours_co, contours_label = solver.get_contours()
@@ -245,7 +245,7 @@ class SmartFillOperator(bpy.types.Operator):
                 if label < 1:
                     continue
                 for c in contours:
-                    new_stroke: bpy.types.GPencilStroke = fill_frame.strokes.new()
+                    new_stroke: bpy.types.GPencilStroke = fill_frame.nijigp_strokes.new()
                     new_stroke.points.add(len(c))
                     new_stroke.use_cyclic = True
                     new_stroke.material_index = labels_info[label][1]
@@ -259,14 +259,14 @@ class SmartFillOperator(bpy.types.Operator):
                     generated_strokes.add(new_stroke)
 
             if self.clear_hint_layer:
-                for stroke in list(hint_frame.strokes):
+                for stroke in list(hint_frame.nijigp_strokes):
                     if not self.use_boundary_strokes or stroke.is_nofill_stroke:
                         if stroke not in generated_strokes:
-                            hint_frame.strokes.remove(stroke)
+                            hint_frame.nijigp_strokes.remove(stroke)
 
         # Get the frames from each layer to process
         processed_frame_numbers = []
-        if not gp_obj.data.use_multiedit:
+        if not get_multiedit(gp_obj):
             if fill_layer.active_frame:
                 fill_single_frame(line_layer.active_frame,
                                 hint_layer.active_frame,
@@ -451,7 +451,7 @@ class HatchFillOperator(bpy.types.Operator, ColorTintConfig, NoiseConfig):
         if self.output_material in bpy.data.materials:
             material = bpy.data.materials[self.output_material]
         material_idx = gp_obj.material_slots.find(material.name)
-        frames_to_process = get_input_frames(gp_obj, gp_obj.data.use_multiedit)
+        frames_to_process = get_input_frames(gp_obj, get_multiedit(gp_obj))
         generated_strokes = []
         noise.seed_set(self.random_seed)
 
@@ -553,7 +553,7 @@ class HatchFillOperator(bpy.types.Operator, ColorTintConfig, NoiseConfig):
                                     break
                 # Generate output strokes
                 for co_list in hatch_polys:
-                    new_stroke: bpy.types.GPencilStroke = frame.strokes.new()
+                    new_stroke: bpy.types.GPencilStroke = frame.nijigp_strokes.new()
                     new_stroke.material_index = material_idx
                     new_stroke.points.add(len(co_list))
                     new_stroke.line_width = self.line_width
@@ -572,7 +572,7 @@ class HatchFillOperator(bpy.types.Operator, ColorTintConfig, NoiseConfig):
                         set_point_radius(point, 1 + self.random_radius * noise.noise(co_noise), self.line_width)
                     generated_strokes.append(new_stroke)   
                 if not self.keep_original:
-                    frame.strokes.remove(stroke)
+                    frame.nijigp_strokes.remove(stroke)
         # Post-processing
         op_deselect()
         for stroke in generated_strokes:

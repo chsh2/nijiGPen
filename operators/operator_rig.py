@@ -167,9 +167,9 @@ class PinRigOperator(bpy.types.Operator):
         
         # Get frame and transform from the hint layer
         hint_frame = gp_obj.data.layers[self.hint_layer].active_frame
-        num_pins = len(hint_frame.strokes)
+        num_pins = len(hint_frame.nijigp_strokes)
         t_mat, _ = get_transformation_mat(mode=context.scene.nijigp_working_plane,
-                                                gp_obj=gp_obj, strokes=hint_frame.strokes, operator=self)
+                                                gp_obj=gp_obj, strokes=hint_frame.nijigp_strokes, operator=self)
         # Generate an armature
         arm_data = bpy.data.armatures.new(gp_obj.name + '_pins')
         arm_obj = bpy.data.objects.new(arm_data.name, arm_data)
@@ -182,7 +182,7 @@ class PinRigOperator(bpy.types.Operator):
         bone_centers = []
         bone_radiuses =[]
         for i in range(num_pins):
-            hint_stroke = hint_frame.strokes[i]
+            hint_stroke = hint_frame.nijigp_strokes[i]
             if self.hint_shape == 'STICK':
                 tail_pos:Vector = hint_stroke.points[0].co
                 head_pos:Vector = hint_stroke.points[-1].co
@@ -216,7 +216,7 @@ class PinRigOperator(bpy.types.Operator):
                         min_dist = (arm_data.edit_bones[i].head - arm_data.edit_bones[j].tail).length
                         bone.parent = bones[j]
         if self.hint_shape == 'LASSO':
-            lasso_polys, _, scale_factor = get_2d_co_from_strokes(hint_frame.strokes, t_mat, scale=True)
+            lasso_polys, _, scale_factor = get_2d_co_from_strokes(hint_frame.nijigp_strokes, t_mat, scale=True)
 
         # Set vertex groups
         gp_group_indices = []
@@ -350,7 +350,7 @@ class PinRigOperator(bpy.types.Operator):
         if not self.rig_hints and gp_obj.data.layers[self.hint_layer] in target_layers:
             target_layers.remove(gp_obj.data.layers[self.hint_layer])
         frames_to_process = get_input_frames(gp_obj,
-                                             multiframe = gp_obj.data.use_multiedit,
+                                             multiframe = get_multiedit(gp_obj),
                                              layers = target_layers,
                                              return_map = True)
         # Set weights for each frame number
@@ -361,7 +361,7 @@ class PinRigOperator(bpy.types.Operator):
             strokes_to_process = []
             for i,item in layer_frame_map.items():
                 frame = item[0]
-                strokes_to_process += list(frame.strokes)
+                strokes_to_process += list(frame.nijigp_strokes)
             weight_helper.setup()
             set_weights(strokes_to_process)
             weight_helper.commit()
@@ -422,7 +422,7 @@ class MeshFromArmOperator(bpy.types.Operator):
         for bone in arm.data.bones:
             head:Vector = arm_trans @ bone.head_local
             tail:Vector = arm_trans @ bone.tail_local
-            stroke = hint_frame.strokes.new()
+            stroke = hint_frame.nijigp_strokes.new()
             stroke.points.add(self.resolution)
             for i in range(self.resolution):
                 factor = i / (self.resolution - 1.0)
@@ -433,20 +433,20 @@ class MeshFromArmOperator(bpy.types.Operator):
             bpy.ops.gpencil.recalc_geometry()
 
         # Generate fills and meshes using other operators
-        multiframe = gp_obj.data.use_multiedit
-        gp_obj.data.use_multiedit = False
+        multiframe = get_multiedit(gp_obj)
+        set_multiedit(gp_obj, False)
         bpy.ops.gpencil.nijigp_smart_fill(line_layer = gp_obj.data.layers.active.info,
                                           hint_layer = hint_layer.info,
                                           fill_layer = fill_layer.info,
                                           precision = 0.05,
                                           material_mode = 'HINT')
         op_deselect()
-        for stroke in fill_frame.strokes:
+        for stroke in fill_frame.nijigp_strokes:
             stroke.select = True
         bpy.ops.gpencil.nijigp_mesh_generation_normal(use_native_triangulation = True,
                                                       resolution = self.resolution * 2)
         # Cleanup temporary layers
-        gp_obj.data.use_multiedit = multiframe
+        set_multiedit(gp_obj, multiframe)
         gp_obj.data.layers.remove(fill_layer)
         gp_obj.data.layers.remove(hint_layer)
         bpy.ops.object.mode_set(mode=current_mode)
@@ -603,7 +603,7 @@ class TransferWeightOperator(bpy.types.Operator):
         target_layers = get_output_layers(gp_obj, self.target_mode)
         target_layers = [gp_obj.data.layers[i] for i in target_layers]
         frames_to_process = get_input_frames(gp_obj,
-                                             multiframe = gp_obj.data.use_multiedit,
+                                             multiframe = get_multiedit(gp_obj),
                                              layers = target_layers)
         # Transfer weights
         weight_helper = GPv3WeightHelper(gp_obj)
@@ -611,7 +611,7 @@ class TransferWeightOperator(bpy.types.Operator):
         for frame in frames_to_process:
             context.scene.frame_set(frame.frame_number)
             weight_helper.setup()
-            for stroke in frame.strokes:
+            for stroke in frame.nijigp_strokes:
                 for i,p in enumerate(stroke.points):
                     key = xy0(t_mat @ p.co) if self.mapping_type == '2D' else p.co
                     _,idx,_ = kdt.find(key)
@@ -756,7 +756,7 @@ class BakeRiggingOperator(bpy.types.Operator):
                 if frame_number not in layer_get_ref_keyframe_idx[i]:
                     continue
                 frame = layer.frames[layer_get_ref_keyframe_idx[i][frame_number]]
-                for stroke in frame.strokes:
+                for stroke in frame.nijigp_strokes:
                     new_coordinates[i].append([])
                     for point in stroke.points:
                         new_coordinates[i][-1].append(tuple(point.co))
@@ -770,7 +770,7 @@ class BakeRiggingOperator(bpy.types.Operator):
                 if frame_number not in layer_get_keyframe[i]:
                     continue
                 frame = layer_get_keyframe[i][frame_number]
-                for j,stroke in enumerate(frame.strokes):
+                for j,stroke in enumerate(frame.nijigp_strokes):
                     for k,point in enumerate(stroke.points):
                         point.co = new_coordinates[i][j][k]
         # Cleanup

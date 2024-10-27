@@ -114,6 +114,18 @@ def set_active_layer_index(obj, index):
     else:
         obj.data.layers.active_index = index
 
+def get_multiedit(obj):
+    if bpy.app.version >= (4, 3, 0):
+        return bpy.context.scene.tool_settings.use_grease_pencil_multi_frame_editing
+    else:
+        return obj.data.use_multiedit
+
+def set_multiedit(obj, enabled):
+    if bpy.app.version >= (4, 3, 0):
+        bpy.context.scene.tool_settings.use_grease_pencil_multi_frame_editing = enabled
+    else:
+        obj.data.use_multiedit = enabled
+
 def get_layer_frame_by_number(layer, frame_number):
     if bpy.app.version >= (4, 3, 0):
         return layer.get_frame_at(frame_number)
@@ -277,7 +289,7 @@ class LegacyPointRef:
         
 class LegacyPointCollection:
     """
-    TODO
+    Provide point creation and attribute assignment APIs in GPv2 style
     """
     def __init__(self, stroke):
         self._drawing = stroke._drawing
@@ -398,7 +410,7 @@ class GPv3WeightHelper:
                 for frame in layer.frames:
                     frame.drawing.attributes.new(proxy, 'FLOAT', 'POINT')
             # Apply Geometry Nodes
-            # TODO: Currently, the modifier cannot be applied to all frames at once. May revisit in the future
+            # TODO: Currently, applying this modifier to all frames may crash Blender. May revisit in the future
             mod = modifiers.new(name=mod_name, type='NODES')
             mod.node_group = append_geometry_nodes(bpy.context, 'NijiGP Weight Proxy')
             mod['Input_2'] = group.name
@@ -563,7 +575,8 @@ class LegacyStrokeRef:
         
 class LegacyStrokeCollection:
     """
-    TODO
+    Initialize several stroke/point attributes of a frame, including a stroke hash value as a persistent identifier.
+    Also provides stroke creation/deletion APIs in GPv2 style
     """
     def __init__(self, frame):
         self._drawing = frame.drawing
@@ -634,20 +647,20 @@ def register_alternative_api_paths():
     Create new APIs to make GPv3 compatible with GPv2
     """
     if bpy.app.version >= (4, 3, 0):
-        bpy.types.GreasePencilv3.use_multiedit = property(lambda self: bpy.context.scene.tool_settings.use_grease_pencil_multi_frame_editing,
-                                                        lambda self, value: setattr(bpy.context.scene.tool_settings, 'use_grease_pencil_multi_frame_editing', value))
         bpy.types.GreasePencilLayer.active_frame = property(lambda self: self.current_frame())
         bpy.types.GreasePencilLayer.matrix_layer = property(lambda self: self.matrix_local)
         bpy.types.GreasePencilLayer.use_mask_layer = property(lambda self: self.use_masks)
         bpy.types.GreasePencilLayer.info = property(lambda self: self.name, lambda self, value: setattr(self, 'name', value))
-        bpy.types.GreasePencilFrame.strokes = property(lambda self: LegacyStrokeCollection(self))
-        
+        bpy.types.GreasePencilFrame.nijigp_strokes = property(lambda self: LegacyStrokeCollection(self))
+    else:
+        bpy.types.GPencilFrame.nijigp_strokes = property(lambda self: self.strokes)
     
 def unregister_alternative_api_paths():
     if bpy.app.version >= (4, 3, 0):
-        delattr(bpy.types.GreasePencilv3, "use_multiedit")
         delattr(bpy.types.GreasePencilLayer, "active_frame")
         delattr(bpy.types.GreasePencilLayer, "matrix_layer")
         delattr(bpy.types.GreasePencilLayer, "use_mask_layer")
         delattr(bpy.types.GreasePencilLayer, "info")
-        delattr(bpy.types.GreasePencilFrame, "strokes")
+        delattr(bpy.types.GreasePencilFrame, "nijigp_strokes")
+    else:
+        delattr(bpy.types.GPencilFrame, "nijigp_strokes")

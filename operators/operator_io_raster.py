@@ -323,7 +323,7 @@ class ImportLineImageOperator(bpy.types.Operator, ImportHelper):
                 merged_tip.add(joint[1])
 
             # Generate strokes according to line segments
-            frame_strokes = frame.strokes
+            frame_strokes = frame.nijigp_strokes
             scale_factor = min(img_H, img_W) / self.size
             line_thickness = dist_mat.max()
             dist_mat /= line_thickness
@@ -506,7 +506,7 @@ class ImportColorImageOperator(bpy.types.Operator, ImportHelper, ImportColorImag
         gp_obj: bpy.types.Object = context.object
         gp_layer = gp_obj.data.layers.active
         current_mode = gp_obj.mode
-        use_multiedit = gp_obj.data.use_multiedit
+        use_multiedit = get_multiedit(gp_obj)
         t_mat, inv_mat = get_transformation_mat(mode=context.scene.nijigp_working_plane,
                                                 gp_obj=gp_obj)
         try:
@@ -517,7 +517,7 @@ class ImportColorImageOperator(bpy.types.Operator, ImportHelper, ImportColorImag
             self.report({"ERROR"}, "Please install PyClipper and Scikit-Image in the Preferences panel.")
             return {'FINISHED'}
 
-        gp_obj.data.use_multiedit = self.image_sequence
+        set_multiedit(gp_obj, self.image_sequence)
         bpy.ops.object.mode_set(mode=get_obj_mode_str('EDIT'))
         op_deselect()
 
@@ -667,7 +667,7 @@ class ImportColorImageOperator(bpy.types.Operator, ImportHelper, ImportColorImag
             active_brush = context.tool_settings.gpencil_paint.brush
             line_width = active_brush.size if active_brush else 20
             strength = active_brush.gpencil_settings.pen_strength if active_brush else 1.0
-            frame_strokes = frame.strokes
+            frame_strokes = frame.nijigp_strokes
             scale_factor = min(img_H, img_W) / self.size
             plane_projector = CameraPlaneProjector(gp_obj, bpy.context.scene.camera, bpy.context.scene) \
                         if self.fit_to_camera else None 
@@ -732,7 +732,7 @@ class ImportColorImageOperator(bpy.types.Operator, ImportHelper, ImportColorImag
         # Post-processing and context recovery
         refresh_strokes(gp_obj, processed_frame_numbers)
         bpy.ops.gpencil.nijigp_hole_processing(rearrange=True, apply_holdout=False)
-        gp_obj.data.use_multiedit = use_multiedit
+        set_multiedit(gp_obj, use_multiedit)
         bpy.ops.object.mode_set(mode=current_mode)
 
         return {'FINISHED'}
@@ -819,7 +819,7 @@ class RenderAndVectorizeOperator(bpy.types.Operator, ImportColorImageConfig):
         is_render_hidden = {}
         for obj in scene.objects:
             is_render_hidden[obj] = obj.hide_render
-        multiedit = gp_obj.data.use_multiedit 
+        multiedit = get_multiedit(gp_obj) 
         is_background_transparent = scene.render.film_transparent
         render_path = scene.render.filepath
         frame_start = scene.frame_start
@@ -829,7 +829,7 @@ class RenderAndVectorizeOperator(bpy.types.Operator, ImportColorImageConfig):
         bpy.ops.object.mode_set(mode=get_obj_mode_str('EDIT'))
         bpy.context.space_data.region_3d.view_perspective = 'CAMERA'
         scene.render.film_transparent = True
-        gp_obj.data.use_multiedit = False
+        set_multiedit(gp_obj, False)
         scene.frame_start = self.frame_start if self.render_animation else scene.frame_current
         scene.frame_end = self.frame_end if self.render_animation else scene.frame_current
 
@@ -890,7 +890,7 @@ class RenderAndVectorizeOperator(bpy.types.Operator, ImportColorImageConfig):
                 for frame_number in range(scene.frame_start, scene.frame_end + 1):
                     scene.frame_set(frame_number)
                     op_deselect()
-                    for stroke in lineart_frames[frame_number].strokes:
+                    for stroke in lineart_frames[frame_number].nijigp_strokes:
                         stroke.select = True
                     if frame_number in frame_number_set:
                         op_reproject()
@@ -904,6 +904,6 @@ class RenderAndVectorizeOperator(bpy.types.Operator, ImportColorImageConfig):
         scene.render.filepath = render_path
         scene.frame_start = frame_start
         scene.frame_end = frame_end
-        gp_obj.data.use_multiedit = multiedit
+        set_multiedit(gp_obj, multiedit)
                 
         return {'FINISHED'}

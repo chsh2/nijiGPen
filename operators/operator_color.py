@@ -53,7 +53,7 @@ class TintSelectedOperator(bpy.types.Operator, ColorTintConfig, NoiseConfig):
         if self.tint_color_factor == 0:
             return {'FINISHED'}
         gp_obj = context.object
-        frames_to_process = get_input_frames(gp_obj, gp_obj.data.use_multiedit)
+        frames_to_process = get_input_frames(gp_obj, get_multiedit(gp_obj))
         noise.seed_set(self.random_seed)
         for frame in frames_to_process:
             for stroke in get_input_strokes(gp_obj, frame):
@@ -141,7 +141,7 @@ class RecolorSelectedOperator(bpy.types.Operator, ColorTintConfig, NoiseConfig):
             self.use_h, self.use_s, self.use_v = False, False, False
 
         gp_obj = context.object
-        frames_to_process = get_input_frames(gp_obj, gp_obj.data.use_multiedit)
+        frames_to_process = get_input_frames(gp_obj, get_multiedit(gp_obj))
         noise.seed_set(self.random_seed)
         
         def get_key(color):

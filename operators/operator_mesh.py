@@ -301,7 +301,7 @@ class MeshGenerationByNormal(CommonMeshConfig, bpy.types.Operator):
         weight_helper = GPv3WeightHelper(current_gp_obj)
             
         frames_to_process = get_input_frames(current_gp_obj,
-                                             multiframe = current_gp_obj.data.use_multiedit,
+                                             multiframe = get_multiedit(current_gp_obj),
                                              return_map = True)
         
         # Process selected strokes frame by frame
@@ -316,7 +316,7 @@ class MeshGenerationByNormal(CommonMeshConfig, bpy.types.Operator):
             for layer_idx, item in layer_frame_map.items():
                 frame = item[0]
                 if is_frame_valid(frame):
-                    for j,stroke in enumerate(frame.strokes):
+                    for j,stroke in enumerate(frame.nijigp_strokes):
                         if stroke.select:
                             if self.ignore_mode == 'LINE' and is_stroke_line(stroke, current_gp_obj):
                                 continue
@@ -713,7 +713,7 @@ class MeshGenerationByNormal(CommonMeshConfig, bpy.types.Operator):
             # Delete old strokes
             if not self.keep_original:
                 for info in (stroke_info + mask_info):
-                    info[3].strokes.remove(info[0])
+                    info[3].nijigp_strokes.remove(info[0])
 
             bpy.ops.object.select_all(action='DESELECT')
             current_gp_obj.select_set(True)
@@ -863,7 +863,7 @@ class MeshGenerationByOffsetting(CommonMeshConfig, bpy.types.Operator):
         current_frame_number = context.scene.frame_current
         mesh_material = append_material(context, 'MESH', self.mesh_material, self.reuse_material, self)
         frames_to_process = get_input_frames(current_gp_obj,
-                                             multiframe = current_gp_obj.data.use_multiedit,
+                                             multiframe = get_multiedit(current_gp_obj),
                                              return_map = True)
         
         # Process selected strokes frame by frame
@@ -876,7 +876,7 @@ class MeshGenerationByOffsetting(CommonMeshConfig, bpy.types.Operator):
             for layer_idx, item in layer_frame_map.items():
                 frame = item[0]
                 if is_frame_valid(frame):
-                    for j,stroke in enumerate(frame.strokes):
+                    for j,stroke in enumerate(frame.nijigp_strokes):
                         if stroke.select:
                             if self.ignore_mode == 'LINE' and is_stroke_line(stroke, current_gp_obj):
                                 continue
@@ -1117,7 +1117,7 @@ class MeshGenerationByOffsetting(CommonMeshConfig, bpy.types.Operator):
             # Delete old strokes
             if not self.keep_original:
                 for info in stroke_info:
-                    info[3].strokes.remove(info[0])
+                    info[3].nijigp_strokes.remove(info[0])
             context.view_layer.objects.active = current_gp_obj
             bpy.ops.object.mode_set(mode=get_obj_mode_str('EDIT'))
             

@@ -81,7 +81,7 @@ class BooleanModalOperator(bpy.types.Operator):
         context.active_object.data.materials.append(mat)
         
         frame = context.active_object.data.layers.active.active_frame
-        stroke = frame.strokes.new()
+        stroke = frame.nijigp_strokes.new()
         stroke.line_width = context.scene.tool_settings.gpencil_paint.brush.size
         stroke.material_index = len(context.active_object.data.materials) - 1
         stroke.start_cap_mode = 'FLAT' if self.caps_type == 'FLAT' else 'ROUND'
@@ -122,8 +122,8 @@ class BooleanModalOperator(bpy.types.Operator):
             )
         # If the newly drawn stroke still exist, remove it
         frame = context.active_object.data.layers.active.active_frame
-        if self._stroke == frame.strokes[-1]:
-            frame.strokes.remove(self._stroke)
+        if self._stroke == frame.nijigp_strokes[-1]:
+            frame.nijigp_strokes.remove(self._stroke)
         # Purge the temporary preview material
         mat = bpy.data.materials['nijigp_Boolean_Eraser_Preview']
         context.active_object.data.materials.pop()
@@ -210,7 +210,7 @@ class SmartFillModalOperator(bpy.types.Operator):
             line_art_layer = gp_obj.data.layers[self.line_layer]
         if not line_art_layer.active_frame:
             return 1
-        if len(line_art_layer.active_frame.strokes) < 1:
+        if len(line_art_layer.active_frame.nijigp_strokes) < 1:
             return 1
         # Get or create an output frame from active layer
         fill_layer = gp_obj.data.layers.active
@@ -219,9 +219,9 @@ class SmartFillModalOperator(bpy.types.Operator):
             self.output_frame = fill_layer.frames.new(bpy.context.scene.frame_current)
 
         # Process line art as solver input
-        stroke_list = [stroke for stroke in line_art_layer.active_frame.strokes]
+        stroke_list = [stroke for stroke in line_art_layer.active_frame.nijigp_strokes]
         if self.incremental and line_art_layer.active_frame != self.output_frame:
-            stroke_list += [stroke for stroke in self.output_frame.strokes]
+            stroke_list += [stroke for stroke in self.output_frame.nijigp_strokes]
         self.t_mat, _ = get_transformation_mat(mode='VIEW',
                                                 gp_obj=gp_obj, strokes=stroke_list, operator=self)
         poly_list, depth_list, self.scale_factor = get_2d_co_from_strokes(stroke_list, self.t_mat, scale=True)
@@ -264,7 +264,7 @@ class SmartFillModalOperator(bpy.types.Operator):
             if label < 1:
                 continue
             for c in contours:
-                new_stroke: bpy.types.GPencilStroke = self.output_frame.strokes.new()
+                new_stroke: bpy.types.GPencilStroke = self.output_frame.nijigp_strokes.new()
                 new_stroke.line_width = gp_settings.brush.size
                 new_stroke.use_cyclic = True
                 new_stroke.material_index = bpy.context.object.active_material_index
@@ -283,7 +283,7 @@ class SmartFillModalOperator(bpy.types.Operator):
         if not self.output_frame:
             return 1
         for stroke in self.generated_strokes:
-            self.output_frame.strokes.remove(stroke)
+            self.output_frame.nijigp_strokes.remove(stroke)
         self.generated_strokes = []
 
     def smart_fill_finalize(self):
@@ -620,7 +620,7 @@ class ArrangeModalOperator(bpy.types.Operator):
         if context.object and obj_is_gp(context.object):
             layers = context.object.data.layers
             if layers.active and not layers.active.hide and layers.active.active_frame:
-                strokes = layers.active.active_frame.strokes
+                strokes = layers.active.active_frame.nijigp_strokes
                 if len(strokes) < self.max_display:
                     for i,stroke in enumerate(strokes):
                         if len(stroke.points) > 0:
