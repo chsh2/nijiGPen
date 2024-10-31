@@ -730,8 +730,7 @@ class BakeRiggingOperator(bpy.types.Operator):
                 if frame_number in layer_get_keyframe[i]:
                     last_frame = layer_get_keyframe[i][frame_number]
                 elif last_frame != None and is_target_frame_number(frame_number):
-                    layer_get_keyframe[i][frame_number] = layer.frames.copy(last_frame)
-                    layer_get_keyframe[i][frame_number].frame_number = frame_number
+                    layer_get_keyframe[i][frame_number] = copy_frame(layer.frames, last_frame, frame_number)
 
         # Get all armature modifiers
         target_modifiers = []
@@ -749,7 +748,7 @@ class BakeRiggingOperator(bpy.types.Operator):
             dup_gp_obj = bpy.context.object
             new_coordinates = {}    # 4D list: layer->stroke->point->xyz
             for mod_name in target_modifiers:
-                bpy.ops.object.gpencil_modifier_apply(modifier=mod_name)
+                op_modifier_apply(mod_name)
             for i in target_layers:
                 layer = dup_gp_obj.data.layers[i]
                 new_coordinates[i] = []
@@ -777,8 +776,8 @@ class BakeRiggingOperator(bpy.types.Operator):
         bpy.ops.object.delete(use_global=True)
         switch_to([gp_obj])
         for mod_name in target_modifiers:
-            bpy.ops.object.gpencil_modifier_remove(modifier=mod_name)
+            op_modifier_remove(mod_name)
         if self.clear_parents:
             bpy.ops.object.parent_clear(type='CLEAR')
-        bpy.ops.object.mode_set(mode='EDIT_GPENCIL')
+        bpy.ops.object.mode_set(mode=get_obj_mode_str('EDIT'))
         return {'FINISHED'}

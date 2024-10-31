@@ -148,6 +148,14 @@ def remove_frame(frames, frame):
     else:
         frames.remove(frame)
 
+def copy_frame(frames, src_frame, new_frame_number):
+    if bpy.app.version >= (4, 3, 0):
+        dst_frame = frames.copy(src_frame.frame_number, new_frame_number)
+    else:
+        dst_frame = frames.copy(src_frame)
+        dst_frame.frame_number = new_frame_number
+    return dst_frame
+
 def new_active_frame(frames, frame_number):
     if bpy.app.version >= (4, 3, 0):
         return frames.new(frame_number)
@@ -173,6 +181,18 @@ def get_point_radius(point, line_width = None):
             return point.pressure * bpy.context.scene.tool_settings.gpencil_paint.brush.size / 2000.0
         else:
             return point.pressure * line_width / 2000.0
+
+def op_modifier_apply(name):
+    if bpy.app.version >= (4, 3, 0):
+        bpy.ops.object.modifier_apply(modifier=name)
+    else:
+        bpy.ops.object.gpencil_modifier_apply(modifier=name)
+
+def op_modifier_remove(name):
+    if bpy.app.version >= (4, 3, 0):
+        bpy.ops.object.modifier_remove(modifier=name)
+    else:
+        bpy.ops.object.gpencil_modifier_remove(modifier=name)
 
 def op_layer_merge(mode):
     if bpy.app.version >= (4, 3, 0):
