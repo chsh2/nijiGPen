@@ -271,8 +271,9 @@ class LegacyPointRef:
     A stroke point reference class that presents GPv3 point attributes in GPv2 style.
     Different from the stroke reference, this one aims at being lightweight and is not hashable nor persistent
     """
-    def __init__(self, drawing, stroke_index, point_index):
+    def __init__(self, drawing, stroke_ref, stroke_index, point_index):
         self._slice = drawing.strokes[stroke_index].points[point_index]
+        self._stroke = stroke_ref
         
     def __getattr__(self, name):
         if name == 'uv_fill':
@@ -298,6 +299,8 @@ class LegacyPointRef:
             
         if name == 'co':
             self._slice.position = value
+            self._stroke._bound_box_max = None
+            self._stroke._bound_box_min = None
         elif name == 'strength':
             self._slice.opacity = value
         elif name == 'pressure':
@@ -318,7 +321,7 @@ class LegacyPointCollection:
     def __getitem__(self, key):
         if key >= len(self):
             raise IndexError()
-        return LegacyPointRef(self._drawing, self._stroke._index, key)    
+        return LegacyPointRef(self._drawing, self._stroke, self._stroke._index, key)    
     
     def __len__(self):
         self._stroke.update_index()
@@ -369,6 +372,8 @@ class LegacyPointCollection:
             self._drawing.attributes['position'].data.foreach_get('vector', full_buffer)
             full_buffer[offset*3:offset*3+len(self)*3] = buffer
             self._drawing.attributes['position'].data.foreach_set('vector', full_buffer)
+            self._stroke._bound_box_max = None
+            self._stroke._bound_box_min = None
         elif name == 'pressure':
             full_buffer = [0] * num_points
             self._drawing.attributes['radius'].data.foreach_get('value', full_buffer)
@@ -484,6 +489,8 @@ class LegacyStrokeRef:
         self._drawing = drawing
         self._hash = identifier
         self._index = initial_index
+        self._bound_box_min = None
+        self._bound_box_max = None
 
     def update_index(self):
         """Before any access, check if the stroke index has been changed. Index -1 means removal"""
@@ -511,15 +518,19 @@ class LegacyStrokeRef:
     
     @property
     def bound_box_min(self):
-        buffer = [0] * len(self.get_slice().points) * 3
-        self.points.foreach_get('co', buffer)
-        return Vector((min(buffer[::3]), min(buffer[1::3]), min(buffer[2::3])))
+        if self._bound_box_min == None:
+            buffer = [0] * len(self.get_slice().points) * 3
+            self.points.foreach_get('co', buffer)
+            self._bound_box_min = Vector((min(buffer[::3]), min(buffer[1::3]), min(buffer[2::3])))
+        return self._bound_box_min
 
     @property
     def bound_box_max(self):
-        buffer = [0] * len(self.get_slice().points) * 3
-        self.points.foreach_get('co', buffer)
-        return Vector((max(buffer[::3]), max(buffer[1::3]), max(buffer[2::3])))
+        if self._bound_box_max == None:
+            buffer = [0] * len(self.get_slice().points) * 3
+            self.points.foreach_get('co', buffer)
+            self._bound_box_max = Vector((max(buffer[::3]), max(buffer[1::3]), max(buffer[2::3])))
+        return self._bound_box_max
     
     def __eq__(self, other):
         return (self._drawing == other._drawing) and (self._hash == other._hash)
