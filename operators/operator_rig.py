@@ -341,10 +341,8 @@ class PinRigOperator(bpy.types.Operator):
                     stroke.points.weight_set(vertex_group_index=i, 
                                                     point_index=info[2], 
                                                     weight=point_weight_groups[p_idx][i])
-
+        
         # Get target layers and frames
-        bpy.ops.object.mode_set(mode='OBJECT')
-        switch_to([gp_obj])
         target_layers = get_output_layers(gp_obj, self.target_mode)
         target_layers = [gp_obj.data.layers[i] for i in target_layers]
         if not self.rig_hints and gp_obj.data.layers[self.hint_layer] in target_layers:
@@ -353,6 +351,23 @@ class PinRigOperator(bpy.types.Operator):
                                              multiframe = get_multiedit(gp_obj),
                                              layers = target_layers,
                                              return_map = True)
+        # Lock non-target layers to protect them
+        layers_lock_status = [layer.lock for layer in gp_obj.data.layers]
+        for i,layer in enumerate(gp_obj.data.layers):
+            if layer not in target_layers:
+                layer.lock = True
+
+        # Set armature relationship
+        bpy.ops.object.mode_set(mode='OBJECT')
+        switch_to([arm_obj, gp_obj])
+        bpy.ops.object.parent_set(type='ARMATURE')
+        # For GPv3, weights must be initialized by a native operator first
+        if is_gpv3():
+            for frame_number in frames_to_process:
+                context.scene.frame_set(frame_number)
+                bpy.ops.object.parent_set(type='ARMATURE_AUTO')
+        switch_to([gp_obj])
+        
         # Set weights for each frame number
         weight_helper = GPv3WeightHelper(gp_obj)
         current_frame_number = context.scene.frame_current
@@ -367,14 +382,9 @@ class PinRigOperator(bpy.types.Operator):
             weight_helper.commit()
         context.scene.frame_set(current_frame_number)
         
-        # Add modifiers
-        bpy.ops.object.mode_set(mode='OBJECT')
-        mod = get_gp_modifiers(gp_obj).new(name='nijigp_Pins', type=get_modifier_str('ARMATURE'))
-        mod.object = arm_obj
-        mod.use_vertex_groups = True
-        switch_to([arm_obj, gp_obj])
-        bpy.ops.object.parent_set(type='OBJECT')
-        switch_to([gp_obj])
+        # Recover the state
+        for i,layer in enumerate(gp_obj.data.layers):
+            layer.lock = layers_lock_status[i]
         bpy.ops.object.mode_set(mode=get_obj_mode_str('WEIGHT'))
         return {'FINISHED'}
 
@@ -504,12 +514,7 @@ class TransferWeightOperator(bpy.types.Operator):
         default=False,
         description='If not checked, generate automatic weights for the meshes first'
     )
-    adjust_parenting: bpy.props.BoolProperty(            
-        name='Adjust Parenting',
-        default=True,
-        description='Set necessary parent relationships after transferring the weights'
-    )
-
+    
     def invoke(self, context, event):
         return context.window_manager.invoke_props_dialog(self, width=500)
 
@@ -526,7 +531,6 @@ class TransferWeightOperator(bpy.types.Operator):
         layout.prop(self, "weights_exist")
         layout.prop(self, "mapping_type")
         layout.prop(self, "target_mode")
-        layout.prop(self, "adjust_parenting")
 
     def execute(self, context):
         bpy.ops.object.mode_set(mode='OBJECT')
@@ -570,7 +574,6 @@ class TransferWeightOperator(bpy.types.Operator):
         if not self.weights_exist:
             switch_to([arm] + src_objs)
             bpy.ops.object.parent_set(type='ARMATURE_AUTO')
-        switch_to([gp_obj])
 
         # Set up KDTree for vertex lookup
         num_verts = sum([len(obj.data.vertices) for obj in src_objs])
@@ -605,6 +608,22 @@ class TransferWeightOperator(bpy.types.Operator):
         frames_to_process = get_input_frames(gp_obj,
                                              multiframe = get_multiedit(gp_obj),
                                              layers = target_layers)
+        # Lock non-target layers to protect them
+        layers_lock_status = [layer.lock for layer in gp_obj.data.layers]
+        for i,layer in enumerate(gp_obj.data.layers):
+            if layer not in target_layers:
+                layer.lock = True
+                
+        # Set armature relationship
+        switch_to([arm, gp_obj])
+        bpy.ops.object.parent_set(type='ARMATURE_AUTO' if is_gpv3 else 'ARMATURE')
+        # For GPv3, weights must be initialized by a native operator first
+        if is_gpv3():
+            for frame_number in set([frame.frame_number for frame in frames_to_process]):
+                context.scene.frame_set(frame_number)
+                bpy.ops.object.parent_set(type='ARMATURE_AUTO')
+        switch_to([gp_obj])
+        
         # Transfer weights
         weight_helper = GPv3WeightHelper(gp_obj)
         current_frame_number = context.scene.frame_current
@@ -625,19 +644,9 @@ class TransferWeightOperator(bpy.types.Operator):
             weight_helper.commit()
         context.scene.frame_set(current_frame_number)
         
-        # Add a new modifier
-        mod = get_gp_modifiers(gp_obj).new(name='nijigp_FromMesh', type=get_modifier_str('ARMATURE'))
-        mod.object = arm
-        mod.use_vertex_groups = True
-        
-        if self.adjust_parenting:
-            if self.source_type == 'THIS':
-                switch_to([gp_obj]+src_objs)
-                bpy.ops.object.parent_set(type='OBJECT')
-            switch_to([arm, gp_obj])
-            bpy.ops.object.parent_set(type='OBJECT')
-            switch_to([gp_obj])
-
+        # Recover the state
+        for i,layer in enumerate(gp_obj.data.layers):
+            layer.lock = layers_lock_status[i]
         bpy.ops.object.mode_set(mode=get_obj_mode_str('WEIGHT'))
         return {'FINISHED'}
 

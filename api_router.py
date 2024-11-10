@@ -440,6 +440,7 @@ class GPv3WeightHelper:
             mod.node_group = append_geometry_nodes(bpy.context, 'NijiGP Weight Proxy')
             mod['Input_2'] = group.name
             mod['Input_3'] = proxy
+            bpy.ops.object.modifier_move_to_index(modifier=mod.name, index=0)
             bpy.ops.object.modifier_apply("EXEC_DEFAULT", modifier=mod.name)
         bpy.ops.object.mode_set(mode=current_mode)    
         self.on = True
@@ -463,6 +464,7 @@ class GPv3WeightHelper:
                 mod.node_group = append_geometry_nodes(bpy.context, 'NijiGP Weight Proxy')
                 mod['Input_2'] = proxy
                 mod['Input_3'] = group
+                bpy.ops.object.modifier_move_to_index(modifier=mod.name, index=0)
                 bpy.ops.object.modifier_apply("EXEC_DEFAULT", modifier=mod.name)
             # Remove added attributes
             for layer in self.gp_obj.data.layers:

@@ -108,19 +108,22 @@ def get_input_frames(gp_obj, multiframe=False, return_map=False, layers = None):
         if not is_layer_protected(layer):
             for j,frame in enumerate(layer.frames):
                 f_num = frame.frame_number
-                if ((multiframe and frame.select) or
-                    (not multiframe and f_num == layer_active_frames_number[i])):
-                    
-                    frames_to_process.append(frame)
-                    if f_num not in frame_number_layer_map:
-                        frame_number_layer_map[f_num] = {}
-                    frame_number_layer_map[f_num][i] = [frame , None]
-                    
-                    # Get frame number range
-                    if j != len(layer.frames)-1:
-                        frame_number_layer_map[f_num][i][1] = (f_num, layer.frames[j+1].frame_number)
-                    else:
-                        frame_number_layer_map[f_num][i][1] = (f_num, bpy.context.scene.frame_end + 1)
+                if multiframe and not frame.select:
+                    continue
+                if not multiframe and f_num != layer_active_frames_number[i]:
+                    continue
+                if len(frame.nijigp_strokes) < 1:
+                    continue
+                frames_to_process.append(frame)
+                if f_num not in frame_number_layer_map:
+                    frame_number_layer_map[f_num] = {}
+                frame_number_layer_map[f_num][i] = [frame , None]
+                
+                # Get frame number range
+                if j != len(layer.frames)-1:
+                    frame_number_layer_map[f_num][i][1] = (f_num, layer.frames[j+1].frame_number)
+                else:
+                    frame_number_layer_map[f_num][i][1] = (f_num, bpy.context.scene.frame_end + 1)
     if return_map:
         return frame_number_layer_map
     else:
