@@ -1,10 +1,11 @@
 import bpy
 import math
 import bmesh
+from mathutils import *
 from .common import *
 from ..utils import *
 from ..resources import *
-from mathutils import *
+from ..api_router import *
 
 MAX_DEPTH = 4096
 
@@ -297,8 +298,10 @@ class MeshGenerationByNormal(CommonMeshConfig, bpy.types.Operator):
         excluded_group_idx = -1
         if self.excluded_group in current_gp_obj.vertex_groups:
             excluded_group_idx = current_gp_obj.vertex_groups[self.excluded_group].index
+        weight_helper = GPv3WeightHelper(current_gp_obj)
+            
         frames_to_process = get_input_frames(current_gp_obj,
-                                             multiframe = current_gp_obj.data.use_multiedit,
+                                             multiframe = get_multiedit(current_gp_obj),
                                              return_map = True)
         
         # Process selected strokes frame by frame
@@ -307,11 +310,13 @@ class MeshGenerationByNormal(CommonMeshConfig, bpy.types.Operator):
             mask_info, mask_list = [], []
             mesh_names = []
             context.scene.frame_set(frame_number)
+            if excluded_group_idx >= 0:
+                weight_helper.setup()
             
             for layer_idx, item in layer_frame_map.items():
                 frame = item[0]
-                if hasattr(frame, "strokes"):
-                    for j,stroke in enumerate(frame.strokes):
+                if is_frame_valid(frame):
+                    for j,stroke in enumerate(frame.nijigp_strokes):
                         if stroke.select:
                             if self.ignore_mode == 'LINE' and is_stroke_line(stroke, current_gp_obj):
                                 continue
@@ -564,6 +569,8 @@ class MeshGenerationByNormal(CommonMeshConfig, bpy.types.Operator):
 
                 # Attribute interpolation based on 2D distance
                 fill_color = get_mixed_color(current_gp_obj, stroke_list[i])
+                if hasattr(stroke_list[i], 'fill_opacity'):
+                    fill_color[3] *= stroke_list[i].fill_opacity
                 maxmin_dist = 0.
                 depth_offset = np.cos(self.max_vertical_angle) / np.sqrt(1 + 
                                                                 (self.vertical_scale**2 - 1) *
@@ -669,9 +676,9 @@ class MeshGenerationByNormal(CommonMeshConfig, bpy.types.Operator):
                 new_object.data.transform(mb)
                 applied_offset = Vector(new_object.location)
                 gp_layer = current_gp_obj.data.layers[stroke_info[i][1]]
-                new_object.location = gp_layer.location
-                new_object.rotation_euler = gp_layer.rotation
-                new_object.scale = gp_layer.scale
+                new_object.location = gp_layer.matrix_layer.to_translation()
+                new_object.rotation_euler = gp_layer.matrix_layer.to_euler()
+                new_object.scale = gp_layer.matrix_layer.to_scale()
                 
                 # Assign material
                 if mesh_material:
@@ -706,12 +713,13 @@ class MeshGenerationByNormal(CommonMeshConfig, bpy.types.Operator):
             # Delete old strokes
             if not self.keep_original:
                 for info in (stroke_info + mask_info):
-                    info[3].strokes.remove(info[0])
+                    info[3].nijigp_strokes.remove(info[0])
 
             bpy.ops.object.select_all(action='DESELECT')
             current_gp_obj.select_set(True)
             context.view_layer.objects.active = current_gp_obj
-            bpy.ops.object.mode_set(mode='EDIT_GPENCIL')
+            bpy.ops.object.mode_set(mode=get_obj_mode_str('EDIT'))
+            weight_helper.commit(abort=True)
             
         bpy.ops.object.mode_set(mode='OBJECT') 
         context.scene.frame_set(current_frame_number)
@@ -855,7 +863,7 @@ class MeshGenerationByOffsetting(CommonMeshConfig, bpy.types.Operator):
         current_frame_number = context.scene.frame_current
         mesh_material = append_material(context, 'MESH', self.mesh_material, self.reuse_material, self)
         frames_to_process = get_input_frames(current_gp_obj,
-                                             multiframe = current_gp_obj.data.use_multiedit,
+                                             multiframe = get_multiedit(current_gp_obj),
                                              return_map = True)
         
         # Process selected strokes frame by frame
@@ -867,8 +875,8 @@ class MeshGenerationByOffsetting(CommonMeshConfig, bpy.types.Operator):
             
             for layer_idx, item in layer_frame_map.items():
                 frame = item[0]
-                if hasattr(frame, "strokes"):
-                    for j,stroke in enumerate(frame.strokes):
+                if is_frame_valid(frame):
+                    for j,stroke in enumerate(frame.nijigp_strokes):
                         if stroke.select:
                             if self.ignore_mode == 'LINE' and is_stroke_line(stroke, current_gp_obj):
                                 continue
@@ -959,7 +967,6 @@ class MeshGenerationByOffsetting(CommonMeshConfig, bpy.types.Operator):
                         edges_by_level[-1].append( 
                                 bm.edges.new([ bm.verts[vert_idx_list[j][k][0]], bm.verts[vert_idx_list[j][k][1] - 1] ]) 
                                 )
-
 
                     connect_edge_manually = False
                     # STEP style only: connect extruding edges
@@ -1061,9 +1068,9 @@ class MeshGenerationByOffsetting(CommonMeshConfig, bpy.types.Operator):
                 new_object.data.transform(mb)
                 applied_offset = Vector(new_object.location)
                 gp_layer = current_gp_obj.data.layers[stroke_info[i][1]]
-                new_object.location = gp_layer.location
-                new_object.rotation_euler = gp_layer.rotation
-                new_object.scale = gp_layer.scale
+                new_object.location = gp_layer.matrix_layer.to_translation()
+                new_object.rotation_euler = gp_layer.matrix_layer.to_euler()
+                new_object.scale = gp_layer.matrix_layer.to_scale()
 
                 # Assign material
                 if mesh_material:
@@ -1110,9 +1117,9 @@ class MeshGenerationByOffsetting(CommonMeshConfig, bpy.types.Operator):
             # Delete old strokes
             if not self.keep_original:
                 for info in stroke_info:
-                    info[3].strokes.remove(info[0])
+                    info[3].nijigp_strokes.remove(info[0])
             context.view_layer.objects.active = current_gp_obj
-            bpy.ops.object.mode_set(mode='EDIT_GPENCIL')
+            bpy.ops.object.mode_set(mode=get_obj_mode_str('EDIT'))
             
         bpy.ops.object.mode_set(mode='OBJECT')
         context.scene.frame_set(current_frame_number)

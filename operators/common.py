@@ -1,5 +1,6 @@
 import bpy
 from ..utils import *
+from ..api_router import *
 
 class NoiseConfig:
     """
@@ -68,7 +69,7 @@ def save_stroke_selection(gp_obj):
         select_map[layer] = {}
         for frame in layer.frames:
             select_map[layer][frame] = {}
-            for stroke in frame.strokes:
+            for stroke in frame.nijigp_strokes:
                 select_map[layer][frame][stroke] = stroke.select_index
     return select_map
 
@@ -79,7 +80,7 @@ def load_stroke_selection(gp_obj, select_map):
     for layer in gp_obj.data.layers:
         for frame in layer.frames:
             if frame in select_map[layer]:
-                for stroke in frame.strokes:
+                for stroke in frame.nijigp_strokes:
                     if stroke in select_map[layer][frame]:
                         stroke.select = (select_map[layer][frame][stroke] > 0)
                     else:
@@ -104,22 +105,25 @@ def get_input_frames(gp_obj, multiframe=False, return_map=False, layers = None):
 
     # Process every selected frame
     for i,layer in enumerate(layers_to_process):
-        if not is_layer_locked(layer):
+        if not is_layer_protected(layer):
             for j,frame in enumerate(layer.frames):
                 f_num = frame.frame_number
-                if ((multiframe and frame.select) or
-                    (not multiframe and f_num == layer_active_frames_number[i])):
-                    
-                    frames_to_process.append(frame)
-                    if f_num not in frame_number_layer_map:
-                        frame_number_layer_map[f_num] = {}
-                    frame_number_layer_map[f_num][i] = [frame , None]
-                    
-                    # Get frame number range
-                    if j != len(layer.frames)-1:
-                        frame_number_layer_map[f_num][i][1] = (f_num, layer.frames[j+1].frame_number)
-                    else:
-                        frame_number_layer_map[f_num][i][1] = (f_num, bpy.context.scene.frame_end + 1)
+                if multiframe and not frame.select:
+                    continue
+                if not multiframe and f_num != layer_active_frames_number[i]:
+                    continue
+                if len(frame.nijigp_strokes) < 1:
+                    continue
+                frames_to_process.append(frame)
+                if f_num not in frame_number_layer_map:
+                    frame_number_layer_map[f_num] = {}
+                frame_number_layer_map[f_num][i] = [frame , None]
+                
+                # Get frame number range
+                if j != len(layer.frames)-1:
+                    frame_number_layer_map[f_num][i][1] = (f_num, layer.frames[j+1].frame_number)
+                else:
+                    frame_number_layer_map[f_num][i][1] = (f_num, bpy.context.scene.frame_end + 1)
     if return_map:
         return frame_number_layer_map
     else:
@@ -130,9 +134,9 @@ def get_input_strokes(gp_obj, frame: bpy.types.GPencilFrame, select_all = False)
     Check each stroke in a frame if it belongs to the input
     """
     res = []
-    if hasattr(frame, 'strokes'):
-        for stroke in frame.strokes:
-            if not is_stroke_locked(stroke, gp_obj) and (select_all or stroke.select):
+    if is_frame_valid(frame):
+        for stroke in frame.nijigp_strokes:
+            if not is_stroke_protected(stroke, gp_obj) and (select_all or stroke.select):
                 res.append(stroke)
     return res
 
@@ -141,6 +145,9 @@ def refresh_strokes(gp_obj, frame_numbers = None):
     When generating new strokes via scripting, sometimes the strokes do not have correct bound boxes and are not displayed correctly.
     This function recalculates the geometry data
     """
+    if is_gpv3():
+        return
+    
     current_mode = bpy.context.mode
     current_frame = bpy.context.scene.frame_current
 
@@ -175,37 +182,39 @@ def copy_stroke_attributes(dst: bpy.types.GPencilStroke, srcs,
         dst.use_cyclic = src.use_cyclic
     if copy_material:
         dst.material_index = src.material_index
+    if copy_uv:
+        dst.uv_scale = src.uv_scale
         
     # Average values
-    color_fill = [.0,.0,.0,.0]
-    uv_translation = [.0,.0]
-    uv_scale, uv_rotation = .0, .0
+    color_fill = Vector([.0,.0,.0,.0])
+    uv_translation = Vector([.0,.0])
+    uv_rotation = .0
     linewidth = 0
-    hardness = 0.0
+    hardness = .0
     for src in srcs:
         if copy_hardness:
             hardness += src.hardness
         if copy_linewidth:
             linewidth += src.line_width
         if copy_uv:
-            uv_scale += src.uv_scale
             uv_rotation += src.uv_rotation
-            uv_translation[0] += src.uv_translation[0]
-            uv_translation[1] += src.uv_translation[1]
+            uv_translation += Vector(src.uv_translation)
         if copy_color:
-            for i in range(4):
-                color_fill[i] += src.vertex_color_fill[i]
+            color_fill += Vector(src.vertex_color_fill)
     n = len(srcs)
     if copy_hardness:
         dst.hardness = hardness / n
     if copy_linewidth:
         dst.line_width = int(linewidth // n)
     if copy_uv:
-        dst.uv_rotation, dst.uv_scale = uv_rotation / n, uv_scale / n
-        dst.uv_translation[0],  dst.uv_translation[1] = uv_translation[0] / n, uv_translation[1] / n
+        dst.uv_rotation = uv_rotation / n
+        dst.uv_translation = uv_translation / n
     if copy_color:
-        for i in range(4):
-            dst.vertex_color_fill[i] = color_fill[i] / n
+        dst.vertex_color_fill = color_fill / n
+    # Check this attribute separately because it exists in GPv3 only
+    fill_opacity = .0        
+    if hasattr(dst, 'fill_opacity') and copy_color:
+        dst.fill_opacity = sum([src.fill_opacity for src in srcs]) / n
     
 def smooth_stroke_attributes(stroke, smooth_level, attr_map = {'co':3, 'strength':1, 'pressure':1}):
     """

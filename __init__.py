@@ -17,7 +17,7 @@ bl_info = {
     "author" : "https://github.com/chsh2/nijiGPen",
     "description" : "A Grease Pencil toolbox for 2D graphic design and illustrations",
     "blender" : (3, 3, 0),
-    "version" : (0, 10, 2),
+    "version" : (0, 11, 0),
     "location" : "View3D > Sidebar > NijiGP, in specific modes of Grease Pencil objects",
     "doc_url": "https://chsh2.github.io/nijigp/",
     "wiki_url": "https://chsh2.github.io/nijigp/",
@@ -27,6 +27,7 @@ bl_info = {
 
 from . import auto_load
 from .ui_viewport_tools import *
+from .api_router import register_alternative_api_paths, unregister_alternative_api_paths
 
 auto_load.init()
 
@@ -66,6 +67,7 @@ def register():
                         description="Boolean operations in Draw mode apply to selected strokes only"
                         )
     register_viewport_tools()
+    register_alternative_api_paths()
     
     custom_lib_path = bpy.context.preferences.addons[__package__].preferences.custom_lib_path
     if len(custom_lib_path) > 0:
@@ -75,3 +77,4 @@ def register():
 def unregister():
     auto_load.unregister()
     unregister_viewport_tools()
+    unregister_alternative_api_paths()

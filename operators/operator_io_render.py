@@ -2,6 +2,7 @@ import os
 import bpy
 from bpy_extras.io_utils import ExportHelper
 from ..utils import *
+from ..api_router import *
 from ..resources import get_cache_folder
 from ..file_formats import PsdFileWriter, PsdLayer
 
@@ -41,9 +42,9 @@ class MultiLayerRenderOperator(bpy.types.Operator, ExportHelper):
         import numpy as np
         
         if self.render_target=='ACTIVE':
-            gp_obj_list = [context.object] if context.object.type=='GPENCIL' else []
+            gp_obj_list = [context.object] if obj_is_gp(context.object) else []
         else:
-            gp_obj_list = [obj for obj in bpy.data.objects if obj.type=='GPENCIL']
+            gp_obj_list = [obj for obj in bpy.data.objects if obj_is_gp(obj)]
         scene = context.scene
         
         def render_and_load(filepath):

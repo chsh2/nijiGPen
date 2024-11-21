@@ -3,6 +3,7 @@ import math
 import numpy as np
 from .common import *
 from ..utils import *
+from ..api_router import *
 
 def generate_stroke_from_2d(new_co_list, inv_mat, 
                             poly_list, depth_list, 
@@ -69,7 +70,7 @@ def generate_stroke_from_2d(new_co_list, inv_mat,
             index_offset = i
             
     # Create a new stroke
-    new_stroke = frame.strokes.new()
+    new_stroke = frame.nijigp_strokes.new()
     N = len(new_co_list)
     new_stroke.points.add(N)
     for i in range(N):
@@ -92,16 +93,15 @@ def generate_stroke_from_2d(new_co_list, inv_mat,
         dst_point.uv_fill = src_point.uv_fill
         dst_point.uv_rotation = src_point.uv_rotation
         dst_point.vertex_color = src_point.vertex_color
-
     # Rearrange the new stroke
-    current_index = len(frame.strokes) - 1
+    current_index = len(frame.nijigp_strokes) - 1
     new_index = current_index
     if rearrange:
         new_index = stroke_index + 1 - arrange_offset
-        bpy.ops.gpencil.select_all(action='DESELECT')
+        op_deselect()
         new_stroke.select = True
         for i in range(current_index - new_index):
-            bpy.ops.gpencil.stroke_arrange("EXEC_DEFAULT", direction='DOWN')
+            op_arrange_stroke(direction='DOWN')
 
     return new_stroke, new_index, layer_index
 
@@ -168,7 +168,7 @@ class HoleProcessingOperator(bpy.types.Operator):
             return {'FINISHED'}
         
         gp_obj: bpy.types.Object = context.object
-        frames_to_process = get_input_frames(gp_obj, gp_obj.data.use_multiedit)
+        frames_to_process = get_input_frames(gp_obj, get_multiedit(gp_obj))
         material_idx_map = {}
         def change_material(stroke):
             '''
@@ -227,7 +227,7 @@ class HoleProcessingOperator(bpy.types.Operator):
             # Iteratively process and exclude outmost strokes
             processed = set()
             while len(processed) < len(to_process):
-                bpy.ops.gpencil.select_all(action='DESELECT')
+                op_deselect()
                 idx_list = []
                 color_modified = set()
                 for i in range(len(to_process)):
@@ -242,7 +242,7 @@ class HoleProcessingOperator(bpy.types.Operator):
                         change_material(to_process[i])
                     color_modified.add(key)
                 if self.rearrange:
-                    bpy.ops.gpencil.stroke_arrange("EXEC_DEFAULT", direction='TOP')
+                    op_arrange_stroke(direction='TOP')
 
                 for color in color_modified:
                     is_hole_map[color] = not is_hole_map[color]
@@ -305,7 +305,7 @@ class OffsetSelectedOperator(bpy.types.Operator, ColorTintConfig):
         layout.label(text = "Geometry Options:")
         box1 = layout.box()
         box1.prop(self, "offset_amount", text = "Offset Amount")
-        if context.object.data.use_multiedit:
+        if get_multiedit(context.object):
             box1.prop(self, "multiframe_falloff", text = "Multiframe Falloff")
         box1.label(text = "Corner Shape")
         box1.prop(self, "corner_shape", text = "")
@@ -348,7 +348,7 @@ class OffsetSelectedOperator(bpy.types.Operator, ColorTintConfig):
         # Get a list of layers / frames to process
         current_gp_obj = context.object
         frames_to_process = get_input_frames(current_gp_obj,
-                                             multiframe = current_gp_obj.data.use_multiedit,
+                                             multiframe = get_multiedit(current_gp_obj),
                                              return_map = True)
 
         select_map = save_stroke_selection(current_gp_obj)
@@ -362,9 +362,9 @@ class OffsetSelectedOperator(bpy.types.Operator, ColorTintConfig):
             for i,item in layer_frame_map.items():
                 frame = item[0]
                 # Consider the case where active_frame is None
-                if hasattr(frame, "strokes"):
-                    for j,stroke in enumerate(frame.strokes):
-                        if stroke.select and not is_stroke_locked(stroke, current_gp_obj):
+                if is_frame_valid(frame):
+                    for j,stroke in enumerate(frame.nijigp_strokes):
+                        if stroke.select and not is_stroke_protected(stroke, current_gp_obj):
                             stroke_info.append([stroke, i, j, frame])
                             stroke_list.append(stroke)
             t_mat, inv_mat = get_transformation_mat(mode=context.scene.nijigp_working_plane,
@@ -382,7 +382,7 @@ class OffsetSelectedOperator(bpy.types.Operator, ColorTintConfig):
 
                 # Offset amount calculation
                 falloff_factor = 1
-                if current_gp_obj.data.use_multiedit:
+                if get_multiedit(current_gp_obj):
                     frame_gap = abs(context.scene.frame_current - frame_number) 
                     falloff_factor = max(0, 1 - frame_gap * self.multiframe_falloff)
 
@@ -414,7 +414,7 @@ class OffsetSelectedOperator(bpy.types.Operator, ColorTintConfig):
                                 info[2] += 1
 
                 if not self.keep_original:
-                    stroke_info[j][3].strokes.remove(stroke_list[j])
+                    stroke_info[j][3].nijigp_strokes.remove(stroke_list[j])
 
         # Post-processing: change colors
         for stroke in generated_strokes:
@@ -461,7 +461,7 @@ class FractureSelectedOperator(bpy.types.Operator):
         # Get a list of layers / frames to process
         current_gp_obj = context.object
         frames_to_process = get_input_frames(current_gp_obj,
-                                             multiframe = current_gp_obj.data.use_multiedit,
+                                             multiframe = get_multiedit(current_gp_obj),
                                              return_map = True)
 
         select_map = save_stroke_selection(current_gp_obj)
@@ -476,9 +476,9 @@ class FractureSelectedOperator(bpy.types.Operator):
             for i,item in layer_frame_map.items():
                 frame = item[0]
                 layer = current_gp_obj.data.layers[i]
-                if hasattr(frame, "strokes"):
-                    for j,stroke in enumerate(frame.strokes):
-                        if stroke.select and not is_stroke_locked(stroke, current_gp_obj):
+                if is_frame_valid(frame):
+                    for j,stroke in enumerate(frame.nijigp_strokes):
+                        if stroke.select and not is_stroke_protected(stroke, current_gp_obj):
                             stroke_info.append([stroke, i, j, frame])
                             stroke_list.append(stroke)
                             select_seq_map[len(stroke_list) - 1] = select_map[layer][frame][stroke]
@@ -557,11 +557,11 @@ class FractureSelectedOperator(bpy.types.Operator):
             # Delete old strokes
             for i,info in enumerate(stroke_info):
                 if not self.keep_original:
-                    stroke_info[i][3].strokes.remove(info[0])
+                    stroke_info[i][3].nijigp_strokes.remove(info[0])
 
         # Post-processing
         refresh_strokes(current_gp_obj, list(frames_to_process.keys()))
-        bpy.ops.gpencil.select_all(action='DESELECT')
+        op_deselect()
         for stroke in generated_strokes:
             stroke.select = True
 
@@ -656,7 +656,7 @@ class BoolSelectedOperator(bpy.types.Operator):
         # Get a list of layers / frames to process
         current_gp_obj = context.object
         frames_to_process = get_input_frames(current_gp_obj,
-                                             multiframe = current_gp_obj.data.use_multiedit,
+                                             multiframe = get_multiedit(current_gp_obj),
                                              return_map = True)
 
         select_map = save_stroke_selection(current_gp_obj)
@@ -671,9 +671,9 @@ class BoolSelectedOperator(bpy.types.Operator):
             for i,item in layer_frame_map.items():
                 frame = item[0]
                 layer = current_gp_obj.data.layers[i]
-                if hasattr(frame, "strokes"):
-                    for j,stroke in enumerate(frame.strokes):
-                        if stroke.select and not is_stroke_locked(stroke, current_gp_obj):
+                if is_frame_valid(frame):
+                    for j,stroke in enumerate(frame.nijigp_strokes):
+                        if stroke.select and not is_stroke_protected(stroke, current_gp_obj):
                             stroke_info.append([stroke, i, j, frame])
                             stroke_list.append(stroke)
                             select_seq_map[len(stroke_list) - 1] = select_map[layer][frame][stroke]
@@ -750,13 +750,13 @@ class BoolSelectedOperator(bpy.types.Operator):
             # Delete old strokes
             for i,info in enumerate(stroke_info):
                 if not self.keep_subjects and i in subject_set:
-                    stroke_info[i][3].strokes.remove(info[0])
+                    stroke_info[i][3].nijigp_strokes.remove(info[0])
                 elif not self.keep_clips and i in clip_set:
-                    stroke_info[i][3].strokes.remove(info[0])
+                    stroke_info[i][3].nijigp_strokes.remove(info[0])
 
         # Post-processing
         refresh_strokes(current_gp_obj, list(frames_to_process.keys()))
-        bpy.ops.gpencil.select_all(action='DESELECT')
+        op_deselect()
         for stroke in generated_strokes:
             stroke.select = True
 
@@ -829,21 +829,24 @@ class BoolLastOperator(bpy.types.Operator):
 
         # Search operation targets only in active layer
         current_gp_obj = context.object
-        bpy.ops.object.mode_set(mode='EDIT_GPENCIL')
-        layer_index = current_gp_obj.data.layers.active_index
+        if not current_gp_obj.data.layers.active:
+            self.report({"INFO"}, "Please select a layer.")
+            return {'FINISHED'}
+        bpy.ops.object.mode_set(mode=get_obj_mode_str('EDIT'))
+        layer_index = get_active_layer_index(current_gp_obj)
         layer = current_gp_obj.data.layers[layer_index]
 
-        if layer.lock:
+        if layer_locked(layer):
             self.report({"INFO"}, "Please select an unlocked layer.")
             bpy.ops.object.mode_set(mode='PAINT_GPENCIL')
             return {'FINISHED'}
-        if len(layer.active_frame.strokes) < 1:
+        if len(layer.active_frame.nijigp_strokes) < 1:
             self.report({"INFO"}, "Please select a non-empty layer.")
             bpy.ops.object.mode_set(mode='PAINT_GPENCIL')
             return {'FINISHED'}   
         
-        stroke_index = 0 if context.scene.tool_settings.use_gpencil_draw_onback else (len(layer.active_frame.strokes) - 1)
-        clip_stroke = layer.active_frame.strokes[stroke_index]
+        stroke_index = 0 if context.scene.tool_settings.use_gpencil_draw_onback else (len(layer.active_frame.nijigp_strokes) - 1)
+        clip_stroke = layer.active_frame.nijigp_strokes[stroke_index]
         stroke_info = [[clip_stroke, layer_index, stroke_index]]
         stroke_list = [clip_stroke]
         selection_map = []
@@ -857,7 +860,7 @@ class BoolLastOperator(bpy.types.Operator):
             clip_polys = get_2d_stroke_outline(clip_polys[0], clip_stroke, scale_factor, poly_inverted[0])
             clip_polys = [poly for poly in clip_polys if pyclipper.Area(poly) > 1]
         if len(clip_polys) < 1:
-            bpy.ops.object.mode_set(mode='PAINT_GPENCIL')
+            bpy.ops.object.mode_set(mode=get_obj_mode_str('PAINT'))
             return {'FINISHED'}
             
         clip_points = []
@@ -867,11 +870,11 @@ class BoolLastOperator(bpy.types.Operator):
                           max(clip_points, key=lambda p: p[0])[0], max(clip_points, key=lambda p: p[1])[1]]
 
         # Check each existing stroke if it can be operated
-        for j,stroke in enumerate(layer.active_frame.strokes):
+        for j,stroke in enumerate(layer.active_frame.nijigp_strokes):
             if j == stroke_index:
                 continue
             selection_map.append((stroke, stroke.select))
-            if is_stroke_locked(stroke, current_gp_obj):
+            if is_stroke_protected(stroke, current_gp_obj):
                 continue
             # Check the condition of each filter
             if context.scene.nijigp_draw_bool_material_constraint == 'SAME' and stroke.material_index != clip_stroke.material_index:
@@ -888,9 +891,9 @@ class BoolLastOperator(bpy.types.Operator):
             stroke_info.append([stroke, layer_index, j])
 
         if len(stroke_list) == 1:
-            bpy.ops.object.mode_set(mode='PAINT_GPENCIL')
+            bpy.ops.object.mode_set(mode=get_obj_mode_str('PAINT'))
             return {'FINISHED'}
-        bpy.ops.gpencil.select_all(action='DESELECT')
+        op_deselect()
         
         # Use two transform matrices: 
         #   - The first is based on the newly drawn stroke for viewport projection
@@ -947,10 +950,10 @@ class BoolLastOperator(bpy.types.Operator):
             if (i==0 and self.keep_clips) or (i>0 and self.keep_subjects):
                 continue
             layer_index = info[1]
-            current_gp_obj.data.layers[layer_index].active_frame.strokes.remove(info[0])
+            current_gp_obj.data.layers[layer_index].active_frame.nijigp_strokes.remove(info[0])
 
         refresh_strokes(current_gp_obj)
-        bpy.ops.object.mode_set(mode='PAINT_GPENCIL')
+        bpy.ops.object.mode_set(mode=get_obj_mode_str('PAINT'))
         return {'FINISHED'}
     
 class SweepSelectedOperator(bpy.types.Operator, ColorTintConfig):
@@ -1002,7 +1005,7 @@ class SweepSelectedOperator(bpy.types.Operator, ColorTintConfig):
         box1.prop(self, "path_type")
         if self.path_type == 'VEC':
             box1.prop(self, "path_vector")
-        if context.object.data.use_multiedit:
+        if get_multiedit(context.object):
             box1.prop(self, "multiframe_falloff")
         box1.prop(self, "invert_holdout")
         box1.prop(self, "keep_original")
@@ -1031,7 +1034,7 @@ class SweepSelectedOperator(bpy.types.Operator, ColorTintConfig):
         # Get a list of layers / frames to process
         current_gp_obj = context.object
         frames_to_process = get_input_frames(current_gp_obj,
-                                             multiframe = current_gp_obj.data.use_multiedit,
+                                             multiframe = get_multiedit(current_gp_obj),
                                              return_map = True)
 
         select_map = save_stroke_selection(current_gp_obj)
@@ -1046,9 +1049,9 @@ class SweepSelectedOperator(bpy.types.Operator, ColorTintConfig):
             for i,item in layer_frame_map.items():
                 frame = item[0]
                 layer = current_gp_obj.data.layers[i]
-                if hasattr(frame, "strokes"):
-                    for j,stroke in enumerate(frame.strokes):
-                        if stroke.select and not is_stroke_locked(stroke, current_gp_obj):
+                if is_frame_valid(frame):
+                    for j,stroke in enumerate(frame.nijigp_strokes):
+                        if stroke.select and not is_stroke_protected(stroke, current_gp_obj):
                             stroke_info.append([stroke, i, j, frame])
                             stroke_list.append(stroke)
                             select_seq_map[len(stroke_list) - 1] = select_map[layer][frame][stroke]
@@ -1065,7 +1068,7 @@ class SweepSelectedOperator(bpy.types.Operator, ColorTintConfig):
 
             # Multi-frame falloff factor
             falloff_factor = 1
-            if current_gp_obj.data.use_multiedit:
+            if get_multiedit(current_gp_obj):
                 frame_gap = abs(context.scene.frame_current - frame_number) 
                 falloff_factor = max(0, 1 - frame_gap * self.multiframe_falloff)
 
@@ -1151,7 +1154,7 @@ class SweepSelectedOperator(bpy.types.Operator, ColorTintConfig):
                             info[2] += 1      
 
                 if not self.keep_original:
-                    stroke_info[j][3].strokes.remove(stroke_list[j])            
+                    stroke_info[j][3].nijigp_strokes.remove(stroke_list[j])            
 
         # Post-processing: change colors
         for stroke in generated_strokes:

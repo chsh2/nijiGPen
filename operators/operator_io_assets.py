@@ -6,6 +6,7 @@ from mathutils import Color
 from ..file_formats import GbrParser, Abr1Parser, Abr6Parser, BrushsetParser, SutParser, PaletteParser
 from ..resources import get_cache_folder
 from ..utils import *
+from ..api_router import *
 
 class ImportBrushOperator(bpy.types.Operator, ImportHelper):
     """Extract textures of brushes exported from painting software and append them to the current file"""
@@ -61,7 +62,7 @@ class ImportBrushOperator(bpy.types.Operator, ImportHelper):
     template_brush: bpy.props.StringProperty(
             name='Template Brush',
             description='When creating new brushes, copy attributes from the selected brush',
-            default='Airbrush',
+            default='',
             search=lambda self, context, edit_text: [brush.name for brush in bpy.data.brushes if brush.use_paint_grease_pencil and brush.gpencil_tool=='DRAW']
     )
     uv_randomness: bpy.props.FloatProperty(
@@ -248,7 +249,11 @@ class ImportBrushOperator(bpy.types.Operator, ImportHelper):
                 
                 # Create GPencil draw brush
                 if self.texture_usage == 'BRUSH':
-                    new_brush: bpy.types.Brush = bpy.data.brushes[self.template_brush].copy()
+                    template_brush_name = self.template_brush
+                    if self.template_brush != '':
+                        new_brush = bpy.data.brushes[template_brush_name].copy()
+                    else:
+                        new_brush = new_gp_brush(brush_name)
                     new_brush.name = brush_name
                     new_brush.use_custom_icon = True
                     new_brush.gpencil_settings.use_material_pin = True
@@ -270,6 +275,11 @@ class ImportBrushOperator(bpy.types.Operator, ImportHelper):
                     icon_obj.save()
                     new_brush.icon_filepath = icon_filepath
                     bpy.data.images.remove(icon_obj)
+                    
+                    # Set asset information, necessary for Blender 4.3+
+                    new_brush.asset_generate_preview()
+                    new_brush.asset_mark()
+                    new_brush.asset_data.description = f'Original brush file: {f.name}'
                     
                 # Override parameters by parsing original Procreate brush data
                 if self.convert_orig_params and isinstance(parser, BrushsetParser) and orig_params:
@@ -475,31 +485,37 @@ class AppendSVGOperator(bpy.types.Operator, ImportHelper):
         current_gp_obj = context.object
         current_material_idx = context.object.active_material_index
         current_frame_number = context.scene.frame_current
-        use_multiedit = current_gp_obj.data.use_multiedit
+        use_multiedit = get_multiedit(current_gp_obj)
         t_mat, inv_mat = get_transformation_mat(mode=context.scene.nijigp_working_plane, gp_obj=current_gp_obj)
+        # Use point selection mode to ensure Bezier handlers to be selected
+        if is_gpv3():
+            bpy.ops.grease_pencil.set_selection_mode(mode='POINT')
 
         frame_number = current_frame_number
-        current_gp_obj.data.use_multiedit = self.image_sequence
+        set_multiedit(current_gp_obj, False)
+        target_layer = None
         multiframe_svg_name = None
         for f in self.files:
+            # Determine the destination layer and frame to paste strokes
+            if target_layer == None or not self.image_sequence:
+                target_layer = current_gp_obj.data.layers.new(f.name)
+            target_frame = target_layer.frames.new(frame_number)
+            
             filename = os.path.join(self.directory, f.name)
             if not multiframe_svg_name:
                 multiframe_svg_name = f.name
             
             # Call the native SVG import operator
             bpy.ops.object.mode_set(mode='OBJECT')
-            if bpy.app.version > (3, 3, 0):
-                bpy.ops.wm.gpencil_import_svg("EXEC_DEFAULT", filepath=filename, directory=self.directory, files=[{"name":f.name}], resolution=self.svg_resolution, scale=self.svg_scale)
-            else:
-                bpy.ops.wm.gpencil_import_svg("EXEC_DEFAULT", filepath=filename, resolution=self.svg_resolution, scale = self.svg_scale)
+            op_import_svg(filename, self.directory, [{"name":f.name}], self.svg_resolution, self.svg_scale)
+
             new_gp_obj: bpy.types.Object = context.object
             if new_gp_obj == current_gp_obj or len(new_gp_obj.data.layers) < 1:
                 self.report({"ERROR"}, "No data can be imported. Import failed.")
                 return {'FINISHED'}            
 
-            # Merge layers and materials
-            bpy.ops.gpencil.layer_merge(mode='ALL')
-            new_gp_obj.data.layers[0].info = f.name
+            # Reassign materials and copy all strokes
+            op_layer_merge(mode='ALL')
             mat_name_prefix = 'SVG' if self.reuse_materials else \
                               multiframe_svg_name if self.image_sequence else f.name
             for slot in new_gp_obj.material_slots:
@@ -514,53 +530,64 @@ class AppendSVGOperator(bpy.types.Operator, ImportHelper):
                 if mat_name in bpy.data.materials:
                     slot.material = bpy.data.materials[mat_name]
                 else:
-                    slot.material.name = mat_name            
+                    slot.material.name = mat_name
+            bpy.ops.object.mode_set(mode=get_obj_mode_str('EDIT'))
+            op_select_all()
+            op_copy_strokes()
+
+            # Paste all strokes to the existing GP object
+            bpy.ops.object.mode_set(mode='OBJECT')
+            bpy.ops.object.select_all(action='DESELECT')
+            context.view_layer.objects.active = current_gp_obj
+            bpy.ops.object.mode_set(mode=get_obj_mode_str('EDIT'))
+            op_paste_strokes()
             
-            # Move all strokes to the existing GP object and delete the new object
-            current_gp_obj.select_set(True)
-            bpy.ops.gpencil.layer_duplicate_object(mode='ALL', only_active=False)
+            # Delete the new object
+            bpy.ops.object.mode_set(mode='OBJECT')
             bpy.ops.object.select_all(action='DESELECT')
             new_gp_obj.select_set(True)
             bpy.ops.object.delete()
-            context.view_layer.objects.active = current_gp_obj
-            bpy.ops.object.mode_set(mode='EDIT_GPENCIL')
-            bpy.ops.gpencil.select_all(action='DESELECT')
+            
+            # Go back to the existing GP object
+            bpy.ops.object.mode_set(mode='OBJECT')
+            bpy.ops.object.select_all(action='DESELECT')
             current_gp_obj.select_set(True)
+            context.view_layer.objects.active = current_gp_obj
+            bpy.ops.object.mode_set(mode=get_obj_mode_str('EDIT'))
+            op_deselect()
             
             # Transform the figure to the working 2D plane
             # Default plane is X-Z for imported SVG. Convert it to X-Y first
+            # TODO: transform point handles for GPv3 Bezier curves
             z_to_y_mat = Matrix([(1,0,0), (0,0,1), (0,1,0)])
-            for stroke in context.object.data.layers[0].active_frame.strokes:
-                for point in stroke.points:
-                    point.co = inv_mat @ z_to_y_mat @ point.co
-                        
+            if not is_gpv3():
+                for stroke in context.object.data.layers.active.active_frame.nijigp_strokes:
+                    for point in stroke.points:
+                        point.co = inv_mat @ z_to_y_mat @ point.co
+                                                
             # Set animation data
             if self.image_sequence:
                 frame_number += self.frame_step
-                current_gp_obj.data.layers[0].frames.new(frame_number)
                 context.scene.frame_set(frame_number)
-
-        # Merge layers of different frames
-        if self.image_sequence:
-            current_gp_obj.data.layers.active_index = len(self.files) - 1
-            for i in range(len(self.files) - 1):
-                bpy.ops.gpencil.layer_merge(mode='ACTIVE')
-            current_gp_obj.data.layers[0].info = multiframe_svg_name
         
         # Select imported strokes
         for i in range(len(self.files)):
             if self.image_sequence and i > 0:
                 break
-            for frame in context.object.data.layers[i].frames:
-                for stroke in frame.strokes:
+            for frame in context.object.data.layers[-i-1].frames:
+                for stroke in frame.nijigp_strokes:
                     stroke.select = True
+                if is_gpv3():
+                    context.scene.frame_set(frame.frame_number)
+                    bpy.ops.grease_pencil.select_linked()
         
         if self.auto_holdout:
+            set_multiedit(current_gp_obj, self.image_sequence)
             bpy.ops.gpencil.nijigp_hole_processing(rearrange=True, separate_colors=True)
         
         # Recover the state
         context.object.active_material_index = current_material_idx
         context.scene.frame_set(current_frame_number)
-        current_gp_obj.data.use_multiedit = use_multiedit
+        set_multiedit(current_gp_obj, use_multiedit)
 
         return {'FINISHED'}

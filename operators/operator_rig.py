@@ -3,6 +3,7 @@ import math
 from mathutils import *
 from .common import *
 from ..utils import *
+from ..api_router import *
 
 def switch_to(objs):
     """Rig operations need frequent object re-selections"""
@@ -46,13 +47,13 @@ class VertexGroupClearOperator(bpy.types.Operator):
         # Check each modifier
         if self.remove_modifiers:
             mods_to_remove = []
-            for mod in context.object.grease_pencil_modifiers:
-                if mod.type == 'GP_ARMATURE':
+            for mod in get_gp_modifiers(context.object):
+                if mod.type == get_modifier_str('ARMATURE'):
                     mods_to_remove.append(mod)
                 elif hasattr(mod, 'vertex_group') and len(mod.vertex_group) > 0:
                     mods_to_remove.append(mod)
             for mod in mods_to_remove:
-                context.object.grease_pencil_modifiers.remove(mod)
+                get_gp_modifiers(context.object).remove(mod)
 
         return {'FINISHED'}
 
@@ -166,9 +167,9 @@ class PinRigOperator(bpy.types.Operator):
         
         # Get frame and transform from the hint layer
         hint_frame = gp_obj.data.layers[self.hint_layer].active_frame
-        num_pins = len(hint_frame.strokes)
+        num_pins = len(hint_frame.nijigp_strokes)
         t_mat, _ = get_transformation_mat(mode=context.scene.nijigp_working_plane,
-                                                gp_obj=gp_obj, strokes=hint_frame.strokes, operator=self)
+                                                gp_obj=gp_obj, strokes=hint_frame.nijigp_strokes, operator=self)
         # Generate an armature
         arm_data = bpy.data.armatures.new(gp_obj.name + '_pins')
         arm_obj = bpy.data.objects.new(arm_data.name, arm_data)
@@ -181,7 +182,7 @@ class PinRigOperator(bpy.types.Operator):
         bone_centers = []
         bone_radiuses =[]
         for i in range(num_pins):
-            hint_stroke = hint_frame.strokes[i]
+            hint_stroke = hint_frame.nijigp_strokes[i]
             if self.hint_shape == 'STICK':
                 tail_pos:Vector = hint_stroke.points[0].co
                 head_pos:Vector = hint_stroke.points[-1].co
@@ -215,13 +216,13 @@ class PinRigOperator(bpy.types.Operator):
                         min_dist = (arm_data.edit_bones[i].head - arm_data.edit_bones[j].tail).length
                         bone.parent = bones[j]
         if self.hint_shape == 'LASSO':
-            lasso_polys, _, scale_factor = get_2d_co_from_strokes(hint_frame.strokes, t_mat, scale=True)
+            lasso_polys, _, scale_factor = get_2d_co_from_strokes(hint_frame.nijigp_strokes, t_mat, scale=True)
 
         # Set vertex groups
         gp_group_indices = []
         for i in range(num_pins):
             for group in gp_obj.vertex_groups:
-                if group.name == bones[i].name:
+                if group.name == arm_data.edit_bones[i].name:
                     gp_group_indices.append(group.index)
                     break
             else:
@@ -340,33 +341,51 @@ class PinRigOperator(bpy.types.Operator):
                     stroke.points.weight_set(vertex_group_index=i, 
                                                     point_index=info[2], 
                                                     weight=point_weight_groups[p_idx][i])
-
+        
         # Get target layers and frames
-        bpy.ops.object.mode_set(mode='OBJECT')
         target_layers = get_output_layers(gp_obj, self.target_mode)
         target_layers = [gp_obj.data.layers[i] for i in target_layers]
         if not self.rig_hints and gp_obj.data.layers[self.hint_layer] in target_layers:
             target_layers.remove(gp_obj.data.layers[self.hint_layer])
         frames_to_process = get_input_frames(gp_obj,
-                                             multiframe = gp_obj.data.use_multiedit,
+                                             multiframe = get_multiedit(gp_obj),
                                              layers = target_layers,
                                              return_map = True)
+        # Lock non-target layers to protect them
+        layers_lock_status = [layer.lock for layer in gp_obj.data.layers]
+        for i,layer in enumerate(gp_obj.data.layers):
+            if layer not in target_layers:
+                layer.lock = True
+
+        # Set armature relationship
+        bpy.ops.object.mode_set(mode='OBJECT')
+        switch_to([arm_obj, gp_obj])
+        bpy.ops.object.parent_set(type='ARMATURE')
+        # For GPv3, weights must be initialized by a native operator first
+        if is_gpv3():
+            for frame_number in frames_to_process:
+                context.scene.frame_set(frame_number)
+                bpy.ops.object.parent_set(type='ARMATURE_AUTO')
+        switch_to([gp_obj])
+        
         # Set weights for each frame number
+        weight_helper = GPv3WeightHelper(gp_obj)
+        current_frame_number = context.scene.frame_current
         for frame_number, layer_frame_map in frames_to_process.items():
+            context.scene.frame_set(frame_number)
             strokes_to_process = []
             for i,item in layer_frame_map.items():
                 frame = item[0]
-                strokes_to_process += list(frame.strokes)
+                strokes_to_process += list(frame.nijigp_strokes)
+            weight_helper.setup()
             set_weights(strokes_to_process)
+            weight_helper.commit()
+        context.scene.frame_set(current_frame_number)
         
-        # Add modifiers
-        mod = gp_obj.grease_pencil_modifiers.new(name='nijigp_Pins', type='GP_ARMATURE')
-        mod.object = arm_obj
-        mod.use_vertex_groups = True
-        switch_to([arm_obj, gp_obj])
-        bpy.ops.object.parent_set(type='OBJECT')
-        switch_to([gp_obj])
-        bpy.ops.object.mode_set(mode='WEIGHT_GPENCIL')
+        # Recover the state
+        for i,layer in enumerate(gp_obj.data.layers):
+            layer.lock = layers_lock_status[i]
+        bpy.ops.object.mode_set(mode=get_obj_mode_str('WEIGHT'))
         return {'FINISHED'}
 
 class MeshFromArmOperator(bpy.types.Operator):
@@ -396,7 +415,7 @@ class MeshFromArmOperator(bpy.types.Operator):
         if self.source_arm not in bpy.context.scene.objects:
             return {'FINISHED'}
         gp_obj: bpy.types.Object = context.object
-        current_mode = context.mode
+        current_mode = gp_obj.mode
         gp_obj_inv_mat = gp_obj.matrix_world.inverted_safe()
         t_mat, _ = get_transformation_mat(mode=context.scene.nijigp_working_plane,
                                                 gp_obj=gp_obj, operator=self)
@@ -404,39 +423,40 @@ class MeshFromArmOperator(bpy.types.Operator):
 
         # Generate temporary layers for fills and hints
         fill_layer = gp_obj.data.layers.new("tmp_fill", set_active=False)
-        fill_frame = fill_layer.frames.new(context.scene.frame_current, active=True)
+        fill_frame = new_active_frame(fill_layer.frames, context.scene.frame_current)
         hint_layer = gp_obj.data.layers.new("tmp_hint", set_active=False)
-        hint_frame = hint_layer.frames.new(context.scene.frame_current, active=True)
+        hint_frame = new_active_frame(hint_layer.frames, context.scene.frame_current)
 
         # Convert bones to hint strokes
         arm_trans = gp_obj_inv_mat @ arm.matrix_world
         for bone in arm.data.bones:
             head:Vector = arm_trans @ bone.head_local
             tail:Vector = arm_trans @ bone.tail_local
-            stroke = hint_frame.strokes.new()
+            stroke = hint_frame.nijigp_strokes.new()
             stroke.points.add(self.resolution)
             for i in range(self.resolution):
                 factor = i / (self.resolution - 1.0)
                 stroke.points[i].co = head * (1 - factor) + tail * factor
-        bpy.ops.object.mode_set(mode='EDIT_GPENCIL')
-        bpy.ops.gpencil.select_all(action='SELECT')
-        bpy.ops.gpencil.recalc_geometry()
+        bpy.ops.object.mode_set(mode=get_obj_mode_str('EDIT'))
+        op_select_all()
+        if not is_gpv3():
+            bpy.ops.gpencil.recalc_geometry()
 
         # Generate fills and meshes using other operators
-        multiframe = gp_obj.data.use_multiedit
-        gp_obj.data.use_multiedit = False
+        multiframe = get_multiedit(gp_obj)
+        set_multiedit(gp_obj, False)
         bpy.ops.gpencil.nijigp_smart_fill(line_layer = gp_obj.data.layers.active.info,
                                           hint_layer = hint_layer.info,
                                           fill_layer = fill_layer.info,
                                           precision = 0.05,
                                           material_mode = 'HINT')
-        bpy.ops.gpencil.select_all(action='DESELECT')
-        for stroke in fill_frame.strokes:
+        op_deselect()
+        for stroke in fill_frame.nijigp_strokes:
             stroke.select = True
         bpy.ops.gpencil.nijigp_mesh_generation_normal(use_native_triangulation = True,
                                                       resolution = self.resolution * 2)
         # Cleanup temporary layers
-        gp_obj.data.use_multiedit = multiframe
+        set_multiedit(gp_obj, multiframe)
         gp_obj.data.layers.remove(fill_layer)
         gp_obj.data.layers.remove(hint_layer)
         bpy.ops.object.mode_set(mode=current_mode)
@@ -494,12 +514,7 @@ class TransferWeightOperator(bpy.types.Operator):
         default=False,
         description='If not checked, generate automatic weights for the meshes first'
     )
-    adjust_parenting: bpy.props.BoolProperty(            
-        name='Adjust Parenting',
-        default=True,
-        description='Set necessary parent relationships after transferring the weights'
-    )
-
+    
     def invoke(self, context, event):
         return context.window_manager.invoke_props_dialog(self, width=500)
 
@@ -516,7 +531,6 @@ class TransferWeightOperator(bpy.types.Operator):
         layout.prop(self, "weights_exist")
         layout.prop(self, "mapping_type")
         layout.prop(self, "target_mode")
-        layout.prop(self, "adjust_parenting")
 
     def execute(self, context):
         bpy.ops.object.mode_set(mode='OBJECT')
@@ -538,11 +552,11 @@ class TransferWeightOperator(bpy.types.Operator):
 
         # Remove conflicting modifiers
         mods_to_remove = []
-        for mod in gp_obj.grease_pencil_modifiers:
-            if mod.type == 'GP_ARMATURE' and mod.object == arm:
+        for mod in get_gp_modifiers(gp_obj):
+            if mod.type == get_modifier_str('ARMATURE') and mod.object == arm:
                 mods_to_remove.append(mod)
         for mod in mods_to_remove:
-            gp_obj.grease_pencil_modifiers.remove(mod)        
+            get_gp_modifiers(gp_obj).remove(mod)        
                 
         # Get all source objects
         if self.source_type == 'THIS':
@@ -560,7 +574,6 @@ class TransferWeightOperator(bpy.types.Operator):
         if not self.weights_exist:
             switch_to([arm] + src_objs)
             bpy.ops.object.parent_set(type='ARMATURE_AUTO')
-        switch_to([gp_obj])
 
         # Set up KDTree for vertex lookup
         num_verts = sum([len(obj.data.vertices) for obj in src_objs])
@@ -593,11 +606,31 @@ class TransferWeightOperator(bpy.types.Operator):
         target_layers = get_output_layers(gp_obj, self.target_mode)
         target_layers = [gp_obj.data.layers[i] for i in target_layers]
         frames_to_process = get_input_frames(gp_obj,
-                                             multiframe = gp_obj.data.use_multiedit,
+                                             multiframe = get_multiedit(gp_obj),
                                              layers = target_layers)
+        # Lock non-target layers to protect them
+        layers_lock_status = [layer.lock for layer in gp_obj.data.layers]
+        for i,layer in enumerate(gp_obj.data.layers):
+            if layer not in target_layers:
+                layer.lock = True
+                
+        # Set armature relationship
+        switch_to([arm, gp_obj])
+        bpy.ops.object.parent_set(type='ARMATURE_AUTO' if is_gpv3 else 'ARMATURE')
+        # For GPv3, weights must be initialized by a native operator first
+        if is_gpv3():
+            for frame_number in set([frame.frame_number for frame in frames_to_process]):
+                context.scene.frame_set(frame_number)
+                bpy.ops.object.parent_set(type='ARMATURE_AUTO')
+        switch_to([gp_obj])
+        
         # Transfer weights
+        weight_helper = GPv3WeightHelper(gp_obj)
+        current_frame_number = context.scene.frame_current
         for frame in frames_to_process:
-            for stroke in frame.strokes:
+            context.scene.frame_set(frame.frame_number)
+            weight_helper.setup()
+            for stroke in frame.nijigp_strokes:
                 for i,p in enumerate(stroke.points):
                     key = xy0(t_mat @ p.co) if self.mapping_type == '2D' else p.co
                     _,idx,_ = kdt.find(key)
@@ -608,21 +641,13 @@ class TransferWeightOperator(bpy.types.Operator):
                             stroke.points.weight_set(vertex_group_index=gp_group_map[name], 
                                                      point_index=i, 
                                                      weight=group.weight)
+            weight_helper.commit()
+        context.scene.frame_set(current_frame_number)
         
-        # Add a new modifier
-        mod = gp_obj.grease_pencil_modifiers.new(name='nijigp_FromMesh', type='GP_ARMATURE')
-        mod.object = arm
-        mod.use_vertex_groups = True
-
-        if self.adjust_parenting:
-            if self.source_type == 'THIS':
-                switch_to([gp_obj]+src_objs)
-                bpy.ops.object.parent_set(type='OBJECT')
-            switch_to([arm, gp_obj])
-            bpy.ops.object.parent_set(type='OBJECT')
-            switch_to([gp_obj])
-
-        bpy.ops.object.mode_set(mode='WEIGHT_GPENCIL')
+        # Recover the state
+        for i,layer in enumerate(gp_obj.data.layers):
+            layer.lock = layers_lock_status[i]
+        bpy.ops.object.mode_set(mode=get_obj_mode_str('WEIGHT'))
         return {'FINISHED'}
 
 class BakeRiggingOperator(bpy.types.Operator):
@@ -714,13 +739,12 @@ class BakeRiggingOperator(bpy.types.Operator):
                 if frame_number in layer_get_keyframe[i]:
                     last_frame = layer_get_keyframe[i][frame_number]
                 elif last_frame != None and is_target_frame_number(frame_number):
-                    layer_get_keyframe[i][frame_number] = layer.frames.copy(last_frame)
-                    layer_get_keyframe[i][frame_number].frame_number = frame_number
+                    layer_get_keyframe[i][frame_number] = copy_frame(layer.frames, last_frame, frame_number)
 
         # Get all armature modifiers
         target_modifiers = []
-        for mod in gp_obj.grease_pencil_modifiers:
-            if mod.type == 'GP_ARMATURE' and mod.object:
+        for mod in get_gp_modifiers(gp_obj):
+            if mod.type == get_modifier_str('ARMATURE') and mod.object:
                 target_modifiers.append(mod.name)
                 
         # Process by frame number
@@ -733,14 +757,14 @@ class BakeRiggingOperator(bpy.types.Operator):
             dup_gp_obj = bpy.context.object
             new_coordinates = {}    # 4D list: layer->stroke->point->xyz
             for mod_name in target_modifiers:
-                bpy.ops.object.gpencil_modifier_apply(modifier=mod_name)
+                op_modifier_apply(mod_name)
             for i in target_layers:
                 layer = dup_gp_obj.data.layers[i]
                 new_coordinates[i] = []
                 if frame_number not in layer_get_ref_keyframe_idx[i]:
                     continue
                 frame = layer.frames[layer_get_ref_keyframe_idx[i][frame_number]]
-                for stroke in frame.strokes:
+                for stroke in frame.nijigp_strokes:
                     new_coordinates[i].append([])
                     for point in stroke.points:
                         new_coordinates[i][-1].append(tuple(point.co))
@@ -754,15 +778,15 @@ class BakeRiggingOperator(bpy.types.Operator):
                 if frame_number not in layer_get_keyframe[i]:
                     continue
                 frame = layer_get_keyframe[i][frame_number]
-                for j,stroke in enumerate(frame.strokes):
+                for j,stroke in enumerate(frame.nijigp_strokes):
                     for k,point in enumerate(stroke.points):
                         point.co = new_coordinates[i][j][k]
         # Cleanup
         bpy.ops.object.delete(use_global=True)
         switch_to([gp_obj])
         for mod_name in target_modifiers:
-            bpy.ops.object.gpencil_modifier_remove(modifier=mod_name)
+            op_modifier_remove(mod_name)
         if self.clear_parents:
             bpy.ops.object.parent_clear(type='CLEAR')
-        bpy.ops.object.mode_set(mode='EDIT_GPENCIL')
+        bpy.ops.object.mode_set(mode=get_obj_mode_str('EDIT'))
         return {'FINISHED'}

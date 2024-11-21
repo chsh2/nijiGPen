@@ -2,6 +2,7 @@ import math
 import bpy
 import numpy as np
 from mathutils import *
+from .api_router import *
 
 SCALE_CONSTANT = 8192
 LINE_WIDTH_FACTOR = 2000.0
@@ -240,7 +241,7 @@ def get_2d_stroke_outline(path_2d, stroke, scale_factor = 1, path_inverted = Fal
     clipper.PreserveCollinear = True
     clipper.StrictlySimple = True
 
-    radius_profile = [p.pressure * stroke.line_width / LINE_WIDTH_FACTOR * scale_factor for p in stroke.points]
+    radius_profile = [get_point_radius(p, stroke.line_width) * scale_factor for p in stroke.points]
     length_from_start = [0 for _ in range(len(stroke.points))]
     forwarding_normals = [None for _ in range(len(stroke.points) - 1)]
 
@@ -314,7 +315,7 @@ def is_stroke_fill(stroke, gp_obj):
         return False
     return not material.grease_pencil.show_stroke
 
-def is_stroke_locked(stroke, gp_obj):
+def is_stroke_protected(stroke, gp_obj):
     """
     Check if a stroke has the material that is being locked or invisible
     """
@@ -334,11 +335,11 @@ def is_stroke_hole(stroke, gp_obj):
         return False
     return material.grease_pencil.use_fill_holdout
 
-def is_layer_locked(layer: bpy.types.GPencilLayer):
+def is_layer_protected(layer: bpy.types.GPencilLayer):
     """
     Check if a layer should be edited
     """
-    return layer.lock or layer.hide
+    return layer_locked(layer) or layer_hidden(layer)
 
 def get_stroke_length(stroke: bpy.types.GPencilStroke = None, co_list = None):
     """Calculate the total length of a stroke"""
@@ -391,6 +392,10 @@ def get_transformation_mat(mode='VIEW', gp_obj=None, strokes=[], operator=None):
     Get the transformation matrix and its inverse matrix given a 2D working plane.
     The x and y values of transformed coordinates will be used for 2D operators.
     """
+    if not gp_obj.data.layers.active:
+        operator.report({"WARNING"}, "Please select a layer.")
+        raise Exception("Please select a Grease Pencil layer to perform the operation.")
+
     presets = {'X-Z': Matrix([[1,0,0],
                               [0,0,1],
                               [0,-1,0]]),
@@ -400,7 +405,7 @@ def get_transformation_mat(mode='VIEW', gp_obj=None, strokes=[], operator=None):
                'X-Y': Matrix([[1,0,0],
                               [0,1,0],
                               [0,0,1]])}
-    
+      
     view_matrix = bpy.context.space_data.region_3d.view_matrix.to_3x3()
     if gp_obj:
         obj_rotation = gp_obj.matrix_world.to_3x3().normalized()

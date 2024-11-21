@@ -2,6 +2,7 @@ import bpy
 import numpy as np
 from .common import *
 from ..utils import *
+from ..api_router import *
 
 def generate_shading_stroke(co_list, inv_mat, scale_factor, gp_obj, ref_stroke_info, ref_kdtree: DepthLookupTree):
     """
@@ -14,10 +15,10 @@ def generate_shading_stroke(co_list, inv_mat, scale_factor, gp_obj, ref_stroke_i
     if len(ref_stroke_info) > 3:
         frame = ref_stroke_info[3]
     # Create a stroke
-    new_stroke = frame.strokes.new()
+    new_stroke = frame.nijigp_strokes.new()
     copy_stroke_attributes(new_stroke, [ref_stroke],
                            copy_hardness=True, copy_linewidth=True,
-                           copy_cap=True, copy_cyclic=True,
+                           copy_cap=True, copy_cyclic=False,
                            copy_uv=True, copy_material=True, copy_color=True)
     # Create stroke points
     terminator_points = []
@@ -28,7 +29,7 @@ def generate_shading_stroke(co_list, inv_mat, scale_factor, gp_obj, ref_stroke_i
         _, ref_i, dist = ref_kdtree.get_info(co_2d)
         new_stroke.points[i].co = restore_3d_co(co_2d, ref_kdtree.get_depth(co_2d), inv_mat, scale_factor)
         if dist > 2:
-            terminator_points.append(new_stroke.points[i])
+            terminator_points.append((new_stroke, i))
         new_stroke.points[i].pressure = ref_stroke.points[ref_i].pressure
         new_stroke.points[i].strength = ref_stroke.points[ref_i].strength
         new_stroke.points[i].uv_factor = ref_stroke.points[ref_i].uv_factor
@@ -36,12 +37,12 @@ def generate_shading_stroke(co_list, inv_mat, scale_factor, gp_obj, ref_stroke_i
         new_stroke.points[i].uv_rotation = ref_stroke.points[ref_i].uv_rotation
         new_stroke.points[i].vertex_color = ref_stroke.points[ref_i].vertex_color
     # Rearrange the new stroke
-    current_index = len(frame.strokes) - 1
+    current_index = len(frame.nijigp_strokes) - 1
     new_index = stroke_index + 1
-    bpy.ops.gpencil.select_all(action='DESELECT')
+    op_deselect()
     new_stroke.select = True
     for i in range(current_index - new_index):
-        bpy.ops.gpencil.stroke_arrange("EXEC_DEFAULT", direction='DOWN')
+        op_arrange_stroke(direction='DOWN')
         
     return new_stroke, new_index, layer_index, terminator_points
         
@@ -244,7 +245,7 @@ class ShadeSelectedOperator(bpy.types.Operator):
 
         # Get a list of layers / frames to process
         frames_to_process = get_input_frames(current_gp_obj,
-                                             multiframe = current_gp_obj.data.use_multiedit,
+                                             multiframe = get_multiedit(current_gp_obj),
                                              return_map = True)
 
         select_map = save_stroke_selection(current_gp_obj)
@@ -264,12 +265,12 @@ class ShadeSelectedOperator(bpy.types.Operator):
             for i,item in layer_frame_map.items():
                 frame = item[0]
                 layer = current_gp_obj.data.layers[i]
-                if hasattr(frame, "strokes"):
-                    for j,stroke in enumerate(frame.strokes):
+                if is_frame_valid(frame):
+                    for j,stroke in enumerate(frame.nijigp_strokes):
                         if ((self.ignore_mode == 'LINE' and is_stroke_line(stroke, current_gp_obj)) or
                             (self.ignore_mode == 'OPEN' and is_stroke_line(stroke, current_gp_obj) and not stroke.use_cyclic)):
                             continue
-                        if stroke.select and not is_stroke_locked(stroke, current_gp_obj):
+                        if stroke.select and not is_stroke_protected(stroke, current_gp_obj):
                             stroke_info.append([stroke, i, j, frame])
                             stroke_list.append(stroke)
                             
@@ -343,7 +344,6 @@ class ShadeSelectedOperator(bpy.types.Operator):
                                                         stroke_info[i], ref_kdtree)
                         generated_rim_strokes.append(new_stroke)
                         rim_terminator_points += new_terminator_points
-                        new_stroke.use_cyclic = True
                         if rim_material_idx >= 0:
                             new_stroke.material_index = rim_material_idx
                         # Update the stroke index
@@ -431,7 +431,6 @@ class ShadeSelectedOperator(bpy.types.Operator):
                                                                     stroke_info[i], ref_kdtree)
                                 generated_shadow_strokes_multilevel[shadow_level].append(new_stroke)
                                 shadow_terminator_points += new_terminator_points
-                                new_stroke.use_cyclic = True
                                 if shadow_material_idx >= 0:
                                     new_stroke.material_index = shadow_material_idx
                                 # Update the stroke index
@@ -440,31 +439,35 @@ class ShadeSelectedOperator(bpy.types.Operator):
                                         info[2] += 1            
                                                                         
             # Single-frame post-processing
-            bpy.ops.gpencil.select_all(action='DESELECT')
-            for point in rim_terminator_points + shadow_terminator_points:
-                point.select = True
-            bpy.ops.gpencil.stroke_smooth(repeat=self.smooth_repeat)
+            context.scene.tool_settings.gpencil_selectmode_edit = 'POINT'
+            op_deselect()
+            for stroke,index in rim_terminator_points + shadow_terminator_points:
+                stroke.points[index].select = True
+            op_stroke_smooth(repeat=self.smooth_repeat)
+            context.scene.tool_settings.gpencil_selectmode_edit = 'STROKE'
                                 
         # Overall post-processing
         bpy.context.scene.frame_set(current_frame)
         # Rim strokes
-        bpy.ops.gpencil.select_all(action='DESELECT')
+        op_deselect()
         for stroke in generated_rim_strokes:
             stroke.select = True
+            stroke.use_cyclic = True
         bpy.ops.gpencil.nijigp_color_tint(tint_color=self.rim_tint_config.tint_color,
                                         tint_color_factor=self.rim_tint_config.tint_color_factor,
                                         tint_mode='FILL', blend_mode=self.rim_tint_config.blend_mode)
         # Shadow strokes
         num_levels = len(generated_shadow_strokes_multilevel)
         for shadow_level, generated_shadow_strokes in enumerate(generated_shadow_strokes_multilevel):
-            bpy.ops.gpencil.select_all(action='DESELECT')
+            op_deselect()
             for stroke in generated_shadow_strokes:
                 stroke.select = True
+                stroke.use_cyclic = True
             bpy.ops.gpencil.nijigp_color_tint(tint_color=self.shadow_tint_config.tint_color,
                                             tint_color_factor=self.shadow_tint_config.tint_color_factor * (num_levels - shadow_level) / num_levels,
                                             tint_mode='FILL', blend_mode=self.shadow_tint_config.blend_mode)
         # All strokes
-        bpy.ops.gpencil.select_all(action='DESELECT')
+        op_deselect()
         for stroke in generated_rim_strokes + sum(generated_shadow_strokes_multilevel, []):
             stroke.select = True        
         refresh_strokes(current_gp_obj, list(frames_to_process.keys()))

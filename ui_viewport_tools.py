@@ -5,6 +5,7 @@ from gpu_extras.batch import batch_for_shader
 from mathutils import *
 from .utils import *
 from .resources import *
+from .api_router import *
 from .operators.common import ColorTintConfig, refresh_strokes, smooth_stroke_attributes
 from .operators.operator_fill import lineart_triangulation
 
@@ -27,10 +28,7 @@ def draw_button(x, y, width, height, color, text):
     # Draw text
     font_id = 0
     blf.color(font_id, 1, 1, 1, 1)
-    if bpy.app.version > (3, 6, 0):
-        blf.size(font_id, height * 0.8)
-    else:
-        blf.size(font_id, height * 0.8, 72)
+    blf_set_size(blf, font_id, height * 0.8)
     blf.position(font_id, x + height * 0.1, y + height * 0.1, 0)
     blf.draw(font_id, text)
 
@@ -80,7 +78,7 @@ class BooleanModalOperator(bpy.types.Operator):
         context.active_object.data.materials.append(mat)
         
         frame = context.active_object.data.layers.active.active_frame
-        stroke = frame.strokes.new()
+        stroke = frame.nijigp_strokes.new()
         stroke.line_width = context.scene.tool_settings.gpencil_paint.brush.size
         stroke.material_index = len(context.active_object.data.materials) - 1
         stroke.start_cap_mode = 'FLAT' if self.caps_type == 'FLAT' else 'ROUND'
@@ -92,10 +90,11 @@ class BooleanModalOperator(bpy.types.Operator):
         if context.scene.tool_settings.gpencil_stroke_placement_view3d == 'CURSOR':
             origin = context.scene.cursor.location
         self._raw_pressure.append(event.pressure if self.use_pressure else 1)
-        self._stroke.points.add(1, pressure=self._raw_pressure[-1])
+        self._stroke.points.add(1)
         self._stroke.points[-1].co = self._t_world @ view3d_utils.region_2d_to_location_3d(context.region,
                                     context.space_data.region_3d,
                                     (event.mouse_region_x, event.mouse_region_y), origin)
+        set_point_radius(self._stroke.points[-1], self._raw_pressure[-1])
         # For taper mode, reshape the whole stroke 
         if self.caps_type == 'TAPER' and len(self._stroke.points) > 1:
             seg_length = (self._stroke.points[-1].co - self._stroke.points[-2].co).length
@@ -104,8 +103,8 @@ class BooleanModalOperator(bpy.types.Operator):
             factor = 0
             for i,point in enumerate(self._stroke.points):
                 factor += self._segments_length[i]
-                point.pressure = self._raw_pressure[i] * (factor/self._total_length) * (1-factor/self._total_length) * 4
-                point.pressure = max(point.pressure, 1e-3)
+                adjusted_pressure = self._raw_pressure[i] * (factor/self._total_length) * (1-factor/self._total_length) * 4
+                set_point_radius(point, max(adjusted_pressure, 1e-3))
 
     def boolean_eraser_finalize(self, context):
         # Execute Draw mode Boolean operator
@@ -120,8 +119,8 @@ class BooleanModalOperator(bpy.types.Operator):
             )
         # If the newly drawn stroke still exist, remove it
         frame = context.active_object.data.layers.active.active_frame
-        if self._stroke == frame.strokes[-1]:
-            frame.strokes.remove(self._stroke)
+        if self._stroke == frame.nijigp_strokes[-1]:
+            frame.nijigp_strokes.remove(self._stroke)
         # Purge the temporary preview material
         mat = bpy.data.materials['nijigp_Boolean_Eraser_Preview']
         context.active_object.data.materials.pop()
@@ -146,10 +145,13 @@ class BooleanModalOperator(bpy.types.Operator):
         except:
             self.report({"ERROR"}, "Please install PyClipper in the Preferences panel.")
             return {'FINISHED'}
-        if is_layer_locked(context.object.data.layers.active):
+        if not context.object.data.layers.active:
+            self.report({"INFO"}, "Please select a layer.")
+            return {'FINISHED'}
+        if is_layer_protected(context.object.data.layers.active):
             self.report({"ERROR"}, "Active layer is locked or hidden.")
             return {'FINISHED'}
-        
+                
         self._onback = context.scene.tool_settings.use_gpencil_draw_onback
         self._show_in_front = context.object.show_in_front
         self._stroke = None
@@ -157,7 +159,7 @@ class BooleanModalOperator(bpy.types.Operator):
         self._segments_length = [0]
         self._total_length = 0
         self._last_x, self._last_y = -1, -1
-        self._t_world = context.object.data.layers.active.matrix_inverse_layer @ context.object.matrix_world.inverted_safe()
+        self._t_world = context.object.data.layers.active.matrix_layer.inverted_safe() @ context.object.matrix_world.inverted_safe()
         context.scene.tool_settings.use_gpencil_draw_onback = False
         context.object.show_in_front = True
         self.boolean_eraser_setup(context)
@@ -192,9 +194,10 @@ class SmartFillModalOperator(bpy.types.Operator):
             default=True,
             description='If disabled, ignore all previously generated fills when painting a new one'
     )
-    _confirm_button = (150, 50)
-    _cancel_button = (350, 50)
-    _button_size = (150, 40)
+    _hint_text_position = [150, 100 + get_viewport_bottom_offset() * 1.25]
+    _confirm_button = [150, 50 + get_viewport_bottom_offset() * 1.25]
+    _cancel_button = [350, 50 + get_viewport_bottom_offset() * 1.25]
+    _button_size = [150, 40]
     
     def smart_fill_setup(self):
         # Get line art strokes. Skip the whole operation if cannot find a proper frame
@@ -204,7 +207,7 @@ class SmartFillModalOperator(bpy.types.Operator):
             line_art_layer = gp_obj.data.layers[self.line_layer]
         if not line_art_layer.active_frame:
             return 1
-        if len(line_art_layer.active_frame.strokes) < 1:
+        if len(line_art_layer.active_frame.nijigp_strokes) < 1:
             return 1
         # Get or create an output frame from active layer
         fill_layer = gp_obj.data.layers.active
@@ -213,9 +216,9 @@ class SmartFillModalOperator(bpy.types.Operator):
             self.output_frame = fill_layer.frames.new(bpy.context.scene.frame_current)
 
         # Process line art as solver input
-        stroke_list = [stroke for stroke in line_art_layer.active_frame.strokes]
+        stroke_list = [stroke for stroke in line_art_layer.active_frame.nijigp_strokes]
         if self.incremental and line_art_layer.active_frame != self.output_frame:
-            stroke_list += [stroke for stroke in self.output_frame.strokes]
+            stroke_list += [stroke for stroke in self.output_frame.nijigp_strokes]
         self.t_mat, _ = get_transformation_mat(mode='VIEW',
                                                 gp_obj=gp_obj, strokes=stroke_list, operator=self)
         poly_list, depth_list, self.scale_factor = get_2d_co_from_strokes(stroke_list, self.t_mat, scale=True)
@@ -258,7 +261,7 @@ class SmartFillModalOperator(bpy.types.Operator):
             if label < 1:
                 continue
             for c in contours:
-                new_stroke: bpy.types.GPencilStroke = self.output_frame.strokes.new()
+                new_stroke: bpy.types.GPencilStroke = self.output_frame.nijigp_strokes.new()
                 new_stroke.line_width = gp_settings.brush.size
                 new_stroke.use_cyclic = True
                 new_stroke.material_index = bpy.context.object.active_material_index
@@ -267,6 +270,7 @@ class SmartFillModalOperator(bpy.types.Operator):
                 new_stroke.points.add(len(c))
                 for i,co in enumerate(c):
                     new_stroke.points[i].co = restore_3d_co(co, self.depth_lookup_tree.get_depth(co), inv_mat, self.scale_factor)
+                    set_point_radius(new_stroke.points[i], 1)
                     if gp_settings.color_mode == 'VERTEXCOLOR':
                         new_stroke.points[i].vertex_color = [srgb_to_linear(color) for color in gp_settings.brush.color] + [1]
                 self.generated_strokes.append(new_stroke)
@@ -276,18 +280,18 @@ class SmartFillModalOperator(bpy.types.Operator):
         if not self.output_frame:
             return 1
         for stroke in self.generated_strokes:
-            self.output_frame.strokes.remove(stroke)
+            self.output_frame.nijigp_strokes.remove(stroke)
         self.generated_strokes = []
 
     def smart_fill_finalize(self):
         """Post-processing."""
-        bpy.ops.object.mode_set(mode='EDIT_GPENCIL')
-        bpy.ops.gpencil.select_all(action='DESELECT')
+        bpy.ops.object.mode_set(mode=get_obj_mode_str('EDIT'))
+        op_deselect()
         for stroke in self.generated_strokes:
             stroke.select = True
         if bpy.context.scene.tool_settings.use_gpencil_draw_onback:
-            bpy.ops.gpencil.stroke_arrange(direction='BOTTOM')
-        bpy.ops.object.mode_set(mode='PAINT_GPENCIL')
+            op_arrange_stroke(direction='BOTTOM')
+        bpy.ops.object.mode_set(mode=get_obj_mode_str('PAINT'))
     
     def draw_callback_px(self, op, context):
         preferences = context.preferences.addons[__package__].preferences     
@@ -297,20 +301,16 @@ class SmartFillModalOperator(bpy.types.Operator):
                       f"Confirm - <Enter> / <{preferences.tool_shortcut_confirm.title()}>",
                       f"Cancel - <ESC> / <{preferences.tool_shortcut_cancel.title()}>",
                       "------"]
-        hint_text_position = [150, 100]
         font_id = 0
         font_size = 18
         line_height = 22
 
         # Draw hint texts in a box on the screen
-        draw_button(hint_text_position[0], hint_text_position[1], 350, line_height * len(hint_texts), (.95, .95, .95, 1), '')
+        draw_button(self._hint_text_position[0], self._hint_text_position[1], 350, line_height * len(hint_texts), (.95, .95, .95, 1), '')
         blf.color(font_id, 0.1, 0.1, 0.1, 1)
-        if bpy.app.version > (3, 6, 0):
-            blf.size(font_id, font_size)
-        else:
-            blf.size(font_id, font_size, 72)
+        blf_set_size(blf, font_id, font_size)
         for i,text in enumerate(reversed(hint_texts)):
-            blf.position(font_id, hint_text_position[0], hint_text_position[1] + line_height * i, 0)
+            blf.position(font_id, self._hint_text_position[0], self._hint_text_position[1] + line_height * i, 0)
             blf.draw(font_id, text)
             
         # Draw hint points according to user clicks
@@ -368,11 +368,11 @@ class SmartFillModalOperator(bpy.types.Operator):
         except:
             self.report({"ERROR"}, "Please install Scikit-Image in the Preferences panel.")
             return {'FINISHED'}
-        if is_layer_locked(context.object.data.layers.active):
+        if is_layer_protected(context.object.data.layers.active):
             self.report({"ERROR"}, "Active layer is locked or hidden.")
             return {'FINISHED'}
 
-        self._t_world = context.object.data.layers.active.matrix_inverse_layer @ context.object.matrix_world.inverted_safe()
+        self._t_world = context.object.data.layers.active.matrix_layer.inverted_safe() @ context.object.matrix_world.inverted_safe()
         self._show_in_front = context.object.show_in_front
         context.object.show_in_front = True
 
@@ -436,8 +436,8 @@ class SweepModalOperator(bpy.types.Operator, ColorTintConfig):
         elif event.type == 'LEFTMOUSE':
             # Fall back to the select operation if mouse is never moved
             if not self.mouse_moved:
-                bpy.ops.gpencil.select(location=(event.mouse_region_x, event.mouse_region_y),
-                                       extend=(self.style=='OUTER'))
+                op_select(location=(event.mouse_region_x, event.mouse_region_y),
+                            extend=(self.style=='OUTER'))
             context.area.header_text_set(None)
             return {'FINISHED'}
         
@@ -504,8 +504,8 @@ class OffsetModalOperator(bpy.types.Operator):
         elif event.type == 'LEFTMOUSE':
             # Fall back to the select operation if mouse is never moved
             if not self.mouse_moved:
-                bpy.ops.gpencil.select(location=(event.mouse_region_x, event.mouse_region_y),
-                                       extend=(self.end_type_mode=='ET_OPEN'))
+                op_select(location=(event.mouse_region_x, event.mouse_region_y),
+                            extend=(self.end_type_mode=='ET_OPEN'))
             context.area.header_text_set(None)
             return {'FINISHED'}
         
@@ -611,13 +611,13 @@ class ArrangeModalOperator(bpy.types.Operator):
         """
         Show the order of the active layer&frame by number
         """
-        if context.object and context.object.type=='GPENCIL':
+        if context.object and obj_is_gp(context.object):
             layers = context.object.data.layers
             if layers.active and not layers.active.hide and layers.active.active_frame:
-                strokes = layers.active.active_frame.strokes
-                if len(strokes)<self.max_display:
+                strokes = layers.active.active_frame.nijigp_strokes
+                if len(strokes) < self.max_display:
                     for i,stroke in enumerate(strokes):
-                        if len(stroke.points)>0:
+                        if len(stroke.points) > 0:
                             # Render the number text on each stroke
                             # Mark the starting point for open stroke and center for closed/fill stroke
                             if is_stroke_line(stroke, context.object) and not stroke.use_cyclic:
@@ -627,19 +627,14 @@ class ArrangeModalOperator(bpy.types.Operator):
                             else:
                                 view_co = view3d_utils.location_3d_to_region_2d(context.region, 
                                                                                 context.space_data.region_3d, 
-                                                                                (stroke.bound_box_min+stroke.bound_box_max)*0.5)                                
+                                                                                (stroke.points[0].co + stroke.points[len(stroke.points)//3].co + stroke.points[len(stroke.points)*2//3].co) / 3)                                
                             if stroke.select:
                                 blf.color(self.font_id, 1, 0.5, 0.5, 1)
                             else:
                                 blf.color(self.font_id, 0, 0, 0, 1)
                             blf.enable(self.font_id, blf.SHADOW)
                             blf.shadow(self.font_id, 3, 0.8, 0.8, 0.8, 0.95)
-                            # The third parameter became optional since Blender 3.4,
-                            # and was deprecated in Blender 4.0
-                            if bpy.app.version > (3, 6, 0):
-                                blf.size(self.font_id, 36 if stroke.select else 24)
-                            else:
-                                blf.size(self.font_id, 36 if stroke.select else 24, 72)
+                            blf_set_size(blf, self.font_id, 36 if stroke.select else 24)
                             blf.position(self.font_id, view_co[0], view_co[1], 0)
                             blf.draw(self.font_id, str(i))
 
@@ -650,10 +645,10 @@ class ArrangeModalOperator(bpy.types.Operator):
             delta = round((event.mouse_x - self.starting_mouse_x) * self.moving_rate)
             if delta > self.arrange_offset:
                 for i in range(delta-self.arrange_offset):
-                    bpy.ops.gpencil.stroke_arrange(direction='UP')
+                    op_arrange_stroke('UP')
             elif delta < self.arrange_offset:
                 for i in range(self.arrange_offset-delta):
-                    bpy.ops.gpencil.stroke_arrange(direction='DOWN')
+                    op_arrange_stroke('DOWN')
             self.arrange_offset = delta 
             context.area.header_text_set('Arrangement Offset: {:d}'.format(self.arrange_offset))
         elif event.type == 'LEFTMOUSE':
@@ -679,7 +674,7 @@ class ArrangeModalOperator(bpy.types.Operator):
 
 class BooleanEraserTool(bpy.types.WorkSpaceTool):
     bl_space_type = 'VIEW_3D'
-    bl_context_mode = 'PAINT_GPENCIL'
+    bl_context_mode = get_ctx_mode_str('PAINT')
     bl_idname = "nijigp.boolean_eraser_tool"
     bl_label = "Boolean Eraser"
     bl_description = (
@@ -701,7 +696,7 @@ class BooleanEraserTool(bpy.types.WorkSpaceTool):
         
         # Brush setting panel imitating the native style
         row = layout.row(align=True)
-        row.popover(panel="TOPBAR_PT_gpencil_materials", text=active_material_name)
+        row.popover(panel=get_panel_str('TOPBAR_PT', 'materials'), text=active_material_name)
         row = layout.row(align=True)
         row.prop(gp_settings.brush, "size", text="Radius")
         row.prop(props, "use_pressure", text="", icon='STYLUS_PRESSURE')
@@ -716,7 +711,7 @@ class BooleanEraserTool(bpy.types.WorkSpaceTool):
 
 class SmartFillTool(bpy.types.WorkSpaceTool):
     bl_space_type = 'VIEW_3D'
-    bl_context_mode = 'PAINT_GPENCIL'
+    bl_context_mode = get_ctx_mode_str('PAINT')
     bl_idname = "nijigp.smart_fill_tool"
     bl_label = "Interactive Smart Fill"
     bl_description = (
@@ -735,7 +730,7 @@ class SmartFillTool(bpy.types.WorkSpaceTool):
         
         # Color/material setting panel imitating the native style
         row = layout.row(align=True)
-        row.popover(panel="TOPBAR_PT_gpencil_materials", text=active_material_name)
+        row.popover(panel=get_panel_str('TOPBAR_PT', 'materials'), text=active_material_name)
         row = layout.row(align=True)
         row.separator(factor=1.0)
         sub_row = row.row(align=True)
@@ -743,7 +738,7 @@ class SmartFillTool(bpy.types.WorkSpaceTool):
         sub_row.prop_enum(gp_settings, "color_mode", 'VERTEXCOLOR', text="", icon='VPAINT_HLT')
         sub_row = row.row(align=True)
         sub_row.enabled = gp_settings.color_mode == 'VERTEXCOLOR'
-        sub_row.prop_with_popover(gp_settings.brush, "color", text="", panel="TOPBAR_PT_gpencil_vertexcolor")
+        sub_row.prop_with_popover(gp_settings.brush, "color", text="", panel=get_panel_str('TOPBAR_PT', 'vertexcolor'))
         
         # Other attributes
         layout.prop(props, "line_layer")
@@ -753,7 +748,7 @@ class SmartFillTool(bpy.types.WorkSpaceTool):
 
 class OffsetTool(bpy.types.WorkSpaceTool):
     bl_space_type = 'VIEW_3D'
-    bl_context_mode = 'EDIT_GPENCIL'
+    bl_context_mode = get_ctx_mode_str('EDIT')
 
     bl_idname = "nijigp.offset_tool"
     bl_label = "2D Offset"
@@ -779,7 +774,7 @@ class OffsetTool(bpy.types.WorkSpaceTool):
 
 class SweepTool(bpy.types.WorkSpaceTool):
     bl_space_type = 'VIEW_3D'
-    bl_context_mode = 'EDIT_GPENCIL'
+    bl_context_mode = get_ctx_mode_str('EDIT')
 
     bl_idname = "nijigp.sweep_tool"
     bl_label = "2D Sweep"
@@ -815,7 +810,7 @@ class ViewportShortcuts(bpy.types.GizmoGroup):
 
     @classmethod
     def poll(cls, context):
-        return (context.mode=='EDIT_GPENCIL' or context.mode=='PAINT_GPENCIL' or context.mode=='SCULPT_GPENCIL')
+        return (context.mode==get_ctx_mode_str('EDIT') or context.mode==get_ctx_mode_str('PAINT') or context.mode==get_ctx_mode_str('SCULPT'))
 
     def draw_prepare(self, context):
         preferences = context.preferences.addons[__package__].preferences
@@ -830,7 +825,7 @@ class ViewportShortcuts(bpy.types.GizmoGroup):
                     gizmo.matrix_basis[0][3] = (region.width/2 + total_width/2
                                                 - self.button_size*spacing*(i+1) * context.preferences.view.ui_scale
                                                 + preferences.shortcut_button_location[0])
-                    gizmo.matrix_basis[1][3] = self.button_size*2 + preferences.shortcut_button_location[1]
+                    gizmo.matrix_basis[1][3] = self.button_size*2 + preferences.shortcut_button_location[1] + get_viewport_bottom_offset()
                 elif preferences.shortcut_button_style == 'TOP':
                     gizmo.matrix_basis[0][3] = (region.width/2 + total_width/2
                                                 - self.button_size*spacing*(i+1) * context.preferences.view.ui_scale
@@ -854,9 +849,9 @@ class ViewportShortcuts(bpy.types.GizmoGroup):
                                None,
                                {'op': 'gpencil.nijigp_roll_view_modal', 'icon': 'FILE_REFRESH'},
                                None,
-                               {'op': 'gpencil.stroke_arrange', 'icon': 'TRIA_UP_BAR', 'direction': 'TOP'},
+                               {'op': get_ops_str('gpencil.stroke_arrange'), 'icon': 'TRIA_UP_BAR', 'direction': 'TOP'},
                                {'op': 'gpencil.nijigp_arrange_modal' ,'icon': 'MOD_DISPLACE'},
-                               {'op': 'gpencil.stroke_arrange', 'icon': 'TRIA_DOWN_BAR', 'direction': 'BOTTOM'}
+                               {'op': get_ops_str('gpencil.stroke_arrange'), 'icon': 'TRIA_DOWN_BAR', 'direction': 'BOTTOM'}
                                ]
         self.button_size = preferences.shortcut_button_size 
         for profile in self.button_profile_list:
@@ -889,7 +884,7 @@ class RefreshGizmoOperator(bpy.types.Operator):
 
 def register_viewport_tools():
     # Edit mode tools
-    bpy.utils.register_tool(OffsetTool, after={"builtin.transform_fill"}, separator=True, group=True)
+    bpy.utils.register_tool(OffsetTool, after={"builtin.transform_fill", "builtin.texture_gradient"}, separator=True, group=True)
     bpy.utils.register_tool(SweepTool, after={OffsetTool.bl_idname})
     # Draw mode tools
     bpy.utils.register_tool(SmartFillTool, after={"builtin.circle"}, separator=True, group=True)
