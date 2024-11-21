@@ -60,6 +60,14 @@ def get_viewport_bottom_offset():
 
 
 #region [Wrapped APIs]
+def blf_set_size(obj, fontid, size, resolution=72):
+    # The third parameter became optional since Blender 3.4,
+    # and was deprecated in Blender 4.0
+    if bpy.app.version > (3, 6, 0):
+        obj.size(fontid, size)
+    else:
+        obj.size(fontid, size, resolution)
+    
 def is_gpv3():
     return bpy.app.version >= (4, 3, 0)
     

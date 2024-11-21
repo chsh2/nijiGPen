@@ -28,10 +28,7 @@ def draw_button(x, y, width, height, color, text):
     # Draw text
     font_id = 0
     blf.color(font_id, 1, 1, 1, 1)
-    if bpy.app.version > (3, 6, 0):
-        blf.size(font_id, height * 0.8)
-    else:
-        blf.size(font_id, height * 0.8, 72)
+    blf_set_size(blf, font_id, height * 0.8)
     blf.position(font_id, x + height * 0.1, y + height * 0.1, 0)
     blf.draw(font_id, text)
 
@@ -197,9 +194,9 @@ class SmartFillModalOperator(bpy.types.Operator):
             default=True,
             description='If disabled, ignore all previously generated fills when painting a new one'
     )
-    _hint_text_position = [150, 100 + get_viewport_bottom_offset()]
-    _confirm_button = [150, 50 + get_viewport_bottom_offset()]
-    _cancel_button = [350, 50 + get_viewport_bottom_offset()]
+    _hint_text_position = [150, 100 + get_viewport_bottom_offset() * 1.25]
+    _confirm_button = [150, 50 + get_viewport_bottom_offset() * 1.25]
+    _cancel_button = [350, 50 + get_viewport_bottom_offset() * 1.25]
     _button_size = [150, 40]
     
     def smart_fill_setup(self):
@@ -311,10 +308,7 @@ class SmartFillModalOperator(bpy.types.Operator):
         # Draw hint texts in a box on the screen
         draw_button(self._hint_text_position[0], self._hint_text_position[1], 350, line_height * len(hint_texts), (.95, .95, .95, 1), '')
         blf.color(font_id, 0.1, 0.1, 0.1, 1)
-        if bpy.app.version > (3, 6, 0):
-            blf.size(font_id, font_size)
-        else:
-            blf.size(font_id, font_size, 72)
+        blf_set_size(blf, font_id, font_size)
         for i,text in enumerate(reversed(hint_texts)):
             blf.position(font_id, self._hint_text_position[0], self._hint_text_position[1] + line_height * i, 0)
             blf.draw(font_id, text)
@@ -640,12 +634,7 @@ class ArrangeModalOperator(bpy.types.Operator):
                                 blf.color(self.font_id, 0, 0, 0, 1)
                             blf.enable(self.font_id, blf.SHADOW)
                             blf.shadow(self.font_id, 3, 0.8, 0.8, 0.8, 0.95)
-                            # The third parameter became optional since Blender 3.4,
-                            # and was deprecated in Blender 4.0
-                            if bpy.app.version > (3, 6, 0):
-                                blf.size(self.font_id, 36 if stroke.select else 24)
-                            else:
-                                blf.size(self.font_id, 36 if stroke.select else 24, 72)
+                            blf_set_size(blf, self.font_id, 36 if stroke.select else 24)
                             blf.position(self.font_id, view_co[0], view_co[1], 0)
                             blf.draw(self.font_id, str(i))
 

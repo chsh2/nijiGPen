@@ -392,6 +392,10 @@ def get_transformation_mat(mode='VIEW', gp_obj=None, strokes=[], operator=None):
     Get the transformation matrix and its inverse matrix given a 2D working plane.
     The x and y values of transformed coordinates will be used for 2D operators.
     """
+    if not gp_obj.data.layers.active:
+        operator.report({"WARNING"}, "Please select a layer.")
+        raise Exception("Please select a Grease Pencil layer to perform the operation.")
+
     presets = {'X-Z': Matrix([[1,0,0],
                               [0,0,1],
                               [0,-1,0]]),
@@ -401,7 +405,7 @@ def get_transformation_mat(mode='VIEW', gp_obj=None, strokes=[], operator=None):
                'X-Y': Matrix([[1,0,0],
                               [0,1,0],
                               [0,0,1]])}
-    
+      
     view_matrix = bpy.context.space_data.region_3d.view_matrix.to_3x3()
     if gp_obj:
         obj_rotation = gp_obj.matrix_world.to_3x3().normalized()
