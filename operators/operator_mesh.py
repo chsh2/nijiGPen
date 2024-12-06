@@ -1027,6 +1027,8 @@ class MeshGenerationByOffsetting(CommonMeshConfig, bpy.types.Operator):
 
                 # Set vertex attributes
                 fill_color = get_mixed_color(current_gp_obj, stroke_list[i])
+                if hasattr(stroke_list[i], 'fill_opacity'):
+                    fill_color[3] *= stroke_list[i].fill_opacity
                 for v in bm.verts:
                     v[vertex_color_layer] = fill_color
                     v[vertex_start_frame_layer] = frame_range[0]
