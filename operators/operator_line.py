@@ -14,7 +14,7 @@ def stroke_to_kdtree(co_list):
     kdt.balance()
     return kdt
 
-def fit_2d_strokes(fitter, strokes, frame_number=-1, search_radius=0, pressure_delta=0, resample=None, t_mat=[]):
+def fit_2d_strokes(fitter, strokes, frame_number=-1, ignore_transparent=False, search_radius=0, pressure_delta=0, resample=None, t_mat=[]):
     '''
     Fit points from multiple strokes to a single curve, by executing the following operations:
         1. Delaunay triangulation
@@ -52,6 +52,8 @@ def fit_2d_strokes(fitter, strokes, frame_number=-1, search_radius=0, pressure_d
         if len(stroke.points)<2:
             continue
         for j,point in enumerate(stroke.points):
+            if ignore_transparent and point.strength < 1e-3:
+                continue
             if (poly_list[i][j][0],poly_list[i][j][1]) not in co_set:
                 co_set.add((poly_list[i][j][0],poly_list[i][j][1]))
                 kdt.insert( xy0(poly_list[i][j]), kdt_idx)
@@ -67,6 +69,8 @@ def fit_2d_strokes(fitter, strokes, frame_number=-1, search_radius=0, pressure_d
                 kdt_depth_list.append(depth_list[i][j])
                 tr_input['vertices'].append(poly_list[i][j])                    
     kdt.balance()
+    if len(kdt_point_list)<3:
+        return 1
 
     # Triangulation and spanning tree conversion
     tr_output = {}
@@ -216,6 +220,11 @@ class CommonFittingConfig:
             default=False,
             description='Treat selected strokes as a closed shape'
     )
+    ignore_transparent: bpy.props.BoolProperty(
+            name='Ignore Transparent',
+            default=False,
+            description='Do not fit points with zero opacity'
+    )
     pressure_variance: bpy.props.FloatProperty(
             name='Pressure Accumulation',
             description='Increase the point radius at positions where lines are repeatedly drawn',
@@ -297,6 +306,7 @@ class FitSelectedOperator(CommonFittingConfig, bpy.types.Operator):
         box1 = layout.box()
         box1.prop(self, "line_sampling_size")
         box1.prop(self, "closed")
+        box1.prop(self, "ignore_transparent")
         if get_multiedit(context.active_object):
             box1.prop(self, "is_sequence")
             if self.is_sequence:
@@ -359,6 +369,7 @@ class FitSelectedOperator(CommonFittingConfig, bpy.types.Operator):
             err = fit_2d_strokes(fitter, stroke_frame_map[frame_number], 
                                     frame_number = frame_number,
                                     search_radius=self.line_sampling_size/LINE_WIDTH_FACTOR, 
+                                    ignore_transparent=self.ignore_transparent,
                                     pressure_delta=self.pressure_variance*0.01, 
                                     resample=resample_length,
                                     t_mat=t_mat)
@@ -583,6 +594,7 @@ class ClusterAndFitOperator(CommonFittingConfig, bpy.types.Operator):
         box1 = layout.box()
         box1.prop(self, "line_sampling_size")
         box1.prop(self, "closed")
+        box1.prop(self, "ignore_transparent")
         if get_multiedit(context.active_object):
             box1.prop(self, "is_sequence")
             if self.is_sequence:
@@ -707,6 +719,7 @@ class ClusterAndFitOperator(CommonFittingConfig, bpy.types.Operator):
                                             closed = self.closed,
                                             is_sequence = self.is_sequence,
                                             frame_step = self.frame_step,
+                                            ignore_transparent = self.ignore_transparent,
                                             pressure_variance = self.pressure_variance,
                                             max_delta_pressure = self.max_delta_pressure,
                                             line_width = self.line_width,
@@ -777,6 +790,7 @@ class FitLastOperator(CommonFittingConfig, bpy.types.Operator):
         else:
             box1.prop(self, "cluster_ratio")
         box1.prop(self, "line_sampling_size")
+        box1.prop(self, "ignore_transparent")
         
         layout.label(text = "Post-Processing Options:")
         box2 = layout.box()
@@ -856,6 +870,7 @@ class FitLastOperator(CommonFittingConfig, bpy.types.Operator):
         resample_length = self.resample_length if self.resample else None
         err = fit_2d_strokes(fitter, stroke_list, 
                                 search_radius=self.line_sampling_size/LINE_WIDTH_FACTOR, 
+                                ignore_transparent=self.ignore_transparent,
                                 pressure_delta=self.pressure_variance*0.01, 
                                 resample=resample_length,
                                 t_mat = t_mat)
