@@ -95,15 +95,29 @@ def new_gp_brush(name):
     return res
 
 def layer_locked(layer):
-    # TODO: Blender 4.3 API cannot process nested groups. Should revisit when 4.4 comes out
     if bpy.app.version >= (4, 3, 0) and layer.parent_group:
-        return layer.lock and layer.parent_group.lock
+        # Layer group is introduced in GPv3
+        if layer.lock:
+            return True
+        g = layer.parent_group
+        while g is not None:
+            if g.lock:
+                return True
+            g = g.parent_group
+        return False
     else:
         return layer.lock
 
 def layer_hidden(layer):
     if bpy.app.version >= (4, 3, 0) and layer.parent_group:
-        return layer.hide and layer.parent_group.hide
+        if layer.hide:
+            return True
+        g = layer.parent_group
+        while g is not None:
+            if g.hide:
+                return True
+            g = g.parent_group
+        return False
     else:
         return layer.hide
 
