@@ -601,7 +601,8 @@ class BoolSelectedOperator(bpy.types.Operator):
     num_clips: bpy.props.IntProperty(
             name='Number of Clips',
             min=1, default=1,
-            description='The last selected one or more strokes are clips, and the rest are subjects',
+            description='The last one or more strokes are clips, and the rest are subjects. '
+                        'In Blender 4.3 or later, the sequence refers to the display order. In earlier versions, it refers to the selection order'
             )
     keep_subjects: bpy.props.BoolProperty(
             name='Keep Subjects',
@@ -613,11 +614,19 @@ class BoolSelectedOperator(bpy.types.Operator):
             default=False,
             description='Do not delete the original clip strokes'
     )
+    reversed_input_order: bpy.props.BoolProperty(
+            name='Swap Subject and Clip',
+            default=False,
+            description='If false, the first strokes are subjects and the last ones are clips, vice versa otherwise. '
+                        'In Blender 4.3 or later, the sequence refers refers to the display order. In earlier versions, it refers to the selection order'
+    )
 
     def draw(self, context):
         layout = self.layout
         row = layout.row()
         row.prop(self, "operation_type", text = "Operation")
+        row = layout.row()
+        row.prop(self, "reversed_input_order")
         layout.label(text = "Inherit stroke properties from:")
         row = layout.row()
         row.prop(self, "stroke_inherited", text = "")
@@ -694,6 +703,8 @@ class BoolSelectedOperator(bpy.types.Operator):
             true_num_clips = min(self.num_clips, len(stroke_list)-1)
             select_seq = [_ for _ in range(len(stroke_list))]
             select_seq.sort(key = lambda x: select_seq_map[x])
+            if self.reversed_input_order:
+                select_seq.reverse()
             subject_set = set(select_seq[:len(stroke_list) - true_num_clips])
             clip_set = set(select_seq[-true_num_clips:])
 
