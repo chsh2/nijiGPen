@@ -39,8 +39,6 @@ def get_obj_mode_str(mode: str):
    
 def get_ops_str(ops: str):
     """Translate native GPv2 operator names to GPv3 ones"""
-    if bpy.app.version >= (4, 3, 0) and bpy.app.version < (4, 4, 0) and ops == 'gpencil.stroke_sample':
-        return None
     if bpy.app.version >= (4, 3, 0) and ops in ops_trans_map:
         return ops_trans_map[ops]
     else:
