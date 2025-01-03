@@ -814,8 +814,12 @@ class MeshGenerationByOffsetting(CommonMeshConfig, bpy.types.Operator):
         box1.prop(self, "ignore_mode")
         layout.label(text = "Geometry Options:")
         box2 = layout.box()
-        box2.prop(self, "offset_amount", text = "Offset Amount")
-        box2.prop(self, "resolution", text = "Resolution")
+        row = box2.row()
+        row.prop(self, "offset_amount", text = "Offset Amount")
+        row = box2.row()
+        row.prop(self, "resolution", text = "Resolution")
+        if self.slope_style == 'RIDGE':
+            row.enabled = False
         row = box2.row()
         row.label(text = "Corner Shape")
         row.prop(self, "corner_shape", text = "")
@@ -825,6 +829,8 @@ class MeshGenerationByOffsetting(CommonMeshConfig, bpy.types.Operator):
         row = box2.row()
         row.label(text = "Extrude Method")
         row.prop(self, "extrude_method", text = "")
+        if self.slope_style == 'RIDGE':
+            row.enabled = False
 
         layout.label(text = "Post-Processing Options:")
         box3 = layout.box()
@@ -939,7 +945,7 @@ class MeshGenerationByOffsetting(CommonMeshConfig, bpy.types.Operator):
                     # Mesh generation
                     edges_by_level = []
                     verts_by_level = []
-                    
+
                     for j,contour in enumerate(contours):
                         edges_by_level.append([])
                         verts_by_level.append([])
