@@ -62,12 +62,18 @@ class MultiLayerRenderOperator(bpy.types.Operator, ExportHelper):
         render_setting = {}
         hidden_objects = {}
         gplayers_info = []
+        layer_group_info = []
         for obj in bpy.data.objects:
             hidden_objects[obj.name] = obj.hide_render
         for gp_obj in gp_obj_list:
             gplayers_info.append([])
             for layer in gp_obj.data.layers:
                 gplayers_info[-1].append((layer.hide, layer.blend_mode, layer.opacity))
+            layer_group_info.append({})
+            if is_gpv3():
+                for group in gp_obj.data.layer_groups:
+                    layer_group_info[-1][group.name] = group.hide
+                    group.hide = False
         render_setting['film_transparent'] = scene.render.film_transparent
         render_setting['filepath'] = scene.render.filepath
         render_setting['file_format'] = scene.render.image_settings.file_format
@@ -85,7 +91,7 @@ class MultiLayerRenderOperator(bpy.types.Operator, ExportHelper):
         cache_folder = get_cache_folder()
         merged_img_mat = render_and_load(os.path.join(cache_folder,'Merged.png'))
         
-        # Render the scene without active GPencil
+        # Render the scene without target GPencil objects
         for gp_obj in gp_obj_list:
             gp_obj.hide_render = True
         scene.render.film_transparent = True
@@ -144,15 +150,48 @@ class MultiLayerRenderOperator(bpy.types.Operator, ExportHelper):
         psd_template.set_merged_img(merged_img_mat)
         psd_template.append_layer(PsdLayer(background_img_mat, name='Background', hide=render_setting['film_transparent']))
         psd_template.append_layer(PsdLayer(scene_img_mat, name='3D Scene'))
-        
+             
         for i,gp_obj in enumerate(gp_obj_list):
             psd_template.append_layer(PsdLayer(np.zeros((1, 1, 4)), name=gp_obj.name, divider_type=3))
+            
+            # For GPv2, just add each layer following the original order
+            # For GPv3, need to check if each layer belongs to groups and add separators
+            layer_ancestors = [[] for _ in range(len(gp_obj.data.layers))]
+            folders_for_layer = [[] for _ in range(len(gp_obj.data.layers))]
+            separators_for_layer = [[] for _ in range(len(gp_obj.data.layers))]
+            if is_gpv3():
+                for j,layer in enumerate(gp_obj.data.layers):
+                    p = layer
+                    while p.parent_group is not None:
+                        group_name = p.parent_group.name
+                        # Add a separator at the end of a folder
+                        if j == 0 or p.parent_group not in layer_ancestors[j-1]:
+                            separators_for_layer[j].append(PsdLayer(np.zeros((1, 1, 4)), name=group_name, divider_type=3))
+                        # Add the header of the folder if this is the top layer
+                        if j == len(gp_obj.data.layers)-1:
+                            folders_for_layer[j].append(PsdLayer(np.zeros((1, 1, 4)), name=group_name, 
+                                                                   hide=layer_group_info[i][p.parent_group.name], divider_type=1))
+                        layer_ancestors[j].append(p.parent_group)
+                        p = p.parent_group
+                    # Check the previous layer for unpaired folders which need headers
+                    if j > 0:
+                        for group in layer_ancestors[j-1]:
+                            if group not in layer_ancestors[j]:
+                                folders_for_layer[j-1].append(PsdLayer(np.zeros((1, 1, 4)), name=group.name, 
+                                                                    hide=layer_group_info[i][group.name], divider_type=1))
+                    
+            # Writing each layer to PSD from bottom to top: seperator -> layer -> folder
             for j,layer in enumerate(gp_obj.data.layers):
+                for seperator in reversed(separators_for_layer[j]):
+                    psd_template.append_layer(seperator)
                 psd_template.append_layer(PsdLayer(layer_img_mats[i][j],
                                                 name=layer.info,
                                                 hide=gplayers_info[i][j][0],
                                                 opacity=gplayers_info[i][j][2],
                                                 blend_mode_key=gplayers_info[i][j][1]))
+                for folder in folders_for_layer[j]:
+                    psd_template.append_layer(folder)
+            # Finally, put the whole GPencil object into a bigger folder
             psd_template.append_layer(PsdLayer(np.zeros((1, 1, 4)), name=gp_obj.name, divider_type=1))
         psd_fd = open(self.filepath, 'wb')
         psd_fd.write(psd_template.get_file_bytes())
@@ -164,6 +203,9 @@ class MultiLayerRenderOperator(bpy.types.Operator, ExportHelper):
         for i,gp_obj in enumerate(gp_obj_list):
             for j,layer in enumerate(gp_obj.data.layers):
                 layer.hide, layer.blend_mode, layer.opacity = gplayers_info[i][j]
+            if is_gpv3():
+                for group in gp_obj.data.layer_groups:
+                    group.hide = layer_group_info[i][group.name]
         scene.render.film_transparent = render_setting['film_transparent']
         scene.render.filepath = render_setting['filepath']
         scene.render.image_settings.file_format = render_setting['file_format']
