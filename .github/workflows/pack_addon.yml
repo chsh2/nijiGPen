@@ -5,69 +5,57 @@ on:
 
 env:
   FILES: |
-    nijigp/__init__.py
-    nijigp/api_router.py
-    nijigp/auto_load.py
-    nijigp/file_formats.py
-    nijigp/operators/__init__.py
-    nijigp/operators/common.py
-    nijigp/operators/operator_color.py
-    nijigp/operators/operator_fill.py
-    nijigp/operators/operator_io_assets.py
-    nijigp/operators/operator_io_paste.py
-    nijigp/operators/operator_io_raster.py
-    nijigp/operators/operator_io_render.py
-    nijigp/operators/operator_line.py
-    nijigp/operators/operator_mesh.py
-    nijigp/operators/operator_polygon.py
-    nijigp/operators/operator_polygon_shading.py
-    nijigp/operators/operator_rig.py
-    nijigp/preferences.py
-    nijigp/res/icons/ops.nijigp.boolean_eraser_tool.dat
-    nijigp/res/icons/ops.nijigp.offset_tool.dat
-    nijigp/res/icons/ops.nijigp.smart_fill_tool.dat
-    nijigp/res/icons/ops.nijigp.sweep_tool.dat
-    nijigp/res/library.blend
-    nijigp/res/tex/metal_shiny.exr
-    nijigp/res/tex/ToonWater.png
-    nijigp/resources.py
-    nijigp/solvers/fit.py
-    nijigp/solvers/graph.py
-    nijigp/solvers/optimizer.py
-    nijigp/tmp/placeholder
-    nijigp/ui_panels.py
-    nijigp/ui_viewport_tools.py
-    nijigp/utils.py
+    __init__.py
+    api_router.py
+    auto_load.py
+    file_formats.py
+    operators/__init__.py
+    operators/common.py
+    operators/operator_color.py
+    operators/operator_fill.py
+    operators/operator_io_assets.py
+    operators/operator_io_paste.py
+    operators/operator_io_raster.py
+    operators/operator_io_render.py
+    operators/operator_line.py
+    operators/operator_mesh.py
+    operators/operator_polygon.py
+    operators/operator_polygon_shading.py
+    operators/operator_rig.py
+    preferences.py
+    res/icons/ops.nijigp.boolean_eraser_tool.dat
+    res/icons/ops.nijigp.offset_tool.dat
+    res/icons/ops.nijigp.smart_fill_tool.dat
+    res/icons/ops.nijigp.sweep_tool.dat
+    res/library.blend
+    res/tex/metal_shiny.exr
+    res/tex/ToonWater.png
+    resources.py
+    solvers/fit.py
+    solvers/graph.py
+    solvers/optimizer.py
+    tmp/placeholder
+    ui_panels.py
+    ui_viewport_tools.py
+    utils.py
 
 jobs:
-  zip:
+  pick_files:
     runs-on: ubuntu-latest
 
     steps:
-      # Checkout the repository
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Parse file list and save to a file
-      - name: Parse file list
-        id: parse_files
+      - name: Copy required files
         run: |
-          mkdir nijigp
-          mv * nijigp || true
-          ls nijigp
-          echo "$FILES" > files_to_zip.txt
-          echo "Parsed file list:"
-          cat files_to_zip.txt
+          for file in $FILES; do
+            mkdir -p "nijigp/$(dirname "$file")"
+            cp "$file" "nijigp/$file"
+          done
 
-      # Create the ZIP file
-      - name: Create zip
-        run: |
-          zip -r nijigp.zip -@ < files_to_zip.txt
-        shell: bash
-
-      # Upload the ZIP as an artifact
       - name: Upload zip artifact
         uses: actions/upload-artifact@v4
         with:
           name: nijigp
-          path: nijigp.zip
+          path: nijigp
