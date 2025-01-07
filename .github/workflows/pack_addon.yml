@@ -50,12 +50,12 @@ jobs:
       - name: Copy required files
         run: |
           for file in $FILES; do
-            mkdir -p "nijigp/$(dirname "$file")"
-            cp "$file" "nijigp/$file"
+            mkdir -p "artifact/nijigp/$(dirname "$file")"
+            cp "$file" "artifact/nijigp/$file"
           done
 
       - name: Upload zip artifact
         uses: actions/upload-artifact@v4
         with:
           name: nijigp
-          path: nijigp
+          path: artifact
