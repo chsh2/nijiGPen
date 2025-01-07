@@ -53,7 +53,7 @@ jobs:
         id: parse_files
         run: |
           mkdir nijigp
-          cp -R * nijigp
+          mv * nijigp
           echo "$FILES" > files_to_zip.txt
           echo "Parsed file list:"
           cat files_to_zip.txt
