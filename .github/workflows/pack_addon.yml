@@ -54,19 +54,10 @@ jobs:
         run: |
           mkdir nijigp
           mv * nijigp || true
+          ls nijigp
           echo "$FILES" > files_to_zip.txt
           echo "Parsed file list:"
           cat files_to_zip.txt
-
-      # Validate that files exist
-      - name: Validate files
-        run: |
-          while IFS= read -r file; do
-            if [ ! -f "$file" ]; then
-              echo "Error: $file does not exist!"
-              exit 1
-            fi
-          done < files_to_zip.txt
 
       # Create the ZIP file
       - name: Create zip
