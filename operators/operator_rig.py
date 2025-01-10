@@ -12,15 +12,31 @@ def switch_to(objs):
         obj.select_set(True)
     bpy.context.view_layer.objects.active = objs[0]
 
+def is_inside_group(layer, group):
+    """Check if a GPv3 layer belongs to a layer group"""
+    p = layer
+    while p.parent_group is not None:
+        if p.parent_group == group:
+            return True
+        p = p.parent_group
+    return False
+
 def get_output_layers(gp_obj, target_mode:str):
-    """Common way of selecting output layers for rig operators"""
+    """Common way of selecting output layers for rig operators. Return indices"""
     target_layers = []
-    active_pass_index = gp_obj.data.layers.active.pass_index
-    for i,layer in enumerate(gp_obj.data.layers):
-        if (layer == gp_obj.data.layers.active or
-            target_mode == 'ALL' or 
-            (target_mode == 'PASS' and layer.pass_index == active_pass_index)):
-                target_layers.append(i)
+    if target_mode == 'ALL':
+        target_layers = [i for i,layer in enumerate(gp_obj.data.layers)]
+    elif target_mode == 'PASS':
+        if gp_obj.data.layers.active:
+            active_pass_index = gp_obj.data.layers.active.pass_index
+            target_layers = [i for i,layer in enumerate(gp_obj.data.layers) if layer.pass_index == active_pass_index]
+    # May either be an active layer or an active layer group (for GPv3 only)
+    elif target_mode == 'ACTIVE':
+        if is_gpv3() and gp_obj.data.layer_groups.active:
+            active_group = gp_obj.data.layer_groups.active
+            target_layers = [i for i,layer in enumerate(gp_obj.data.layers) if is_inside_group(layer, active_group)]
+        else:
+            target_layers = [i for i,layer in enumerate(gp_obj.data.layers) if layer == gp_obj.data.layers.active]
     return target_layers
 
 class VertexGroupClearOperator(bpy.types.Operator):
@@ -77,7 +93,7 @@ class PinRigOperator(bpy.types.Operator):
     )   
     target_mode: bpy.props.EnumProperty(            
         name='Target Layers',
-        items=[ ('LAYER', 'Active Layer', ''),
+        items=[ ('ACTIVE', 'Active Layer/Group', ''),
                ('PASS', 'Active Layer Pass Index', ''),
                ('ALL', 'All Layers', ''),],
         default='ALL',
@@ -169,7 +185,8 @@ class PinRigOperator(bpy.types.Operator):
         hint_frame = gp_obj.data.layers[self.hint_layer].active_frame
         num_pins = len(hint_frame.nijigp_strokes)
         t_mat, _ = get_transformation_mat(mode=context.scene.nijigp_working_plane,
-                                                gp_obj=gp_obj, strokes=hint_frame.nijigp_strokes, operator=self)
+                                                gp_obj=gp_obj, strokes=hint_frame.nijigp_strokes, operator=self,
+                                                requires_layer=False)
         # Generate an armature
         arm_data = bpy.data.armatures.new(gp_obj.name + '_pins')
         arm_obj = bpy.data.objects.new(arm_data.name, arm_data)
@@ -499,7 +516,7 @@ class TransferWeightOperator(bpy.types.Operator):
     )
     target_mode: bpy.props.EnumProperty(            
         name='Target Layers',
-        items=[ ('LAYER', 'Active Layer', ''),
+        items=[ ('ACTIVE', 'Active Layer/Group', ''),
                ('PASS', 'Active Layer Pass Index', ''),
                ('ALL', 'All Layers', ''),],
         default='ALL',
@@ -545,7 +562,8 @@ class TransferWeightOperator(bpy.types.Operator):
             return {'FINISHED'}   
         
         t_mat, _ = get_transformation_mat(mode=context.scene.nijigp_working_plane,
-                                                gp_obj=gp_obj, operator=self)
+                                                gp_obj=gp_obj, operator=self,
+                                                requires_layer=self.auto_mesh)
         bone_name_set = set()
         for bone in arm.data.bones:
             bone_name_set.add(bone.name)
@@ -616,7 +634,7 @@ class TransferWeightOperator(bpy.types.Operator):
                 
         # Set armature relationship
         switch_to([arm, gp_obj])
-        bpy.ops.object.parent_set(type='ARMATURE_AUTO' if is_gpv3 else 'ARMATURE')
+        bpy.ops.object.parent_set(type='ARMATURE_AUTO' if is_gpv3() else 'ARMATURE')
         # For GPv3, weights must be initialized by a native operator first
         if is_gpv3():
             for frame_number in set([frame.frame_number for frame in frames_to_process]):

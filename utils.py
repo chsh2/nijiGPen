@@ -387,12 +387,13 @@ def pca(data):
     mat = eigenvectors[:,idx]
     return mat, values
 
-def get_transformation_mat(mode='VIEW', gp_obj=None, strokes=[], operator=None):
+def get_transformation_mat(mode='VIEW', gp_obj=None, strokes=[], operator=None, requires_layer=True):
     """
     Get the transformation matrix and its inverse matrix given a 2D working plane.
     The x and y values of transformed coordinates will be used for 2D operators.
     """
-    if not gp_obj.data.layers.active:
+    # This is usually the first function in an operator to read from active layer, therefore check the condition here
+    if requires_layer and not gp_obj.data.layers.active:
         operator.report({"WARNING"}, "Please select a layer.")
         raise Exception("Please select a Grease Pencil layer to perform the operation.")
 
@@ -409,9 +410,9 @@ def get_transformation_mat(mode='VIEW', gp_obj=None, strokes=[], operator=None):
     view_matrix = bpy.context.space_data.region_3d.view_matrix.to_3x3()
     if gp_obj:
         obj_rotation = gp_obj.matrix_world.to_3x3().normalized()
-        layer_rotation = gp_obj.data.layers.active.matrix_layer.to_3x3().normalized()
         view_matrix = view_matrix @ obj_rotation
-        if bpy.context.scene.nijigp_working_plane_layer_transform:
+        if gp_obj.data.layers.active and bpy.context.scene.nijigp_working_plane_layer_transform:
+            layer_rotation = gp_obj.data.layers.active.matrix_layer.to_3x3().normalized()
             view_matrix = view_matrix @ layer_rotation
 
     # Use orthogonal planes
