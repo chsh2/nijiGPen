@@ -759,13 +759,6 @@ class MeshGenerationByOffsetting(CommonMeshConfig, bpy.types.Operator):
             default='SPHERE',
             description='Slope shape of the generated mesh'
     )
-    extrude_method: bpy.props.EnumProperty(
-            name='Extrude Method',
-            items=[('DEFAULT', 'Default Method', ''),
-                    ('ACUTE', 'Acute-Angle Optimized', '')],
-            default='DEFAULT',
-            description='Method of creating side faces'
-    )
     postprocess_shade_smooth: bpy.props.BoolProperty(
             name='Shade Smooth',
             default=False,
@@ -826,12 +819,7 @@ class MeshGenerationByOffsetting(CommonMeshConfig, bpy.types.Operator):
         row = box2.row()
         row.label(text = "Slope Style")
         row.prop(self, "slope_style", text = "")
-        row = box2.row()
-        row.label(text = "Extrude Method")
-        row.prop(self, "extrude_method", text = "")
-        if self.slope_style == 'RIDGE':
-            row.enabled = False
-
+        
         layout.label(text = "Post-Processing Options:")
         box3 = layout.box()
         box3.prop(self, "postprocess_double_sided", text = "Double-Sided")  
@@ -912,108 +900,9 @@ class MeshGenerationByOffsetting(CommonMeshConfig, bpy.types.Operator):
                 vertex_end_frame_layer = bm.verts.layers.int.new('end_frame')
                 frame_range = layer_frame_map[stroke_info[i][1]][1]
                 mean_depth = np.mean(np.array(depth_list[i]))
-                                
-                # 3D mesh by offset: multiple levels
-                if self.slope_style != 'RIDGE':
-                    clipper.AddPath(co_list, jt, et)
-                    contours = []
-                    vert_idx_list = []
-                    vert_counter = 0
-                    offset_interval = self.offset_amount / self.resolution * scale_factor
-                    for j in range(self.resolution):
-                        clipper_res = clipper.Execute( -offset_interval * j)
-                        # STEP style requires duplicating each contour
-                        for _ in range(1 + int(self.slope_style=='STEP')):
-                            new_contour = []
-                            new_idx_list = []
-                            for poly in clipper_res:
-                                # Merge points in advance for specific methods
-                                true_poly = []
-                                if not self.postprocess_merge or not self.extrude_method=='ACUTE':
-                                    true_poly = poly
-                                else:
-                                    true_poly = merge_poly_points(poly, self.merge_distance * scale_factor)
-                                    if len(true_poly)<3:
-                                        true_poly = poly
-                                num_vert = len(true_poly)
-                                new_idx_list.append( (vert_counter, vert_counter + num_vert) )
-                                vert_counter += num_vert
-                                new_contour.append(true_poly)
-                            contours.append(new_contour)
-                            vert_idx_list.append(new_idx_list)   
 
-                    # Mesh generation
-                    edges_by_level = []
-                    verts_by_level = []
-
-                    for j,contour in enumerate(contours):
-                        edges_by_level.append([])
-                        verts_by_level.append([])
-                        edge_extruded = []
-
-                        if len(contour)==0 and self.extrude_method=='ACUTE':
-                            break
-
-                        # One contour may contain more than one closed loops
-                        for k,poly in enumerate(contour):
-                            height = abs(j * offset_interval/scale_factor)
-                            if self.slope_style == 'SPHERE':
-                                sphere_rad = abs(self.offset_amount)
-                                height = math.sqrt(sphere_rad ** 2 - (sphere_rad - height) ** 2)
-                            elif self.slope_style == 'STEP':
-                                height = abs( (j+1)//2 * offset_interval/scale_factor)
-
-                            for co in poly:
-                                verts_by_level[-1].append(
-                                    bm.verts.new(restore_3d_co(co,
-                                                            height + mean_depth,
-                                                            inv_mat, scale_factor)
-                                                )
-                                    )
-                            bm.verts.ensure_lookup_table()
-
-                            # Connect same-level vertices
-                            for v_idx in range(vert_idx_list[j][k][0],vert_idx_list[j][k][1] - 1):
-                                edges_by_level[-1].append( bm.edges.new([bm.verts[v_idx],bm.verts[v_idx + 1]]) )
-                            edges_by_level[-1].append( 
-                                    bm.edges.new([ bm.verts[vert_idx_list[j][k][0]], bm.verts[vert_idx_list[j][k][1] - 1] ]) 
-                                    )
-
-                        connect_edge_manually = False
-                        # STEP style only: connect extruding edges
-                        if self.slope_style=='STEP' and j%2 > 0:
-                            for v_idx,_ in enumerate(verts_by_level[-1]):
-                                edge_extruded.append(
-                                        bm.edges.new([verts_by_level[-1][v_idx], verts_by_level[-2][v_idx]])
-                                    )
-                        # Connect vertices from two levels
-                        elif j>0 and self.extrude_method=='ACUTE':
-                            connect_edge_manually = True
-
-                        if connect_edge_manually:
-                            # From lower level to higher level
-                            kdt = kdtree.KDTree(len(verts_by_level[-1]))
-                            for v_idx, v in enumerate(verts_by_level[-1]):
-                                kdt.insert(v.co, v_idx)
-                            kdt.balance()
-
-                            for v in verts_by_level[-2]:
-                                vec_, idx, dist_ = kdt.find(v.co)
-                                edge_extruded.append(
-                                    bm.edges.new([v, verts_by_level[-1][idx]])
-                                )
-                        bm.edges.ensure_lookup_table()
-
-                        if j>0 and not connect_edge_manually:
-                            if self.slope_style=='STEP' and j%2==1:
-                                bmesh.ops.edgenet_fill(bm, edges=edges_by_level[-1]+edges_by_level[-2]+edge_extruded)
-                            else:
-                                bmesh.ops.triangle_fill(bm, use_beauty=True, edges=edges_by_level[-1]+edges_by_level[-2])
-                    bmesh.ops.triangle_fill(bm, use_beauty=True, edges=edges_by_level[-1])
-                    bm.faces.ensure_lookup_table()
-                    
-                # 3D mesh by medial axis: only one level
-                else:
+                # Ridge style: the only extra vertices are the median axis
+                if self.slope_style == 'RIDGE':
                     tr_input_verts = []
                     tr_input_edges = []
                     # Calculate Voronoi vertices and ridges
@@ -1062,6 +951,141 @@ class MeshGenerationByOffsetting(CommonMeshConfig, bpy.types.Operator):
                     for f in tr_output['triangles']:
                         bm.faces.new((bm.verts[f[0]], bm.verts[f[1]], bm.verts[f[2]]))
                     bm.faces.ensure_lookup_table()
+                                
+                # Other styles: generate multiple levels of extra vertices by insetting
+                else:
+                    clipper.AddPath(co_list, jt, et)
+                    contours = []       # 2D list: one inset level may contain multiple loops
+                    vert_idx_list = []  # Start index and length of each loop
+                    vert_counter = 0
+                    offset_interval = self.offset_amount / self.resolution * scale_factor
+                    for j in range(self.resolution):
+                        clipper_res = clipper.Execute( -offset_interval * j)
+                        # Step style requires duplicating each contour
+                        for _ in range(1 + int(self.slope_style=='STEP')):
+                            new_contour = []
+                            new_idx_list = []
+                            for poly in clipper_res:
+                                # Merge points in advance for specific methods
+                                true_poly = []
+                                if not self.postprocess_merge:
+                                    true_poly = poly
+                                else:
+                                    true_poly = merge_poly_points(poly, self.merge_distance * scale_factor)
+                                    if len(true_poly)<3:
+                                        true_poly = poly
+                                num_vert = len(true_poly)
+                                new_idx_list.append( (vert_counter, vert_counter + num_vert) )
+                                vert_counter += num_vert
+                                new_contour.append(true_poly)
+                            contours.append(new_contour)
+                            vert_idx_list.append(new_idx_list)   
+
+                    # Step style: create the 3D mesh level-by-level
+                    if self.slope_style == 'STEP':
+                        edges_by_level = []
+                        verts_by_level = []
+                        for j,contour in enumerate(contours):
+                            edges_by_level.append([])
+                            verts_by_level.append([])
+                            edge_extruded = []
+                            height = abs( (j+1)//2 * offset_interval/scale_factor)
+                            
+                            # Convert each loop in a level to mesh
+                            for k,poly in enumerate(contour):
+                                for co in poly:
+                                    co_3d = restore_3d_co(co, height + mean_depth, inv_mat, scale_factor)
+                                    verts_by_level[-1].append( bm.verts.new(co_3d) )
+                                bm.verts.ensure_lookup_table()                  
+                                for v_idx in range(vert_idx_list[j][k][0],vert_idx_list[j][k][1] - 1):
+                                    edges_by_level[-1].append( bm.edges.new([bm.verts[v_idx],bm.verts[v_idx + 1]]) )
+                                edges_by_level[-1].append( bm.edges.new([ bm.verts[vert_idx_list[j][k][0]], bm.verts[vert_idx_list[j][k][1] - 1] ]))
+                            bm.edges.ensure_lookup_table()
+                            
+                            # Connect two levels: alternatively extrude and inset to get a step shape
+                            if j%2 > 0:
+                                for v_idx,_ in enumerate(verts_by_level[-1]):
+                                    edge_extruded.append( bm.edges.new([verts_by_level[-1][v_idx], verts_by_level[-2][v_idx]]) )
+                                bm.edges.ensure_lookup_table()
+                                bmesh.ops.edgenet_fill(bm, edges=edges_by_level[-1]+edges_by_level[-2]+edge_extruded)
+                            elif j > 0:
+                                bmesh.ops.triangle_fill(bm, use_beauty=True, edges=edges_by_level[-1]+edges_by_level[-2])
+                        bmesh.ops.triangle_fill(bm, use_beauty=True, edges=edges_by_level[-1])
+                        bm.faces.ensure_lookup_table()
+                        
+                    # Sphere and linear styles: create mesh of all levels in 2D first, then set the heights
+                    else:                      
+                        verts_by_level = []
+                        edges_by_level = []
+                        heights_by_level = []
+                        kdt_by_level = []
+                        
+                        # Process the independent part of each level's geometry
+                        for j,contour in enumerate(contours):
+                            # Calculate the height of each level
+                            height = abs(j * offset_interval/scale_factor)
+                            if self.slope_style == 'SPHERE':
+                                sphere_rad = abs(self.offset_amount)
+                                height = math.sqrt(sphere_rad ** 2 - (sphere_rad - height) ** 2)
+                            heights_by_level.append(height)
+                            
+                            # Add each polygon loop to mesh. Use 2D coordinates for now
+                            verts_by_level.append([])
+                            edges_by_level.append([])
+                            for k,poly in enumerate(contour):
+                                for co in poly:
+                                    verts_by_level[-1].append(bm.verts.new(xy0(co)/scale_factor))
+                                bm.verts.ensure_lookup_table()
+                                for v_idx in range(vert_idx_list[j][k][0],vert_idx_list[j][k][1] - 1):
+                                    edges_by_level[-1].append( bm.edges.new([bm.verts[v_idx],bm.verts[v_idx + 1]]) )
+                                edges_by_level[-1].append( bm.edges.new([ bm.verts[vert_idx_list[j][k][0]], bm.verts[vert_idx_list[j][k][1] - 1] ]) )
+                            bm.edges.ensure_lookup_table()
+                               
+                            # Prepare a KDTree for each level for later lookup
+                            kdt_by_level.append(kdtree.KDTree(len(verts_by_level[-1])))
+                            for v_idx, v in enumerate(verts_by_level[-1]):
+                                kdt_by_level[-1].insert(v.co, v_idx)
+                            kdt_by_level[-1].balance()
+                        
+                        # To connect adjacent levels, first manually create edges with best efforts
+                        for j,contour in enumerate(contours):
+                            if j == 0 or len(verts_by_level[j]) == 0:
+                                continue
+                            for v in verts_by_level[j-1]:
+                                _, idx, _ = kdt_by_level[j].find(v.co)
+                                new_e = (v, verts_by_level[j][idx])
+                                # New edge should not intersect with existing edges
+                                for e in edges_by_level[j-1]:
+                                    if e.verts[1] != v and e.verts[0] != v and \
+                                       geometry.intersect_line_line_2d(e.verts[0].co.xy, e.verts[1].co.xy, new_e[0].co.xy, new_e[1].co.xy):
+                                        break
+                                else:
+                                    bm.edges.new(new_e)
+                                
+                        # Then do triangulation to ensure all faces are filled
+                        bm.edges.ensure_lookup_table()
+                        bmesh.ops.triangle_fill(bm, use_beauty=True, edges=bm.edges)
+                        bm.faces.ensure_lookup_table()
+                        # This method may generate faces outside the original shape, which should be removed
+                        faces_to_remove = []
+                        for f in bm.faces:
+                            co = f.calc_center_median().xy * scale_factor
+                            if pyclipper.PointInPolygon(co, co_list) == 0:
+                                faces_to_remove.append(f)
+                        for f in faces_to_remove:
+                            bm.faces.remove(f)
+                        edges_to_remove = []
+                        for e in bm.edges:
+                            if len(e.link_faces) == 0:
+                                edges_to_remove.append(e)
+                        for e in edges_to_remove:
+                            bm.edges.remove(e)
+                            
+                        # Set the height of each vertex
+                        for j,verts in enumerate(verts_by_level):
+                            for v in verts:
+                                co_3d = restore_3d_co(v.co.xy, heights_by_level[j] + mean_depth, inv_mat, 1)
+                                v.co = co_3d
                 
                 if self.postprocess_shade_smooth:
                     for face in bm.faces:
@@ -1139,16 +1163,8 @@ class MeshGenerationByOffsetting(CommonMeshConfig, bpy.types.Operator):
                 if mesh_material:
                     new_object.data.materials.append(mesh_material)
 
-                # Create faces for manually generated edges
-                context.view_layer.objects.active = new_object
-                if self.extrude_method=='ACUTE':
-                    bpy.ops.object.mode_set(mode='EDIT')
-                    bpy.ops.mesh.select_all(action='SELECT')
-                    bpy.ops.mesh.edge_face_add()
-                    if self.postprocess_shade_smooth:
-                        bpy.ops.mesh.faces_shade_smooth()
-
                 # Post-processing: mirror
+                context.view_layer.objects.active = new_object
                 mean_depth_offset = inv_mat @ Vector((0, 0, mean_depth))
                 bpy.ops.object.mode_set(mode='OBJECT')
                 if self.postprocess_double_sided:
