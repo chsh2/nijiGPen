@@ -339,10 +339,8 @@ class MeshGenerationByNormal(CommonMeshConfig, bpy.types.Operator):
             trans2d = lambda co: (t_mat @ co).xy
 
             generated_objects = get_generated_meshes(current_gp_obj)
-
             if len(poly_list) < 1:
                 continue
-
             # Holes should have an opposite direction, and coordinate of an inside point is needed for triangle input
             mask_hole_points = []
             for mask_co_list in mask_poly_list:
@@ -755,7 +753,7 @@ class MeshGenerationByOffsetting(CommonMeshConfig, bpy.types.Operator):
             items=[('LINEAR', 'Linear', ''),
                     ('SPHERE', 'Sphere', ''),
                     ('STEP', 'Step', ''),
-                    ('RIDGE', 'Ridge', '')],
+                    ('RIDGE', 'Ridge', 'SciPy is required for this style')],
             default='SPHERE',
             description='Slope shape of the generated mesh'
     )
@@ -794,6 +792,9 @@ class MeshGenerationByOffsetting(CommonMeshConfig, bpy.types.Operator):
         default='Principled BSDF',
         search=lambda self, context, edit_text: get_material_list('MESH', bpy.context.engine)
     )
+    
+    def invoke(self, context, event):
+        return context.window_manager.invoke_props_dialog(self, width=300)
 
     def draw(self, context):
         layout = self.layout
@@ -865,8 +866,8 @@ class MeshGenerationByOffsetting(CommonMeshConfig, bpy.types.Operator):
         
         # Process selected strokes frame by frame
         for frame_number, layer_frame_map in frames_to_process.items():
-            stroke_info = []
-            stroke_list = []
+            stroke_info, stroke_list = [], []
+            mask_info, mask_list = [], []
             mesh_names = []
             context.scene.frame_set(frame_number)
             
@@ -879,16 +880,28 @@ class MeshGenerationByOffsetting(CommonMeshConfig, bpy.types.Operator):
                                 continue
                             if self.ignore_mode == 'OPEN' and is_stroke_line(stroke, current_gp_obj) and not stroke.use_cyclic:
                                 continue
-                            stroke_info.append([stroke, layer_idx, j, frame])
-                            stroke_list.append(stroke)
-                            mesh_names.append('Offset_' + current_gp_obj.data.layers[layer_idx].info + '_' + str(j))
+                            if is_stroke_hole(stroke, current_gp_obj):
+                                mask_info.append([stroke, layer_idx, j, frame])
+                                mask_list.append(stroke)
+                            else:
+                                stroke_info.append([stroke, layer_idx, j, frame])
+                                stroke_list.append(stroke)
+                                mesh_names.append('Offset_' + current_gp_obj.data.layers[layer_idx].info + '_' + str(j))
             t_mat, inv_mat = get_transformation_mat(mode=context.scene.nijigp_working_plane,
                                                     gp_obj=current_gp_obj, strokes=stroke_list, operator=self)
-            poly_list, depth_list, scale_factor = get_2d_co_from_strokes(stroke_list, t_mat, scale=True)
-            
+            poly_list, depth_list, scale_factor = get_2d_co_from_strokes(stroke_list, t_mat, 
+                                                                scale=True, correct_orientation=True)
+            mask_poly_list, mask_depth_list, _ = get_2d_co_from_strokes(mask_list, t_mat, 
+                                                                scale=True, correct_orientation=True,
+                                                                scale_factor=scale_factor)
             generated_objects = get_generated_meshes(current_gp_obj)
-            
-            def process_single_stroke(i, co_list):
+            if len(poly_list) < 1:
+                continue
+            # Holes should have an opposite direction
+            for mask_co_list in mask_poly_list:
+                mask_co_list.reverse()
+                                        
+            def process_single_stroke(i, co_list, mask_indices = []):
                 '''
                 Function that processes each stroke separately
                 '''
@@ -901,26 +914,48 @@ class MeshGenerationByOffsetting(CommonMeshConfig, bpy.types.Operator):
                 frame_range = layer_frame_map[stroke_info[i][1]][1]
                 mean_depth = np.mean(np.array(depth_list[i]))
 
+                # Initialize the mask information
+                local_mask_polys = []
+                for idx in mask_indices:
+                    local_mask_polys.append(np.array(mask_poly_list[idx]))
+                        
                 # Ridge style: the only extra vertices are the median axis
                 if self.slope_style == 'RIDGE':
                     tr_input_verts = []
                     tr_input_edges = []
-                    # Calculate Voronoi vertices and ridges
-                    vor = Voronoi(co_list)
-                    ridge_index_remap = {}  # Consider only vertices inside the contour
-                    new_idx = 0
-                    for j,co in enumerate(vor.vertices):
-                        if pyclipper.PointInPolygon(co, co_list) == 1:
-                            ridge_index_remap[j] = new_idx
-                            new_idx += 1
+                    # Add the original contour (including holes)
+                    full_contour = co_list + [co for mask in local_mask_polys for co in mask]
+                    kdt = kdtree.KDTree(len(full_contour))
+                    v_idx = 0
+                    for j,poly in enumerate([co_list] + local_mask_polys):
+                        first = None
+                        for k,co in enumerate(poly):
+                            kdt.insert(xy0(co), v_idx)
                             tr_input_verts.append(co.copy())
+                            if first is None:
+                                first = v_idx
+                            if k > 0:
+                                tr_input_edges.append([v_idx - 1, v_idx])
+                            v_idx += 1
+                        tr_input_edges.append([v_idx - 1, first])
+                    kdt.balance()
+                            
+                    # Calculate Voronoi vertices and ridges
+                    vor = Voronoi(full_contour)
+                    ridge_idx_map = {}
+                    for j,co in enumerate(vor.vertices):
+                        # A valid vertex should be inside the contour but ouside any hole
+                        if pyclipper.PointInPolygon(co, co_list) == 1:
+                            for mask in local_mask_polys:
+                                if pyclipper.PointInPolygon(co, mask) == 1:
+                                    break
+                            else:
+                                ridge_idx_map[j] = v_idx
+                                tr_input_verts.append(co.copy())
+                                v_idx += 1
                     for j1,j2 in vor.ridge_vertices:
-                        if j1 in ridge_index_remap and j2 in ridge_index_remap:
-                            tr_input_edges.append([ridge_index_remap[j1], ridge_index_remap[j2]])
-                    # Add the original contour
-                    for j,co in enumerate(co_list):
-                        tr_input_verts.append(co)
-                        tr_input_edges.append([j + new_idx, (j+1)%len(co_list) + new_idx])
+                        if j1 in ridge_idx_map and j2 in ridge_idx_map:
+                            tr_input_edges.append([ridge_idx_map[j1], ridge_idx_map[j2]])
                     
                     # Generate triangle faces and determine the depth of vertices
                     tr_output = {}
@@ -928,10 +963,6 @@ class MeshGenerationByOffsetting(CommonMeshConfig, bpy.types.Operator):
                     verts_by_level = [[]]
                     verts_depth = []
                     max_dist = 0
-                    kdt = kdtree.KDTree(len(co_list))
-                    for j,co in enumerate(co_list):
-                        kdt.insert(xy0(co), j)
-                    kdt.balance()
                     for j,co in enumerate(tr_output['vertices']):
                         if pyclipper.PointInPolygon(co, co_list) == 1:
                             _, _, dist = kdt.find(xy0(co))
@@ -940,7 +971,7 @@ class MeshGenerationByOffsetting(CommonMeshConfig, bpy.types.Operator):
                         else:
                             verts_depth.append(0)
                             verts_by_level[0].append(j)
-                    # Fill data to BMesh       
+                    # Fill data to BMesh
                     for j,co in enumerate(tr_output['vertices']):
                             v = bm.verts.new(restore_3d_co(co,
                                                         self.offset_amount * verts_depth[j] / max_dist + mean_depth,
@@ -949,12 +980,16 @@ class MeshGenerationByOffsetting(CommonMeshConfig, bpy.types.Operator):
                     bm.verts.index_update()
                     verts_by_level[0] = [bm.verts[j] for j in verts_by_level[0]]
                     for f in tr_output['triangles']:
-                        bm.faces.new((bm.verts[f[0]], bm.verts[f[1]], bm.verts[f[2]]))
-                    bm.faces.ensure_lookup_table()
-                                
+                        center = (tr_output['vertices'][f[0]] + tr_output['vertices'][f[1]] + tr_output['vertices'][f[2]]) / 3
+                        for mask in local_mask_polys:
+                            if pyclipper.PointInPolygon(center, mask) == 1:
+                                break
+                        else:
+                            bm.faces.new((bm.verts[f[0]], bm.verts[f[1]], bm.verts[f[2]]))
+                                                            
                 # Other styles: generate multiple levels of extra vertices by insetting
                 else:
-                    clipper.AddPath(co_list, jt, et)
+                    clipper.AddPaths([co_list] + local_mask_polys, jt, et)
                     contours = []       # 2D list: one inset level may contain multiple loops
                     vert_idx_list = []  # Start index and length of each loop
                     vert_counter = 0
@@ -1072,6 +1107,11 @@ class MeshGenerationByOffsetting(CommonMeshConfig, bpy.types.Operator):
                             co = f.calc_center_median().xy * scale_factor
                             if pyclipper.PointInPolygon(co, co_list) == 0:
                                 faces_to_remove.append(f)
+                            else:
+                                for mask in local_mask_polys:
+                                    if pyclipper.PointInPolygon(co, mask) == 1:
+                                        faces_to_remove.append(f)
+                                        break
                         for f in faces_to_remove:
                             bm.faces.remove(f)
                         edges_to_remove = []
@@ -1099,11 +1139,6 @@ class MeshGenerationByOffsetting(CommonMeshConfig, bpy.types.Operator):
                             to_remove.append(face)
                     for face in to_remove:
                         bm.faces.remove(face)
-
-                # Bottom large face
-                if not self.postprocess_double_sided:
-                    bm.faces.new(verts_by_level[0])
-
                 bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
 
                 # Post-processing: merge
@@ -1191,7 +1226,13 @@ class MeshGenerationByOffsetting(CommonMeshConfig, bpy.types.Operator):
                     new_object.modifiers["nijigp_GeoNodes"].node_group = append_geometry_nodes(context, 'NijiGP Stop Motion')
 
             for i,co_list in enumerate(poly_list):
-                process_single_stroke(i, co_list)
+                mask_indices = []
+                for mask_idx, info in enumerate(mask_info):
+                    if (stroke_info[i][1] == mask_info[mask_idx][1] and
+                        stroke_info[i][2] < mask_info[mask_idx][2] and
+                        is_poly_in_poly(mask_poly_list[mask_idx], poly_list[i])):
+                        mask_indices.append(mask_idx)
+                process_single_stroke(i, co_list, mask_indices)
 
             # Delete old strokes
             if not self.keep_original:
