@@ -33,6 +33,7 @@ env:
     resources.py
     solvers/fit.py
     solvers/graph.py
+    solvers/measure.py
     solvers/optimizer.py
     tmp/placeholder
     ui_panels.py

@@ -390,16 +390,16 @@ class ImportColorImageConfig:
             name='Frame Step',
             default=1, min=1,
             description='The number of frames between two generated line art keyframes'
-    )  
+    )
+    auto_resize: bpy.props.BoolProperty(
+            name='Auto Resize',
+            default=True,
+            description='When the image resolution is high, downsize the image to speed up the processing'
+    )
     num_colors: bpy.props.IntProperty(
             name='Number of Colors',
             default=8, min=1, max=32,
             description='Color quantization in order to convert the image to Grease Pencil strokes'
-    )
-    median_radius: bpy.props.IntProperty(
-            name='Median Filter Radius',
-            default=0, min=0, soft_max=15,
-            description='Denoise the image with a median filter. Disabled when the value is 0'
     )
     color_source: bpy.props.EnumProperty(            
             name='Color Source',
@@ -425,16 +425,21 @@ class ImportColorImageConfig:
             name='Fit to Camera',
             default=False,
             description='Adjust the size of imported image automatically to fill the whole view of the scene camera'
-    ) 
+    )
     sample_length: bpy.props.IntProperty(
             name='Sample Length',
-            default=8, min=1, soft_max=64,
+            default=4, min=1, soft_max=64,
             description='Number of pixels of the original image between two generated stroke points'
+    )
+    smooth_level: bpy.props.IntProperty(
+            name='Smooth',
+            default=1, min=0, soft_max=10,
+            description='Number of smooth operations performed on the extracted contours'
     )
     min_area: bpy.props.IntProperty(
             name='Min Stroke Area',
-            default=64, min=0, soft_max=2048,
-            description='Number of pixels, a contour with its area smaller than which will be ignored'
+            default=16, min=0, soft_max=2048,
+            description='Number of pixels, a contour with its area smaller than which will be merged to adjacent shapes'
     )
     color_mode: bpy.props.EnumProperty(            
             name='Color Mode',
@@ -480,8 +485,8 @@ class ImportColorImageOperator(bpy.types.Operator, ImportHelper, ImportColorImag
         layout.label(text = "Image Options:")
         box1 = layout.box()
         box1.prop(self, "num_colors")
-        box1.prop(self, "median_radius")
         box1.prop(self, "image_sequence")
+        box1.prop(self, "auto_resize")
         if self.image_sequence:
             box1.prop(self, "frame_step")
         box1.prop(self, "color_source")
@@ -493,8 +498,9 @@ class ImportColorImageOperator(bpy.types.Operator, ImportHelper, ImportColorImag
         box2.prop(self, "fit_to_camera")
         if not self.fit_to_camera:
             box2.prop(self, "size")
-        box2.prop(self, "sample_length")
         box2.prop(self, "min_area")
+        box2.prop(self, "sample_length")
+        box2.prop(self, "smooth_level")
         box2.prop(self, "color_mode")
         if self.color_mode == 'VERTEX':
             box2.prop(self, "output_material", text='Material', icon='MATERIAL')
@@ -510,11 +516,12 @@ class ImportColorImageOperator(bpy.types.Operator, ImportHelper, ImportColorImag
         t_mat, inv_mat = get_transformation_mat(mode=context.scene.nijigp_working_plane,
                                                 gp_obj=gp_obj)
         try:
-            from skimage import morphology, filters, measure
+            from skimage import measure, segmentation, transform
+            import skimage.color
             from scipy import cluster
-            import pyclipper
+            from ..solvers.measure import simplify_contour_path, multicolor_contour_find, merge_small_areas
         except:
-            self.report({"ERROR"}, "Please install PyClipper and Scikit-Image in the Preferences panel.")
+            self.report({"ERROR"}, "Please install SciPy and Scikit-Image in the Preferences panel.")
             return {'FINISHED'}
 
         set_multiedit(gp_obj, self.image_sequence)
@@ -549,6 +556,13 @@ class ImportColorImageOperator(bpy.types.Operator, ImportHelper, ImportColorImag
             img_mat = np.array(img_obj.pixels).reshape(img_H,img_W, img_obj.channels)
             img_mat = np.flipud(img_mat)
 
+            if self.auto_resize:
+                max_W, max_H = context.scene.render.resolution_x * 0.5, context.scene.render.resolution_y * 0.5
+                factor = min(max_H/img_H, max_W/img_W)
+                if factor < 1:
+                    img_mat = transform.rescale(img_mat, factor, anti_aliasing=False, channel_axis=2)
+                    img_H, img_W = img_mat.shape[0], img_mat.shape[1]
+
             # Preprocessing: alpha and denoise
             if img_obj.channels == 4:
                 color_mat = img_mat[:,:,:3]
@@ -562,12 +576,17 @@ class ImportColorImageOperator(bpy.types.Operator, ImportHelper, ImportColorImag
                 self.report({"WARNING"}, "Only RGB or RGBA images are supported.")
                 return {'FINISHED'}   
 
-            if self.median_radius > 0:
-                footprint = morphology.disk(self.median_radius)
-                footprint = np.repeat(footprint[:, :, np.newaxis], num_color_channel, axis=2)
-                color_mat = filters.median(color_mat, footprint)
+            # To balance between efficiency and quality, adopt the following steps: 
+            #      RGB k-means -> felzenszwalb -> 2nd k-means
+            num_colors = self.num_colors if len(given_colors)==0 else len(given_colors)
+            _, label = cluster.vq.kmeans2(color_mat.reshape(-1,3).astype('float'), num_colors*2, minit='++', seed=0)
+            label = label.reshape((img_H, img_W))
+            color_mat = skimage.color.label2rgb(label+1, color_mat, kind='avg')
+            
+            label = segmentation.felzenszwalb(color_mat, scale=1, min_size=self.min_area)
+            color_mat = skimage.color.label2rgb(label+1, color_mat, kind='avg')
 
-            # If no colors are given, run K-Means
+            # Final color quantization in different modes
             pixels_1d = color_mat.reshape(-1,num_color_channel)
             if len(given_colors)==0:
                 palette, label = cluster.vq.kmeans2(pixels_1d, self.num_colors, minit='++', seed=0)
@@ -581,37 +600,19 @@ class ImportColorImageOperator(bpy.types.Operator, ImportHelper, ImportColorImag
                 rgb_diff = pixels_1d.reshape(-1,1,num_color_channel) - palette.reshape(1,-1,num_color_channel)
                 rgb_dist = np.sum(np.square(rgb_diff), axis=2)
                 label = np.argmin(rgb_dist, axis=1)
-            label = label.reshape((img_H, img_W))
-
+            # Use Label 0 as transparent areas
+            label = label.reshape((img_H, img_W)) + 1
+            
             # Get contours of each color
-            contours, contour_color, contour_label = [], [], []
+            spatial_label = measure.label(label*alpha_mask, connectivity=1)
+            merge_small_areas(spatial_label, label, self.min_area)    
+            contours_info = multicolor_contour_find(spatial_label, label)
+                        
+            # Record colors in a Blender palette, skipping colors that are not used
             label_count = [0] * len(palette)
-            global_mask = np.zeros((img_H,img_W))
-            global_mask[1:-1,1:-1] = 1  # Avoid generating open contours
-            global_mask *= alpha_mask
-            sampled_contour_points = set()
-            for i,color in enumerate(palette):
-                res = measure.find_contours( (label==i)*global_mask, 0.5, positive_orientation='high')
-                for contour in res:
-                    if pyclipper.Area(contour)>self.min_area:
-                        # Sample the contour according to user option, and reuse coordinates when possible
-                        unsampled = 0
-                        new_contour = []
-                        for co_2d in contour:
-                            unsampled += 1
-                            if tuple(co_2d) in sampled_contour_points:
-                                new_contour.append(co_2d)
-                                unsampled = 0
-                            elif unsampled >= self.sample_length:
-                                new_contour.append(co_2d)
-                                unsampled = 0
-                                sampled_contour_points.add(tuple(co_2d))
-                        contours.append(new_contour)
-                        contour_color.append(color)
-                        contour_label.append(i)
-                        label_count[i] += 1
-
-            # Record colors in a Blender palette
+            for _, _, color_label in contours_info:
+                if color_label > 0:
+                    label_count[color_label-1] += 1
             if len(given_colors)==0 and palette_to_write:
                 for i, color in enumerate(palette):
                     if label_count[i]>0:
@@ -672,19 +673,22 @@ class ImportColorImageOperator(bpy.types.Operator, ImportHelper, ImportColorImag
             plane_projector = CameraPlaneProjector(gp_obj, bpy.context.scene.camera, bpy.context.scene) \
                         if self.fit_to_camera else None 
 
-            for i,path in enumerate(contours):
-                color, label = contour_color[i], contour_label[i]
+            for path, critical_idx, color_label in contours_info:
+                if color_label == 0:
+                    continue
+                color = Color(palette[color_label-1])
+                path = simplify_contour_path(path, critical_idx, self.smooth_level, self.sample_length)
                 frame_strokes.new()
-                stroke: bpy.types.GPencilStroke = frame_strokes[-1]
+                stroke = frame_strokes[-1]
                 stroke.line_width = line_width
                 stroke.use_cyclic = True
-                stroke.material_index = output_material_idx[label]
+                stroke.material_index = output_material_idx[color_label-1]
                 if self.color_mode == 'VERTEX':
                     stroke.vertex_color_fill = [srgb_to_linear(color[0]),
                                                 srgb_to_linear(color[1]),
                                                 srgb_to_linear(color[2]),1]
                 stroke.points.add(len(path))
-                for i,point in enumerate(frame_strokes[-1].points):
+                for i,point in enumerate(stroke.points):
                     if self.fit_to_camera:
                         point.co = plane_projector.get_co(path[i][1]/img_W, 1-path[i][0]/img_H)
                     else:
@@ -731,7 +735,6 @@ class ImportColorImageOperator(bpy.types.Operator, ImportHelper, ImportColorImag
 
         # Post-processing and context recovery
         refresh_strokes(gp_obj, processed_frame_numbers)
-        bpy.ops.gpencil.nijigp_hole_processing(rearrange=True, apply_holdout=False)
         set_multiedit(gp_obj, use_multiedit)
         bpy.ops.object.mode_set(mode=current_mode)
 
@@ -799,12 +802,13 @@ class RenderAndVectorizeOperator(bpy.types.Operator, ImportColorImageConfig):
         layout.label(text = "Image Options:")
         box2 = layout.box()
         box2.prop(self, "num_colors")
-        box2.prop(self, "median_radius")
+        box2.prop(self, "auto_resize")
         
         layout.label(text = "Stroke Options:")
         box3 = layout.box()
-        box3.prop(self, "sample_length")
         box3.prop(self, "min_area")
+        box3.prop(self, "sample_length")
+        box3.prop(self, "smooth_level")
         box3.prop(self, "color_mode")
         if self.color_mode == 'VERTEX':
             box3.prop(self, "output_material", text='Material', icon='MATERIAL')
@@ -856,8 +860,8 @@ class RenderAndVectorizeOperator(bpy.types.Operator, ImportColorImageConfig):
             bpy.ops.render.render(write_still=True)
         scene.frame_set(scene.frame_start)
         bpy.ops.gpencil.nijigp_import_color_image(filepath=op_filepath, directory=bpy.app.tempdir, files=op_files, 
-                                                num_colors=self.num_colors, median_radius=self.median_radius,
-                                                sample_length=self.sample_length, min_area=self.min_area,
+                                                num_colors=self.num_colors, auto_resize=self.auto_resize,
+                                                min_area=self.min_area, smooth_level=self.smooth_level, sample_length=self.sample_length,
                                                 color_mode=self.color_mode, output_material=self.output_material, set_line_color=self.set_line_color,
                                                 image_sequence=True, frame_step=self.frame_step, fit_to_camera=True)
         
