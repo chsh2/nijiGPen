@@ -57,7 +57,7 @@ def simplify_contour_path(path, segment_indices=[], smooth_level=0, sample_step=
         for i in range(smooth_level):
             tmp = np.roll(res, 1, axis=0) * .25 + np.roll(res, -1, axis=0) * .25 + res * .5
             res[1:-1] = tmp[1:-1]
-        return res
+        return res[:-1]
         
     if len(segment_indices) == 0:
         path = np.append(path, [path[0]], axis=0)

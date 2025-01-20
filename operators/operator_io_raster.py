@@ -678,6 +678,8 @@ class ImportColorImageOperator(bpy.types.Operator, ImportHelper, ImportColorImag
                     continue
                 color = Color(palette[color_label-1])
                 path = simplify_contour_path(path, critical_idx, self.smooth_level, self.sample_length)
+                if len(path) < 3:
+                    continue
                 frame_strokes.new()
                 stroke = frame_strokes[-1]
                 stroke.line_width = line_width
@@ -825,6 +827,8 @@ class RenderAndVectorizeOperator(bpy.types.Operator, ImportColorImageConfig):
             is_render_hidden[obj] = obj.hide_render
         multiedit = get_multiedit(gp_obj) 
         is_background_transparent = scene.render.film_transparent
+        render_format = scene.render.image_settings.file_format
+        render_color_mode = scene.render.image_settings.color_mode
         render_path = scene.render.filepath
         frame_start = scene.frame_start
         frame_end = scene.frame_end
@@ -833,6 +837,8 @@ class RenderAndVectorizeOperator(bpy.types.Operator, ImportColorImageConfig):
         bpy.ops.object.mode_set(mode=get_obj_mode_str('EDIT'))
         bpy.context.space_data.region_3d.view_perspective = 'CAMERA'
         scene.render.film_transparent = True
+        scene.render.image_settings.file_format = 'PNG'
+        scene.render.image_settings.color_mode = 'RGBA'
         set_multiedit(gp_obj, False)
         scene.frame_start = self.frame_start if self.render_animation else scene.frame_current
         scene.frame_end = self.frame_end if self.render_animation else scene.frame_current
@@ -905,6 +911,8 @@ class RenderAndVectorizeOperator(bpy.types.Operator, ImportColorImageConfig):
         for obj in scene.objects:
             obj.hide_render = is_render_hidden[obj]
         scene.render.film_transparent = is_background_transparent
+        scene.render.image_settings.file_format = render_format
+        scene.render.image_settings.color_mode = render_color_mode
         scene.render.filepath = render_path
         scene.frame_start = frame_start
         scene.frame_end = frame_end
