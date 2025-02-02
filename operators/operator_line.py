@@ -23,7 +23,7 @@ def fit_2d_strokes(fitter, strokes, frame_number=-1, ignore_transparent=False, s
         4. Offset based on points in the neighborhood
         5. Fit and smooth points to a B-Spline
     '''
-    from ..solvers.graph import TriangleMst
+    from ..solvers.graph import MstSolver
 
     poly_list, depth_list, _ = get_2d_co_from_strokes(strokes, t_mat, scale=False)
     
@@ -75,8 +75,8 @@ def fit_2d_strokes(fitter, strokes, frame_number=-1, ignore_transparent=False, s
     # Triangulation and spanning tree conversion
     tr_output = {}
     tr_output['vertices'], _, tr_output['triangles'], _,_,_ = geometry.delaunay_2d_cdt(tr_input['vertices'], [], [], 0, 1e-9)
-    mst_builder = TriangleMst()
-    mst_builder.build_mst(tr_output)
+    mst_builder = MstSolver()
+    mst_builder.mst_from_triangles(tr_output)
     total_length, path_whole = mst_builder.get_longest_path()
     
     # The fitting method needs at least 4 points
@@ -336,7 +336,7 @@ class FitSelectedOperator(CommonFittingConfig, bpy.types.Operator):
 
     def execute(self, context):
         try:
-            from ..solvers.graph import TriangleMst
+            from ..solvers.graph import MstSolver
             from ..solvers.fit import CurveFitter
         except:
             self.report({"ERROR"}, "Please install Scipy in the Preferences panel.")
@@ -810,7 +810,7 @@ class FitLastOperator(CommonFittingConfig, bpy.types.Operator):
 
     def execute(self, context):
         try:
-            from ..solvers.graph import TriangleMst
+            from ..solvers.graph import MstSolver
             from ..solvers.fit import CurveFitter
         except:
             self.report({"ERROR"}, "Please install Scipy in the Preferences panel.")

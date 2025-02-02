@@ -2,13 +2,13 @@ import numpy as np
 from mathutils import *
 from scipy.sparse import csr_matrix, csgraph
 
-class TriangleMst:
+class MstSolver:
     """
-    A class that converts triangulated strokes to a minimum spanning stree (MST) and calculates different metrics
+    Gets a minimum spanning tree (MST) from other types of graphs and calculates related metrics
     """
     tr_info: map
     mst: csgraph
-    def build_mst(self, tr_output):
+    def mst_from_triangles(self, tr_output):
         def e_dist(i,j):
             src = tr_output['vertices'][i]
             dst = tr_output['vertices'][j]

@@ -169,7 +169,7 @@ class PinRigOperator(bpy.types.Operator):
     def execute(self, context):
         gp_obj: bpy.types.Object = context.object
         try:
-            from ..solvers.graph import TriangleMst
+            from ..solvers.graph import MstSolver
         except:
             self.report({"ERROR"}, "Please install Scipy in the Preferences panel.")
         if self.hint_shape == 'LASSO':
@@ -270,8 +270,8 @@ class PinRigOperator(bpy.types.Operator):
             for new_idx,orig_verts in enumerate(tr_output['orig_verts']):
                 for old_idx in orig_verts:
                     updated_idx_map[old_idx] = new_idx
-            mst_builder = TriangleMst()
-            mst_builder.build_mst(tr_output)
+            mst_builder = MstSolver()
+            mst_builder.mst_from_triangles(tr_output)
             
             # Process bones one by one
             for i in range(num_pins):

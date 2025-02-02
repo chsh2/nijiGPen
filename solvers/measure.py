@@ -44,6 +44,24 @@ def marching_squares(padded_mat, start_pos, target_label):
         pos, last_offset = get_next_pos(pos, last_offset)
         i += 1
     return np.array(path), np.array(critical_idx, dtype='int')
+
+def multicolor_contour_find(spatial_label_mat, color_label_mat):
+    """
+    Find all contours from a colored image, then do postprocessing on each contour path
+    """
+    processed_labels = set([0])
+    contours_info = []  # (path, critical points, color label) of each contour
+    
+    # Perform marching squares on each connected component
+    padded_mat = np.pad(spatial_label_mat, ((1,1),(1,1)), 'constant', constant_values=0)
+    H, W = padded_mat.shape[0], padded_mat.shape[1]
+    for i in range(H):
+        for j in range(W):
+            if padded_mat[i,j] not in processed_labels:
+                path, critical_idx = marching_squares(padded_mat, (i-1,j-1), padded_mat[i,j])
+                contours_info.append((path, critical_idx, color_label_mat[i-1,j-1]))
+                processed_labels.add(padded_mat[i,j])
+    return contours_info
     
 def simplify_contour_path(path, segment_indices=[], smooth_level=0, sample_step=1):
     """
@@ -79,27 +97,9 @@ def simplify_contour_path(path, segment_indices=[], smooth_level=0, sample_step=
             new_path += list(process_segment(path, start, end))
     return np.array(new_path)
 
-def multicolor_contour_find(spatial_label_mat, color_label_mat):
-    """
-    Find all contours from a colored image, then do postprocessing on each contour path
-    """
-    processed_labels = set([0])
-    contours_info = []  # (path, critical points, color label) of each contour
-    
-    # Perform marching squares on each connected component
-    padded_mat = np.pad(spatial_label_mat, ((1,1),(1,1)), 'constant', constant_values=0)
-    H, W = padded_mat.shape[0], padded_mat.shape[1]
-    for i in range(H):
-        for j in range(W):
-            if padded_mat[i,j] not in processed_labels:
-                path, critical_idx = marching_squares(padded_mat, (i-1,j-1), padded_mat[i,j])
-                contours_info.append((path, critical_idx, color_label_mat[i-1,j-1]))
-                processed_labels.add(padded_mat[i,j])
-    return contours_info
-
 def merge_small_areas(spatial_label_mat, color_label_mat, min_area):
     """
-    Even when min_size is specified, Felzenszwalb algorithm may generate small segmentations. Therefore, deploy another algorithm to eliminate such areas
+    Even when min_size is specified, Felzenszwalb algorithm may generate small segments. Therefore, deploy another algorithm to eliminate such areas
     """
     label_neighbors = {}
     label_area = {}
@@ -124,7 +124,7 @@ def merge_small_areas(spatial_label_mat, color_label_mat, min_area):
                     if new_label != label and new_label > 0:
                         label_neighbors[label].add(new_label)
                         
-    # For every label with small area, either merge it to a larger area or eliminate it    
+    # For every label with small area, either merge it to a larger area or mark it as invalid 
     for label in label_area:
         if label_area[label] < min_area:
             mask = spatial_label_mat==label
