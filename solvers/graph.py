@@ -27,6 +27,30 @@ class MstSolver:
         self.mst = csgraph.minimum_spanning_tree(dist_graph)
         return self.mst
     
+    def mst_from_voronoi(self, vor, poly=None):
+        import pyclipper
+        def e_dist(i,j):
+            src = vor.vertices[i]
+            dst = vor.vertices[j]
+            res = np.sqrt((dst[0]-src[0])**2 + (dst[1]-src[1])**2)
+            return max(res, 1e-9)
+        # Consider Voronoi ridges with both vertices inside the polygon
+        num_vert = len(vor.vertices)
+        is_vertex_valid = [True] * num_vert
+        if poly is not None:
+            for i in range(num_vert):
+                if pyclipper.PointInPolygon(vor.vertices[i], poly) < 1:
+                    is_vertex_valid[i] = False
+        row, col, data = [], [], []
+        for i,j in vor.ridge_vertices:
+            if i>=0 and j>=0 and is_vertex_valid[i] and is_vertex_valid[j]:
+                row.append(i)
+                col.append(j)
+                data.append(e_dist(i,j))
+        dist_graph = csr_matrix((data, (row, col)), shape=(num_vert, num_vert))
+        self.mst = csgraph.minimum_spanning_tree(dist_graph)
+        return self.mst
+
     def get_longest_path(self):
         """
         The longest path of MST is required by the line fitting operators
@@ -62,7 +86,7 @@ class MstSolver:
                 pointer += 1
             return predecessor_map, max_dist, farthest_idx
         
-        _, _, src_idx = tree_bfs(self.mst, 0)
+        _, _, src_idx = tree_bfs(self.mst, self.mst.nonzero()[0][0])
         predecessor_map, total_length, dst_idx = tree_bfs(self.mst, src_idx)
         
         # Trace the map back to get the whole path
