@@ -85,7 +85,9 @@ def new_gp_brush(name):
     """Copy an existing one if GPv2, since files always have internal brushes; create a new one if GPv3 since it is easier"""
     if bpy.app.version >= (4, 3, 0):
         res = bpy.data.brushes.new(name, mode=get_ctx_mode_str('PAINT'))
+        res.color = (0,0,0)
         res.gpencil_settings.vertex_color_factor = 1
+        res.gpencil_settings.vertex_mode = 'BOTH'
     else:
         src = [brush for brush in bpy.data.brushes if brush.use_paint_grease_pencil and brush.gpencil_tool=='DRAW'][0]
         res = src.copy()

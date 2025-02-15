@@ -198,6 +198,7 @@ class HoleProcessingOperator(bpy.types.Operator):
             dst_mat: bpy.types.Material = src_mat.copy()
             dst_mat.name = dst_mat_name
             dst_mat['original_material_index'] = stroke.material_index
+            dst_mat.grease_pencil.fill_style = 'SOLID'
             dst_mat.grease_pencil.fill_color = (0,0,0,1)
             dst_mat.grease_pencil.use_fill_holdout = True
             gp_obj.data.materials.append(dst_mat)
@@ -239,6 +240,8 @@ class HoleProcessingOperator(bpy.types.Operator):
                     to_process[i].select = True
                     key = rgb_to_hex_code(to_process[i].vertex_color_fill) if self.separate_colors else 0
                     if self.apply_holdout and is_hole_map[key] and not is_stroke_line(to_process[i], gp_obj):
+                        if hasattr(to_process[i], 'fill_opacity'):
+                            to_process[i].fill_opacity = 1.0
                         change_material(to_process[i])
                     color_modified.add(key)
                 if self.rearrange:
