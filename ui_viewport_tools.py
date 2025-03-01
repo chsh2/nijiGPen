@@ -205,19 +205,30 @@ class SmartFillModalOperator(bpy.types.Operator):
         line_art_layer = gp_obj.data.layers.active
         if self.line_layer in gp_obj.data.layers:
             line_art_layer = gp_obj.data.layers[self.line_layer]
-        if not line_art_layer.active_frame:
+        for f in line_art_layer.frames:
+            if f.frame_number > bpy.context.scene.frame_current:
+                break
+            self.line_art_frame = f
+        if not self.line_art_frame:
             return 1
-        if len(line_art_layer.active_frame.nijigp_strokes) < 1:
+        if len(self.line_art_frame.nijigp_strokes) < 1:
             return 1
+        
         # Get or create an output frame from active layer
         fill_layer = gp_obj.data.layers.active
-        self.output_frame = fill_layer.active_frame
+        if not bpy.context.scene.tool_settings.use_keyframe_insert_auto:
+            self.output_frame = fill_layer.active_frame
+        else:
+            for f in fill_layer.frames:
+                if f.frame_number == bpy.context.scene.frame_current:
+                    self.output_frame = f
+                    break
         if not self.output_frame:
             self.output_frame = fill_layer.frames.new(bpy.context.scene.frame_current)
 
         # Process line art as solver input
-        stroke_list = [stroke for stroke in line_art_layer.active_frame.nijigp_strokes]
-        if self.incremental and line_art_layer.active_frame != self.output_frame:
+        stroke_list = [stroke for stroke in self.line_art_frame.nijigp_strokes]
+        if self.incremental and self.line_art_frame != self.output_frame:
             stroke_list += [stroke for stroke in self.output_frame.nijigp_strokes]
         self.t_mat, _ = get_transformation_mat(mode='VIEW',
                                                 gp_obj=gp_obj, strokes=stroke_list, operator=self)
@@ -383,6 +394,7 @@ class SmartFillModalOperator(bpy.types.Operator):
         self.hint_points_co = []
         self.hint_points_label = []
         self.output_frame = None
+        self.line_art_frame = None
         self.generated_strokes = []
         self.solver = SmartFillSolver()
         self.solver_init_state = None
