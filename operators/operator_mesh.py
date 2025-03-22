@@ -1236,7 +1236,7 @@ class MeshGenerationByOffsetting(CommonMeshConfig, bpy.types.Operator):
 
             # Delete old strokes
             if not self.keep_original:
-                for info in stroke_info:
+                for info in stroke_info + mask_info:
                     info[3].nijigp_strokes.remove(info[0])
             context.view_layer.objects.active = current_gp_obj
             bpy.ops.object.mode_set(mode=get_obj_mode_str('EDIT'))

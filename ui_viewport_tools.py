@@ -613,7 +613,7 @@ class ArrangeModalOperator(bpy.types.Operator):
     bl_label = "Arrange Strokes (Modal)"
     bl_options = {'REGISTER', 'UNDO'}
 
-    max_display: bpy.props.IntProperty(default=100)
+    max_display: bpy.props.IntProperty(default=300)
     font_id: bpy.props.IntProperty(default=0)
     starting_mouse_x: bpy.props.IntProperty()
     arrange_offset: bpy.props.IntProperty(default=0)
