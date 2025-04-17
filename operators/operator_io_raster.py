@@ -577,29 +577,32 @@ class ImportColorImageOperator(bpy.types.Operator, ImportHelper, ImportColorImag
                 return {'FINISHED'}   
 
             # To balance between efficiency and quality, adopt the following steps: 
-            #      RGB k-means -> felzenszwalb -> 2nd k-means
+            #      LAB k-means -> felzenszwalb -> 2nd k-means
+            color_mat_lab = skimage.color.rgb2lab(color_mat)
             num_colors = self.num_colors if len(given_colors)==0 else len(given_colors)
-            _, label = cluster.vq.kmeans2(color_mat.reshape(-1,3).astype('float'), num_colors*2, minit='++', seed=0)
+            _, label = cluster.vq.kmeans2(color_mat_lab.reshape(-1,3).astype('float'), num_colors*2, minit='++', seed=0)
             label = label.reshape((img_H, img_W))
-            color_mat = skimage.color.label2rgb(label+1, color_mat, kind='avg')
+            color_mat_lab = skimage.color.label2rgb(label+1, color_mat_lab, kind='avg')
             
-            label = segmentation.felzenszwalb(color_mat, scale=1, min_size=self.min_area)
-            color_mat = skimage.color.label2rgb(label+1, color_mat, kind='avg')
+            label = segmentation.felzenszwalb(color_mat_lab, scale=1, min_size=self.min_area)
+            color_mat_lab = skimage.color.label2rgb(label+1, color_mat_lab, kind='avg')
 
             # Final color quantization in different modes
-            pixels_1d = color_mat.reshape(-1,num_color_channel)
+            pixels_1d = color_mat_lab.reshape(-1,num_color_channel)
             if len(given_colors)==0:
                 palette, label = cluster.vq.kmeans2(pixels_1d, self.num_colors, minit='++', seed=0)
+                palette = skimage.color.lab2rgb(palette)
             # If given colors, sort colors by either RGB distance or number of colored pixels
             elif self.color_source == 'PALETTE_AREA':
                 palette, label = cluster.vq.kmeans2(pixels_1d, given_colors.shape[0], minit='++', seed=0)
                 color_seq = np.argsort(-np.bincount(label))
                 palette[color_seq] = given_colors
             else:
-                palette = given_colors
-                rgb_diff = pixels_1d.reshape(-1,1,num_color_channel) - palette.reshape(1,-1,num_color_channel)
-                rgb_dist = np.sum(np.square(rgb_diff), axis=2)
-                label = np.argmin(rgb_dist, axis=1)
+                palette = skimage.color.rgb2lab(given_colors)
+                lab_diff = pixels_1d.reshape(-1,1,num_color_channel) - palette.reshape(1,-1,num_color_channel)
+                lab_dist = np.sum(np.square(lab_diff), axis=2)
+                label = np.argmin(lab_dist, axis=1)
+                palette = skimage.color.lab2rgb(palette)
             # Use Label 0 as transparent areas
             label = label.reshape((img_H, img_W)) + 1
             
