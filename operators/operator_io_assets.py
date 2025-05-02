@@ -487,9 +487,7 @@ class AppendSVGOperator(bpy.types.Operator, ImportHelper):
         current_frame_number = context.scene.frame_current
         use_multiedit = get_multiedit(current_gp_obj)
         t_mat, inv_mat = get_transformation_mat(mode=context.scene.nijigp_working_plane, gp_obj=current_gp_obj)
-        # Use point selection mode to ensure Bezier handlers to be selected
-        if is_gpv3():
-            bpy.ops.grease_pencil.set_selection_mode(mode='POINT')
+            
 
         frame_number = current_frame_number
         set_multiedit(current_gp_obj, False)
@@ -578,7 +576,9 @@ class AppendSVGOperator(bpy.types.Operator, ImportHelper):
                 for stroke in frame.nijigp_strokes:
                     stroke.select = True
                 if is_gpv3():
+                    # GPv3 may convert SVG to Bezier curves. Ensure that all control points are selected
                     context.scene.frame_set(frame.frame_number)
+                    bpy.ops.grease_pencil.set_selection_mode(mode='POINT')
                     bpy.ops.grease_pencil.select_linked()
         
         if self.auto_holdout:
