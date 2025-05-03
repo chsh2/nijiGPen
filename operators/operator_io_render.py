@@ -40,6 +40,7 @@ class MultiLayerRenderOperator(bpy.types.Operator, ExportHelper):
     
     def execute(self, context):
         import numpy as np
+        import uuid
         
         if self.render_target=='ACTIVE':
             gp_obj_list = [context.object] if obj_is_gp(context.object) else []
@@ -116,7 +117,7 @@ class MultiLayerRenderOperator(bpy.types.Operator, ExportHelper):
             layer_img_mats.append([])
             for layer in gp_obj.data.layers:
                 layer.hide, layer.blend_mode, layer.opacity = False, 'REGULAR', 1
-                layer_img_mats[-1].append( render_and_load(os.path.join(cache_folder,str(layer.info)+'.png')) )
+                layer_img_mats[-1].append( render_and_load(os.path.join(cache_folder,str(uuid.uuid4())+'.png')) )
                 layer.hide = True
                 name_to_idx[layer.info] = len(layer_img_mats[-1]) - 1
             gp_obj.hide_render = True
