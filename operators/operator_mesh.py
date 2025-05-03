@@ -330,7 +330,8 @@ class MeshGenerationByNormal(CommonMeshConfig, bpy.types.Operator):
                                 stroke_list.append(stroke)
                                 mesh_names.append('Planar_' + current_gp_obj.data.layers[layer_idx].info + '_' + str(j))
             t_mat, inv_mat = get_transformation_mat(mode=context.scene.nijigp_working_plane,
-                                                    gp_obj=current_gp_obj, strokes=stroke_list, operator=self)
+                                                    gp_obj=current_gp_obj, strokes=stroke_list, operator=self,
+                                                    requires_layer=False)
             poly_list, depth_list, poly_inverted, scale_factor = get_2d_co_from_strokes(stroke_list, t_mat, 
                                                                         scale=True, correct_orientation=True, return_orientation=True)
             mask_poly_list, mask_depth_list, mask_inverted, _ = get_2d_co_from_strokes(mask_list, t_mat, 
@@ -888,7 +889,8 @@ class MeshGenerationByOffsetting(CommonMeshConfig, bpy.types.Operator):
                                 stroke_list.append(stroke)
                                 mesh_names.append('Offset_' + current_gp_obj.data.layers[layer_idx].info + '_' + str(j))
             t_mat, inv_mat = get_transformation_mat(mode=context.scene.nijigp_working_plane,
-                                                    gp_obj=current_gp_obj, strokes=stroke_list, operator=self)
+                                                    gp_obj=current_gp_obj, strokes=stroke_list, operator=self,
+                                                    requires_layer=False)
             poly_list, depth_list, scale_factor = get_2d_co_from_strokes(stroke_list, t_mat, 
                                                                 scale=True, correct_orientation=True)
             mask_poly_list, mask_depth_list, _ = get_2d_co_from_strokes(mask_list, t_mat, 

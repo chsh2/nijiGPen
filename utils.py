@@ -341,6 +341,69 @@ def is_layer_protected(layer: bpy.types.GPencilLayer):
     """
     return layer_locked(layer) or layer_hidden(layer)
 
+def is_layer_inside_group(layer, group):
+    """Check if a GPv3 layer belongs to a layer group"""
+    if not is_gpv3():
+        return False
+    p = layer
+    while p.parent_group is not None:
+        if p.parent_group == group:
+            return True
+        p = p.parent_group
+    return False
+
+def multilayer_search_func(self, context, edit_text):
+    """For operators that take multiple layers as input, generate the UI to allow the user add one layer at a time"""
+    # Allow the user to reselect
+    candidates = [layer.info for layer in context.object.data.layers]
+    if is_gpv3():
+        candidates += [group.name for group in context.object.data.layer_groups]
+
+    # Allow the user to select one more layer/group
+    existing_layers, existing_groups = multilayer_search_decode(edit_text)
+    if len(existing_layers) > 0 or len(existing_groups) > 0:
+        available_layers = [layer.info for layer in context.object.data.layers if layer not in existing_layers]
+        candidates += [edit_text + " + " + layer_name for layer_name in available_layers]
+        if is_gpv3():
+            available_groups = [group.name for group in context.object.data.layer_groups if group not in existing_groups]
+            candidates += [edit_text + " + " + group_name for group_name in available_groups]      
+    return candidates
+
+def multilayer_search_decode(edit_text):
+    """Decode the input string into a list of layers"""
+    names = edit_text.split(" + ")
+    gp_obj = bpy.context.object
+    groups = set()
+    if is_gpv3():
+        groups = [group for group in gp_obj.data.layer_groups if group.name in names]
+        # Also add groups that are inside any input group
+        sub_groups = []
+        for group in gp_obj.data.layer_groups:
+            for ancestor_group in groups:
+                if is_layer_inside_group(group, ancestor_group):
+                    sub_groups.append(group)
+                    break
+        groups = set(groups + sub_groups)
+
+    layers = [layer for layer in gp_obj.data.layers if layer.info in names]
+    if is_gpv3():
+        for layer in gp_obj.data.layers:
+            for ancestor_group in groups:
+                if is_layer_inside_group(layer, ancestor_group):
+                    layers.append(layer)
+                    break
+    layers = set(layers)
+    return layers, groups
+
+def get_layer_latest_frame(layer, current_frame):
+    """Find the latest frame of a layer before a given frame"""
+    frame = None
+    for f in layer.frames:
+        if f.frame_number > current_frame:
+            break
+        frame = f
+    return frame
+
 def get_stroke_length(stroke: bpy.types.GPencilStroke = None, co_list = None):
     """Calculate the total length of a stroke"""
     res = 0

@@ -774,7 +774,7 @@ class FitLastOperator(CommonFittingConfig, bpy.types.Operator):
         name='Reference Layer',
         description='The layer with draft strokes which are used to guide the fitting of the newly drawn stroke',
         default='',
-        search=lambda self, context, edit_text: [layer.info for layer in context.object.data.layers]
+        search=multilayer_search_func
     ) 
 
     def draw(self, context):
@@ -822,15 +822,12 @@ class FitLastOperator(CommonFittingConfig, bpy.types.Operator):
             self.report({"INFO"}, "Please select a layer.")
             return {'FINISHED'}
         if len(self.reference_layer) > 0:
-            reference_layer = gp_obj.data.layers[self.reference_layer]
+            reference_layers, _ = multilayer_search_decode(self.reference_layer)
         else:
             return {'FINISHED'}
         drawing_layer = gp_obj.data.layers.active
-        if not reference_layer.active_frame:
-            self.report({"INFO"}, "The reference layer has no stroke data.")
-            return {'FINISHED'} 
-        if reference_layer == drawing_layer:
-            self.report({"INFO"}, "Please draw in a layer other than the reference layer.")
+        if drawing_layer in reference_layers:
+            self.report({"WARNING"}, "Reference layer cannot be the active layer.")
             return {'FINISHED'}  
                  
         # Get stroke information from the input
@@ -851,16 +848,17 @@ class FitLastOperator(CommonFittingConfig, bpy.types.Operator):
         stroke_list = []
         threshold = (self.cluster_dist if self.cluster_criterion == 'DIST' else
                      self.cluster_ratio / 100.0 * src_stroke_length)
-        for stroke in reference_layer.active_frame.nijigp_strokes:
-            if not stroke_bound_box_overlapping(stroke, src_stroke, t_mat):
-                continue
-            tmp, _, _ = get_2d_co_from_strokes([stroke], t_mat, scale=False)
-            co_list = tmp[0]
-            kdt = stroke_to_kdtree(co_list)
-            line_dist1 = distance_to_another_stroke(co_list, src_co_list, src_kdt)
-            line_dist2 = distance_to_another_stroke(src_co_list, co_list, kdt)
-            if min(line_dist1, line_dist2) < threshold:
-                stroke_list.append(stroke)
+        for reference_layer in reference_layers:
+            for stroke in reference_layer.active_frame.nijigp_strokes:
+                if not stroke_bound_box_overlapping(stroke, src_stroke, t_mat):
+                    continue
+                tmp, _, _ = get_2d_co_from_strokes([stroke], t_mat, scale=False)
+                co_list = tmp[0]
+                kdt = stroke_to_kdtree(co_list)
+                line_dist1 = distance_to_another_stroke(co_list, src_co_list, src_kdt)
+                line_dist2 = distance_to_another_stroke(src_co_list, co_list, kdt)
+                if min(line_dist1, line_dist2) < threshold:
+                    stroke_list.append(stroke)
 
         if len(stroke_list)<1:
             return {'FINISHED'}  

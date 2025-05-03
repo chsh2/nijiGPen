@@ -12,15 +12,6 @@ def switch_to(objs):
         obj.select_set(True)
     bpy.context.view_layer.objects.active = objs[0]
 
-def is_inside_group(layer, group):
-    """Check if a GPv3 layer belongs to a layer group"""
-    p = layer
-    while p.parent_group is not None:
-        if p.parent_group == group:
-            return True
-        p = p.parent_group
-    return False
-
 def get_output_layers(gp_obj, target_mode:str):
     """Common way of selecting output layers for rig operators. Return indices"""
     target_layers = []
@@ -34,7 +25,7 @@ def get_output_layers(gp_obj, target_mode:str):
     elif target_mode == 'ACTIVE':
         if is_gpv3() and gp_obj.data.layer_groups.active:
             active_group = gp_obj.data.layer_groups.active
-            target_layers = [i for i,layer in enumerate(gp_obj.data.layers) if is_inside_group(layer, active_group)]
+            target_layers = [i for i,layer in enumerate(gp_obj.data.layers) if is_layer_inside_group(layer, active_group)]
         else:
             target_layers = [i for i,layer in enumerate(gp_obj.data.layers) if layer == gp_obj.data.layers.active]
     return target_layers
@@ -434,8 +425,6 @@ class MeshFromArmOperator(bpy.types.Operator):
         gp_obj: bpy.types.Object = context.object
         current_mode = gp_obj.mode
         gp_obj_inv_mat = gp_obj.matrix_world.inverted_safe()
-        t_mat, _ = get_transformation_mat(mode=context.scene.nijigp_working_plane,
-                                                gp_obj=gp_obj, operator=self)
         arm = bpy.context.scene.objects[self.source_arm]    
 
         # Generate temporary layers for fills and hints
@@ -462,7 +451,11 @@ class MeshFromArmOperator(bpy.types.Operator):
         # Generate fills and meshes using other operators
         multiframe = get_multiedit(gp_obj)
         set_multiedit(gp_obj, False)
-        bpy.ops.gpencil.nijigp_smart_fill(line_layer = gp_obj.data.layers.active.info,
+        if is_gpv3() and gp_obj.data.layer_groups.active:
+            line_layer_name = gp_obj.data.layer_groups.active.name
+        else:
+            line_layer_name = gp_obj.data.layers.active.info
+        bpy.ops.gpencil.nijigp_smart_fill(line_layer = line_layer_name,
                                           hint_layer = hint_layer.info,
                                           fill_layer = fill_layer.info,
                                           precision = 0.05,
@@ -563,7 +556,7 @@ class TransferWeightOperator(bpy.types.Operator):
         
         t_mat, _ = get_transformation_mat(mode=context.scene.nijigp_working_plane,
                                                 gp_obj=gp_obj, operator=self,
-                                                requires_layer=self.auto_mesh)
+                                                requires_layer=False)
         bone_name_set = set()
         for bone in arm.data.bones:
             bone_name_set.add(bone.name)

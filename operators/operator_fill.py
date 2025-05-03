@@ -41,7 +41,7 @@ class SmartFillOperator(bpy.types.Operator):
         name='Line Art Layer',
         description='',
         default='',
-        search=lambda self, context, edit_text: [layer.info for layer in context.object.data.layers]
+        search=multilayer_search_func
     )
     hint_layer: bpy.props.StringProperty(
         name='Hint Layer',
@@ -144,15 +144,15 @@ class SmartFillOperator(bpy.types.Operator):
             or (len(self.hint_layer) < 1 and not self.use_boundary_strokes)
             or len(self.fill_layer) < 1):
             return {'FINISHED'}
-        line_layer = gp_obj.data.layers[self.line_layer]
+        line_layers, _ = multilayer_search_decode(self.line_layer)
         hint_layer = (gp_obj.data.layers[self.fill_layer] if self.use_boundary_strokes else
                       gp_obj.data.layers[self.hint_layer])
         fill_layer = gp_obj.data.layers[self.fill_layer]
         if fill_layer.lock:
             self.report({"WARNING"}, "The output layer is locked.")
             return {'FINISHED'}
-        if self.line_layer == self.hint_layer:
-            self.report({"INFO"}, "Please select different layers for line art and hints.")
+        if self.hint_layer in [layer.info for layer in line_layers]:
+            self.report({"WARNING"}, "Hint layer cannot be any of the line layers.")
             return {'FINISHED'}
         if self.fill_layer == self.hint_layer and not self.use_boundary_strokes:
             self.clear_fill_layer = False
@@ -160,13 +160,16 @@ class SmartFillOperator(bpy.types.Operator):
         bpy.ops.object.mode_set(mode=get_obj_mode_str('EDIT'))
         op_deselect()
 
-        def fill_single_frame(line_frame, hint_frame, fill_frame):
-            if len(line_frame.nijigp_strokes) < 1:
+        def fill_single_frame(line_frames, hint_frame, fill_frame):
+            if sum([len(line_frame.nijigp_strokes) for line_frame in line_frames]) < 1:
                 return
             # Get points of line frame
-            stroke_list = [stroke for stroke in line_frame.nijigp_strokes]
+            stroke_list = []
+            for line_frame in line_frames:
+                stroke_list += [stroke for stroke in line_frame.nijigp_strokes]
             t_mat, inv_mat = get_transformation_mat(mode=context.scene.nijigp_working_plane,
-                                                    gp_obj=gp_obj, strokes=stroke_list, operator=self)
+                                                    gp_obj=gp_obj, strokes=stroke_list, operator=self, 
+                                                    requires_layer=False)
             poly_list, depth_list, scale_factor = get_2d_co_from_strokes(stroke_list, t_mat, scale=True)
             depth_lookup_tree = DepthLookupTree(poly_list, depth_list)
             
@@ -268,42 +271,39 @@ class SmartFillOperator(bpy.types.Operator):
         processed_frame_numbers = []
         if not get_multiedit(gp_obj):
             if fill_layer.active_frame:
-                fill_single_frame(line_layer.active_frame,
+                fill_single_frame([line_layer.active_frame for line_layer in line_layers],
                                 hint_layer.active_frame,
                                 fill_layer.active_frame)
+                processed_frame_numbers.append(fill_layer.active_frame.frame_number)
             else:
-                fill_frame = fill_layer.frames.new(line_layer.active_frame.frame_number)
-                fill_single_frame(line_layer.active_frame,
+                fill_frame = fill_layer.frames.new(bpy.context.scene.frame_current)
+                fill_single_frame([line_layer.active_frame for line_layer in line_layers],
                                 hint_layer.active_frame,
                                 fill_frame)
-            processed_frame_numbers.append(fill_layer.active_frame.frame_number)
+                processed_frame_numbers.append(bpy.context.scene.frame_current)
         else:
-            # Process each selected line art frame
-            for line_frame in line_layer.frames:
-                if line_frame.select:
-                    current_frame = line_frame.frame_number
+            # If any line layer has a keyframe at a certain frame number, that frame should be processed
+            for line_layer in list(line_layers) + [hint_layer]:
+                for line_frame in line_layer.frames:
+                    if line_frame.select:
+                        processed_frame_numbers.append(line_frame.frame_number)
+            processed_frame_numbers = list(set(processed_frame_numbers))
 
-                    # Find the hint frame
-                    hint_frame = None
-                    for f in hint_layer.frames:
-                        if f.frame_number > current_frame:
-                            break
-                        hint_frame = f
+            for frame_number in processed_frame_numbers:
+                line_frames = []
+                for line_layer in line_layers:
+                    line_frame = get_layer_latest_frame(line_layer, frame_number)
+                    if line_frame:
+                        line_frames.append(line_frame)
+
+                    hint_frame = get_layer_latest_frame(hint_layer, frame_number)
                     if not hint_frame:
-                        self.report({"WARNING"}, "Please add a keyframe in the hint layer.")
-                        return {'FINISHED'}
-                    
-                    # Find or create the fill frame
-                    fill_frame = None
-                    for f in fill_layer.frames:
-                        if f.frame_number == current_frame:
-                            fill_frame = f
-                            break
-                    if not fill_frame:
-                        fill_frame = fill_layer.frames.new(current_frame)
+                        continue
 
-                    fill_single_frame(line_frame, hint_frame, fill_frame)
-                    processed_frame_numbers.append(line_frame.frame_number)
+                    fill_frame = get_layer_latest_frame(fill_layer, frame_number)
+                    if not fill_frame or fill_frame.frame_number != frame_number:
+                        fill_frame = fill_layer.frames.new(frame_number)
+                    fill_single_frame(line_frames, hint_frame, fill_frame)
 
         refresh_strokes(gp_obj, processed_frame_numbers)
         bpy.ops.gpencil.nijigp_hole_processing(rearrange=True, apply_holdout=False)

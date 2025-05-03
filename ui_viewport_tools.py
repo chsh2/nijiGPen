@@ -176,7 +176,12 @@ class SmartFillModalOperator(bpy.types.Operator):
         name='Line Art Layer',
         description='',
         default='',
-        search=lambda self, context, edit_text: [layer.info for layer in context.object.data.layers]
+        search=multilayer_search_func
+    )
+    use_all_visible: bpy.props.BoolProperty(
+        name='Use All Visible Layers',
+        default=False,
+        description='Every visible layer is considered line art layer. Please note that processing may be slow if there are too many lines.'
     )
     precision: bpy.props.FloatProperty(
         name='Precision',
@@ -190,9 +195,9 @@ class SmartFillModalOperator(bpy.types.Operator):
         default='INTERACTIVE'
     )
     incremental: bpy.props.BoolProperty(
-            name='Incremental',
-            default=True,
-            description='If disabled, ignore all previously generated fills when painting a new one'
+        name='Incremental',
+        default=True,
+        description='If disabled, ignore all previously generated fills when painting a new one'
     )
     _hint_text_position = [150, 100 + get_viewport_bottom_offset() * 1.25]
     _confirm_button = [150, 50 + get_viewport_bottom_offset() * 1.25]
@@ -202,16 +207,22 @@ class SmartFillModalOperator(bpy.types.Operator):
     def smart_fill_setup(self):
         # Get line art strokes. Skip the whole operation if cannot find a proper frame
         gp_obj = bpy.context.object
-        line_art_layer = gp_obj.data.layers.active
-        if self.line_layer in gp_obj.data.layers:
-            line_art_layer = gp_obj.data.layers[self.line_layer]
-        for f in line_art_layer.frames:
-            if f.frame_number > bpy.context.scene.frame_current:
-                break
-            self.line_art_frame = f
-        if not self.line_art_frame:
+        if self.use_all_visible:
+            line_art_layers = [layer for layer in gp_obj.data.layers if not layer_hidden(layer)]
+        else:
+            line_art_layers, _ = multilayer_search_decode(self.line_layer)
+        if len(line_art_layers) < 1:
+            line_art_layers = [gp_obj.data.layers.active]
+        # Find the frame shown in the viewport
+        for line_art_layer in line_art_layers:
+            if layer_hidden(line_art_layer):
+                continue
+            line_art_frame = get_layer_latest_frame(line_art_layer, bpy.context.scene.frame_current)
+            if line_art_frame:
+                self.line_art_frames.append(line_art_frame)
+        if len(self.line_art_frames) < 1:
             return 1
-        if len(self.line_art_frame.nijigp_strokes) < 1:
+        if sum([len(f.nijigp_strokes) for f in self.line_art_frames]) < 1:
             return 1
         
         # Get or create an output frame from active layer
@@ -227,8 +238,10 @@ class SmartFillModalOperator(bpy.types.Operator):
             self.output_frame = fill_layer.frames.new(bpy.context.scene.frame_current)
 
         # Process line art as solver input
-        stroke_list = [stroke for stroke in self.line_art_frame.nijigp_strokes]
-        if self.incremental and self.line_art_frame != self.output_frame:
+        stroke_list = []
+        for f in self.line_art_frames:
+            stroke_list += [stroke for stroke in f.nijigp_strokes]
+        if self.incremental and self.output_frame not in self.line_art_frames:
             stroke_list += [stroke for stroke in self.output_frame.nijigp_strokes]
         self.t_mat, _ = get_transformation_mat(mode='VIEW',
                                                 gp_obj=gp_obj, strokes=stroke_list, operator=self)
@@ -394,7 +407,7 @@ class SmartFillModalOperator(bpy.types.Operator):
         self.hint_points_co = []
         self.hint_points_label = []
         self.output_frame = None
-        self.line_art_frame = None
+        self.line_art_frames = []
         self.generated_strokes = []
         self.solver = SmartFillSolver()
         self.solver_init_state = None
@@ -753,10 +766,20 @@ class SmartFillTool(bpy.types.WorkSpaceTool):
         sub_row.prop_with_popover(gp_settings.brush, "color", text="", panel=get_panel_str('TOPBAR_PT', 'vertexcolor'))
         
         # Other attributes
-        layout.prop(props, "line_layer")
-        layout.prop(props, "precision")
-        layout.prop(props, "mode")
-        layout.prop(props, "incremental")
+        row = layout.row(align=True)
+        row.prop(props, "line_layer")
+        if props.use_all_visible:
+            row.enabled = False
+        row = layout.row(align=True)
+        row.prop(props, "use_all_visible")
+        row = layout.row(align=True)
+        row.prop(props, "precision")
+        row = layout.row(align=True)
+        row.prop(props, "mode")
+        row = layout.row(align=True)
+        row.prop(props, "incremental")
+        if props.use_all_visible:
+            row.enabled = False
 
 class OffsetTool(bpy.types.WorkSpaceTool):
     bl_space_type = 'VIEW_3D'

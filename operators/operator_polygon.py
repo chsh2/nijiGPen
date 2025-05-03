@@ -210,7 +210,8 @@ class HoleProcessingOperator(bpy.types.Operator):
             select_map = save_stroke_selection(gp_obj)
             to_process = get_input_strokes(gp_obj, frame)
             t_mat, inv_mat = get_transformation_mat(mode=context.scene.nijigp_working_plane,
-                                                    gp_obj=gp_obj, strokes=to_process, operator=self)
+                                                    gp_obj=gp_obj, strokes=to_process, operator=self,
+                                                    requires_layer=False)
             # Initialize the relationship matrix
             poly_list, _, _ = get_2d_co_from_strokes(to_process, t_mat, scale=True)
             relation_mat = np.zeros((len(to_process),len(to_process)))
