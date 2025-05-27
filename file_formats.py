@@ -1,5 +1,6 @@
 import struct
 import numpy as np
+import uuid
 
 # Convert Blender identifiers to Photoshop ones
 dict_color_mode = {'BW': 1, 'RGB': 3, 'RGBA': 3}
@@ -178,15 +179,15 @@ class GbrParser:
         self.offset += length
         return res if len(res)>1 else res[0]        
         
-    def __init__(self, bytes):
+    def __init__(self, bytes, offset=0):
         self.bytes = bytes
-        self.offset = 0
+        self.offset = offset
         self.brush_mats = []        # Single element, either (height, width) or (height, width, 4)
         header_size = self.unpack('>I')
         self.version = self.unpack('>I')
         self.width, self.height, self.num_channels = self.unpack('>III')
         self.magic_number = self.unpack('>4s')  # b'GIMP'
-        self.offset = header_size   # Skip the rest fields
+        self.offset = offset + header_size      # Skip the rest fields
     
     def check(self):
         """Whether the file format is supported"""
@@ -201,6 +202,43 @@ class GbrParser:
         else:
             pixels_1d = np.frombuffer(self.bytes, dtype='>u1', count=self.width*self.height*self.num_channels, offset=self.offset)
             self.brush_mats.append(pixels_1d.reshape((self.height,self.width,self.num_channels)))  
+
+class GihParser():
+    """
+    GIH file is the concatenation of multiple GBR brushes:
+        https://developer.gimp.org/core/standards/gih/
+    """
+    def __init__(self, bytes, offset=0):
+        self.bytes = bytes
+        self.brush_mats = []
+        self.name = ""
+        
+    def check(self):
+        """"A valid GIH file contains the name and brush count in the first two lines"""
+        contents = self.bytes.split(b"\n")
+        if len(contents) < 3:
+            return False
+        self.name = contents[0].decode('utf-8')
+        self.header_size = len(contents[0]) + len(contents[1]) + 2
+        try:
+            self.count = int(contents[1].decode('utf-8').split(' ')[0])
+        except:
+            return False
+        return True
+    
+    def parse(self):
+        """Call GbrParser multiple times to parse each brush"""
+        self.bytes = self.bytes[self.header_size:]
+        offset = 0
+        for i in range(self.count):
+            gbr_parser = GbrParser(self.bytes, offset)
+            gbr_parser.parse()
+            self.brush_mats.append(gbr_parser.brush_mats[0])
+            offset = gbr_parser.offset + gbr_parser.width * gbr_parser.height * gbr_parser.num_channels
+                    
+    def get_params(self, i):
+        """Currently only the brush name is available"""
+        return self.name, None
 
 class BrushsetParser():
     """
@@ -218,11 +256,10 @@ class BrushsetParser():
     
     def parse(self):
         import zipfile, os, plistlib, bpy
-        from .resources import get_cache_folder
         from bpy_extras import image_utils
 
         # Uncompress texture files to the temporary folder
-        cache_dir = get_cache_folder()
+        cache_dir = bpy.app.tempdir
         tex_paths = []
         with zipfile.ZipFile(self.filename) as archive:
             namelist = archive.namelist()
@@ -249,7 +286,7 @@ class BrushsetParser():
         # The images loaded in Blender here are just for extracting the pixels
         # Final brush textures are generated not from this parser, but the operator
         for path in tex_paths:
-            img_obj = image_utils.load_image(os.path.join(cache_dir, path))
+            img_obj = image_utils.load_image(os.path.join(cache_dir, path), check_existing=True)
             img_W = img_obj.size[0]
             img_H = img_obj.size[1]
             img_mat = np.array(img_obj.pixels).reshape(img_H,img_W, img_obj.channels)
@@ -300,9 +337,8 @@ class SutParser():
     
     def parse(self):
         import os, sqlite3, bpy
-        from .resources import get_cache_folder
         from bpy_extras import image_utils
-        cache_dir = get_cache_folder()
+        cache_dir = bpy.app.tempdir
                 
         con = sqlite3.connect(self.filename)
         cur = con.cursor()
@@ -331,12 +367,12 @@ class SutParser():
             while pos >= 0:
                 end_pos.append(pos)
                 pos = img_bytes[0].find(b'IEND', pos+1)      
-            tmp_filepath = os.path.join(cache_dir, f"{brush_name}.png") 
+            tmp_filepath = os.path.join(cache_dir, f"{uuid.uuid4()}.png") 
             with open(tmp_filepath, 'wb') as tmp_file:
                 tmp_file.write(img_bytes[0][start_pos[-1]-1:end_pos[-1]+8])
             
             # Extract pixels from PNG to 3D array
-            img_obj = image_utils.load_image(tmp_filepath)
+            img_obj = image_utils.load_image(tmp_filepath, check_existing=True)
             img_W = img_obj.size[0]
             img_H = img_obj.size[1]
             img_mat = np.array(img_obj.pixels).reshape(img_H,img_W, img_obj.channels)
