@@ -17,7 +17,7 @@ bl_info = {
     "author" : "https://github.com/chsh2/nijiGPen",
     "description" : "A Grease Pencil toolbox for 2D graphic design and illustrations",
     "blender" : (3, 3, 0),
-    "version" : (0, 12, 0),
+    "version" : (0, 12, 1),
     "location" : "View3D > Sidebar > NijiGP, in specific modes of Grease Pencil objects",
     "doc_url": "https://chsh2.github.io/nijigp/",
     "wiki_url": "https://chsh2.github.io/nijigp/",
