@@ -553,6 +553,7 @@ class OffsetModalOperator(bpy.types.Operator):
             self.report({'WARNING'}, "No active object, could not finish.")
             return {'CANCELLED'}
 
+nijigp_cached_view_rotation = {}
 class RollViewModalOperator(bpy.types.Operator):
     """Drag to roll the view, or click to undo all previous rolling"""
     bl_idname = "gpencil.nijigp_roll_view_modal"
@@ -574,16 +575,16 @@ class RollViewModalOperator(bpy.types.Operator):
             self.region.view_rotation = rotation.to_quaternion()
             context.area.header_text_set('Angle: {:f} degrees'.format(math.degrees(accumulated_delta)))
 
+        # Left click: reset the view to the state before rolling
         elif event.type == 'LEFTMOUSE':
-            # Reset the angle if clicking the mouse instead of dragging
             if abs(event.mouse_x - self.starting_mouse_x) < self.moving_threshold:
-                if 'nijigp_view_rotation' in context.scene and context.scene['nijigp_view_rotation']:
-                    for i,area in enumerate(context.screen.areas):
-                        if area.type == 'VIEW_3D':
-                            for j,space in enumerate(area.spaces):
-                                key=str([i,j])
-                                space.region_3d.view_rotation = context.scene['nijigp_view_rotation'][key]
-                context.scene['nijigp_view_rotation'] = None
+                for i,area in enumerate(context.screen.areas):
+                    if area.type == 'VIEW_3D':
+                        for j,space in enumerate(area.spaces):
+                            key=str([i,j])
+                            if key in nijigp_cached_view_rotation:
+                                space.region_3d.view_rotation = nijigp_cached_view_rotation[key]
+                                nijigp_cached_view_rotation[key] = None
             context.area.header_text_set(None)
             return {'FINISHED'}
         
@@ -605,15 +606,14 @@ class RollViewModalOperator(bpy.types.Operator):
             self.starting_mouse_x = event.mouse_x
             context.window_manager.modal_handler_add(self)
 
-            # Save the current rotation information
+            # Save the rotation state before rolling for possible reset
             self.original_rotation = Quaternion(self.region.view_rotation)
-            if 'nijigp_view_rotation' not in context.scene or not context.scene['nijigp_view_rotation']:
-                context.scene['nijigp_view_rotation'] = {}
-                for i,area in enumerate(context.screen.areas):
-                    if area.type == 'VIEW_3D':
-                        for j,space in enumerate(area.spaces):
-                            key=str([i,j])
-                            context.scene['nijigp_view_rotation'][key] = Quaternion(space.region_3d.view_rotation)
+            for i,area in enumerate(context.screen.areas):
+                if area.type == 'VIEW_3D':
+                    for j,space in enumerate(area.spaces):
+                        key=str([i,j])
+                        if key not in nijigp_cached_view_rotation or nijigp_cached_view_rotation[key] is None:
+                            nijigp_cached_view_rotation[key] = Quaternion(space.region_3d.view_rotation)
             return {'RUNNING_MODAL'}
         else:
             return {'CANCELLED'}
