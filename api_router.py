@@ -433,6 +433,11 @@ class LegacyPointCollection:
         self._drawing.attributes[group_name].data[offset + point_index].value = weight
 
 class GPv3WeightHelper:
+    """
+    APIs for setting vertex group weights have not been available until Blender 4.5;
+    APIs for getting vertex group weights are still unavailable in GPv3.
+    This class provides a workaround to update weights through Geometry Nodes.
+    """
     def __init__(self, gp_obj):
         self.gp_obj: bpy.types.Object = gp_obj
         self.groups = []
@@ -585,11 +590,16 @@ class LegacyStrokeRef:
             return self._drawing.attributes['uv_rotation'].data[self._index].value
         elif name == 'uv_translation':
             return self._drawing.attributes['uv_translation'].data[self._index].vector
+        
+        # This property is not available in Blender 4.3 and 4.4, but added back in 4.5
+        elif name == 'is_nofill_stroke':
+            if '.is_fill_guide' in self._drawing.attributes:
+                return self._drawing.attributes['.is_fill_guide'].data[self._index].value
+            return False
+        
         # The following properties do not exist in GPv3. Return a placeholder value instead.
         elif name == 'line_width':
             return 1
-        elif name == 'is_nofill_stroke':
-            return False
         elif name == 'select_index':
             return self.select * (self._index + 1)
         
