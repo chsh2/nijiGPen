@@ -248,7 +248,7 @@ class SmartFillOperator(bpy.types.Operator):
                 if label < 1:
                     continue
                 for c in contours:
-                    new_stroke: bpy.types.GPencilStroke = fill_frame.nijigp_strokes.new()
+                    new_stroke: bpy.types.AnnotationStroke = fill_frame.nijigp_strokes.new()
                     new_stroke.points.add(len(c))
                     new_stroke.use_cyclic = True
                     new_stroke.material_index = labels_info[label][1]
@@ -573,7 +573,7 @@ class HatchFillOperator(bpy.types.Operator, ColorTintConfig, NoiseConfig):
                                         break
                 # Generate output strokes
                 for co_list in hatch_polys:
-                    new_stroke: bpy.types.GPencilStroke = frame.nijigp_strokes.new()
+                    new_stroke: bpy.types.AnnotationStroke = frame.nijigp_strokes.new()
                     new_stroke.material_index = material_idx
                     new_stroke.points.add(len(co_list))
                     new_stroke.line_width = self.line_width
