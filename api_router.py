@@ -88,6 +88,7 @@ def new_gp_brush(name):
         res.color = (0,0,0)
         res.gpencil_settings.vertex_color_factor = 1
         res.gpencil_settings.vertex_mode = 'BOTH'
+        res.gpencil_settings.aspect = (1.0,1.0)
     else:
         src = [brush for brush in bpy.data.brushes if brush.use_paint_grease_pencil and brush.gpencil_tool=='DRAW'][0]
         res = src.copy()
