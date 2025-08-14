@@ -335,7 +335,7 @@ def is_stroke_hole(stroke, gp_obj):
         return False
     return material.grease_pencil.use_fill_holdout
 
-def is_layer_protected(layer: bpy.types.AnnotationLayer):
+def is_layer_protected(layer):
     """
     Check if a layer should be edited
     """
@@ -404,7 +404,7 @@ def get_layer_latest_frame(layer, current_frame):
         frame = f
     return frame
 
-def get_stroke_length(stroke: bpy.types.AnnotationStroke = None, co_list = None):
+def get_stroke_length(stroke = None, co_list = None):
     """Calculate the total length of a stroke"""
     res = 0
     if stroke:
@@ -420,7 +420,7 @@ def get_stroke_length(stroke: bpy.types.AnnotationStroke = None, co_list = None)
                 res += math.sqrt(get_2d_squared_distance(co,1,co0,1))
     return max(res,1e-9)
 
-def get_stroke_center(stroke: bpy.types.AnnotationStroke = None, co_list = None):
+def get_stroke_center(stroke = None, co_list = None):
     """Calculate the 3D or 2D center of a stroke"""
     if stroke:
         res = Vector((0,0,0))

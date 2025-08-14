@@ -423,7 +423,7 @@ class FitSelectedOperator(CommonFittingConfig, bpy.types.Operator):
             output_frame.select = True
             
             # Gather stroke attributes from input strokes
-            new_stroke: bpy.types.AnnotationStroke = output_frame.nijigp_strokes.new()
+            new_stroke = output_frame.nijigp_strokes.new()
             new_stroke.material_index = output_material_idx
             new_stroke.line_width = self.line_width
             copy_stroke_attributes(new_stroke, stroke_list,
@@ -834,7 +834,7 @@ class FitLastOperator(CommonFittingConfig, bpy.types.Operator):
         if not drawing_layer.active_frame or len(drawing_layer.active_frame.nijigp_strokes)<1:
             return {'FINISHED'} 
         stroke_index = 0 if context.scene.tool_settings.use_gpencil_draw_onback else -1
-        src_stroke: bpy.types.AnnotationStroke = drawing_layer.active_frame.nijigp_strokes[stroke_index]
+        src_stroke = drawing_layer.active_frame.nijigp_strokes[stroke_index]
         
         t_mat, inv_mat = get_transformation_mat(mode=context.scene.nijigp_working_plane,
                                                 gp_obj=gp_obj, operator=self)
@@ -900,7 +900,7 @@ class FitLastOperator(CommonFittingConfig, bpy.types.Operator):
                 co_fit = co_fit[start_idx:end_idx]
             
         # Remove the last drawn stroke and generate a new one
-        new_stroke: bpy.types.AnnotationStroke = drawing_layer.active_frame.nijigp_strokes.new()
+        new_stroke = drawing_layer.active_frame.nijigp_strokes.new()
         copy_stroke_attributes(new_stroke, [src_stroke],
                             copy_hardness=True, copy_linewidth=True,
                             copy_cap=True, copy_cyclic=True,
@@ -1238,7 +1238,7 @@ class TaperSelectedOperator(bpy.types.Operator):
 
     def execute(self, context):
 
-        def process_one_stroke(stroke: bpy.types.AnnotationStroke, co_list):
+        def process_one_stroke(stroke, co_list):
             if self.line_width > 0:
                 stroke.line_width = self.line_width
             L = len(stroke.points)

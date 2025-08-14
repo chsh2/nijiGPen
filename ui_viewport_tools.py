@@ -285,7 +285,7 @@ class SmartFillModalOperator(bpy.types.Operator):
             if label < 1:
                 continue
             for c in contours:
-                new_stroke: bpy.types.AnnotationStroke = self.output_frame.nijigp_strokes.new()
+                new_stroke = self.output_frame.nijigp_strokes.new()
                 new_stroke.line_width = gp_settings.brush.size
                 new_stroke.use_cyclic = True
                 new_stroke.material_index = bpy.context.object.active_material_index
