@@ -719,7 +719,7 @@ def register_alternative_api_paths():
         bpy.types.GreasePencilLayer.info = property(lambda self: self.name, lambda self, value: setattr(self, 'name', value))
         bpy.types.GreasePencilFrame.nijigp_strokes = property(lambda self: LegacyStrokeCollection(self))
     else:
-        bpy.types.GPencilFrame.nijigp_strokes = property(lambda self: self.strokes)
+        bpy.types.AnnotationFrame.nijigp_strokes = property(lambda self: self.strokes)
     
 def unregister_alternative_api_paths():
     if bpy.app.version >= (4, 3, 0):
@@ -729,4 +729,4 @@ def unregister_alternative_api_paths():
         delattr(bpy.types.GreasePencilLayer, "info")
         delattr(bpy.types.GreasePencilFrame, "nijigp_strokes")
     else:
-        delattr(bpy.types.GPencilFrame, "nijigp_strokes")
+        delattr(bpy.types.AnnotationFrame, "nijigp_strokes")

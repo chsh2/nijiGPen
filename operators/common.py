@@ -129,7 +129,7 @@ def get_input_frames(gp_obj, multiframe=False, return_map=False, layers = None):
     else:
         return frames_to_process
                
-def get_input_strokes(gp_obj, frame: bpy.types.GPencilFrame, select_all = False):
+def get_input_strokes(gp_obj, frame: bpy.types.AnnotationFrame, select_all = False):
     """
     Check each stroke in a frame if it belongs to the input
     """
@@ -162,7 +162,7 @@ def refresh_strokes(gp_obj, frame_numbers = None):
     bpy.ops.object.mode_set(mode=current_mode)
     bpy.context.scene.frame_set(current_frame)
 
-def copy_stroke_attributes(dst: bpy.types.GPencilStroke, srcs,
+def copy_stroke_attributes(dst: bpy.types.AnnotationStroke, srcs,
                            copy_hardness = False,
                            copy_linewidth = False,
                            copy_cap = False,
