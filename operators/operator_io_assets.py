@@ -8,6 +8,16 @@ from ..resources import get_cache_folder
 from ..utils import *
 from ..api_router import *
 
+def set_brush_color_randomness(brush, attribute, value):
+    """Depending on Blender verions, color randomness is available in different modes and also has different attribute names"""
+    new_attr = f'{attribute}_jitter'
+    if hasattr(brush, new_attr):
+        setattr(brush, new_attr, value)
+
+    legacy_attr = f'random_{attribute}_factor'
+    if hasattr(brush, 'gpencil_settings') and hasattr(brush.gpencil_settings, legacy_attr):
+        setattr(brush.gpencil_settings, legacy_attr, value)
+
 class ImportBrushOperator(bpy.types.Operator, ImportHelper):
     """Extract textures of brushes exported from painting software and append them to the current file"""
     bl_idname = "gpencil.nijigp_import_brush"
@@ -266,7 +276,6 @@ class ImportBrushOperator(bpy.types.Operator, ImportHelper):
                     else:
                         new_brush = new_gp_brush(brush_name)
                     new_brush.name = brush_name
-                    new_brush.use_custom_icon = True
                     new_brush.gpencil_settings.use_material_pin = True
                     new_brush.gpencil_settings.material = new_material
                     if self.override_uv_randomness:
@@ -278,14 +287,17 @@ class ImportBrushOperator(bpy.types.Operator, ImportHelper):
                         new_brush.gpencil_settings.hardness = self.hardness
 
                     # Create an icon by scaling the brush texture down
-                    icon_obj = img_obj.copy()
-                    icon_obj.name = f"icon_{f.name.split('.')[0]}_{i}"
-                    icon_filepath = os.path.join(icon_dir, icon_obj.name+'.png')
-                    icon_obj.filepath_raw = icon_filepath
-                    icon_obj.scale(256,256)
-                    icon_obj.save()
-                    new_brush.icon_filepath = icon_filepath
-                    bpy.data.images.remove(icon_obj)
+                    # TODO: possible changes required by Blender 5.0 that should be revisited after its release
+                    if hasattr(new_brush, 'use_custom_icon') and hasattr(new_brush, 'icon_filepath'):
+                        new_brush.use_custom_icon = True
+                        icon_obj = img_obj.copy()
+                        icon_obj.name = f"icon_{self.brush_context_mode}_{f.name.split('.')[0]}_{i}"
+                        icon_filepath = os.path.join(icon_dir, icon_obj.name+'.png')
+                        icon_obj.filepath_raw = icon_filepath
+                        icon_obj.scale(256,256)
+                        icon_obj.save()
+                        new_brush.icon_filepath = icon_filepath
+                        bpy.data.images.remove(icon_obj)
                     
                     # Set asset information, necessary for Blender 4.3+
                     new_brush.asset_generate_preview()
@@ -313,11 +325,11 @@ class ImportBrushOperator(bpy.types.Operator, ImportHelper):
                         if 'dynamicsJitterOpacity' in orig_params:
                             new_brush.gpencil_settings.random_strength = orig_params['dynamicsJitterOpacity']
                         if 'dynamicsJitterHue' in orig_params:
-                            new_brush.gpencil_settings.random_hue_factor = orig_params['dynamicsJitterHue']
+                            set_brush_color_randomness(new_brush, 'hue', orig_params['dynamicsJitterHue'])
                         if 'dynamicsJitterStrokeSaturation' in orig_params:
-                            new_brush.gpencil_settings.random_saturation_factor = orig_params['dynamicsJitterStrokeSaturation']
+                            set_brush_color_randomness(new_brush, 'saturation', orig_params['dynamicsJitterStrokeSaturation'])
                         if 'dynamicsJitterStrokeDarkness' in orig_params:
-                            new_brush.gpencil_settings.random_value_factor = orig_params['dynamicsJitterStrokeDarkness']
+                            set_brush_color_randomness(new_brush, 'value', orig_params['dynamicsJitterStrokeDarkness'])
                             
                 # Overrider parameters by parsing original SUT brush data
                 if self.convert_orig_params and isinstance(parser, SutParser) and orig_params:
@@ -339,9 +351,12 @@ class ImportBrushOperator(bpy.types.Operator, ImportHelper):
                         if 'BrushInterval' in orig_params:
                             new_brush.gpencil_settings.input_samples = int(orig_params['BrushInterval'] / 2000.0)
                         if 'BrushChangePatternColor' in orig_params and orig_params['BrushChangePatternColor'] > 0:
-                            new_brush.gpencil_settings.random_hue_factor = orig_params['BrushHueChange'] / 360.0
-                            new_brush.gpencil_settings.random_saturation_factor = orig_params['BrushSaturationChange'] / 100.0
-                            new_brush.gpencil_settings.random_value_factor = orig_params['BrushValueChange'] / 100.0
+                            if 'BrushHueChange' in orig_params:
+                                set_brush_color_randomness(new_brush, 'hue', orig_params['BrushHueChange'] / 360.0)
+                            if 'BrushSaturationChange' in orig_params:
+                                set_brush_color_randomness(new_brush, 'saturation', orig_params['BrushSaturationChange'] / 100.0)
+                            if 'BrushValueChange' in orig_params:
+                                set_brush_color_randomness(new_brush, 'value', orig_params['BrushValueChange'] / 100.0)
             fd.close()
             
         if failures == 0:
