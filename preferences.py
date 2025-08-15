@@ -1,42 +1,50 @@
 import bpy
 import sys
+import site
+import os
 
 def log_append(str):
     bpy.context.preferences.addons[__package__].preferences.captured_logs.append(str)
 
-def run_command(commands = [], output_log = True, return_full_result = False):
+def run_command(commands, output_log=True):
     from subprocess import Popen, PIPE
-    texts = []
     with Popen(commands, stdout=PIPE, shell=False) as p:
         while p.poll() is None:
             text = p.stdout.readline().decode("utf-8")
             if len(text) > 0:
-                texts.append(text)
                 print(text)
                 if output_log:
                     log_append(text)
                     bpy.context.region.tag_redraw()
-        return texts if return_full_result else p.returncode
+        return p.returncode
 
-def modify_package(command, option, name):
-    """
-    Install or remove a Python package through pip
-    """    
-    python_exe = sys.executable
+def is_writable(path, op=None):
 
-    res = run_command([python_exe, '-m', 'ensurepip', '--upgrade'])
-    if res > 0:
+    def handle_exception():
+        error_message = f'Cannot write to the current path. Please select a proper Custom Package Path.'
+        log_append("[NijiGPen Error] "+error_message)
+        if op is not None:
+            op.report({"ERROR"}, error_message)
+            
+    try:
+        os.makedirs(path, exist_ok=True)
+    except:
+        handle_exception()
         return False
-    # Use an alternative source for triangle in MacOS with Apple Silicon
-    import platform
-    if name == 'triangle' and command == 'install' and platform.machine() == 'arm64':
-        res = run_command([python_exe, '-m', 'pip', command, option, 'triangle2'])
-    else:
-        res = run_command([python_exe, '-m', 'pip', command, option, name])
-    if res > 0:
+
+    # Not always working. Therefore, try to write a temporary file
+    if not os.access(path, os.W_OK):
+        handle_exception()
         return False
-    bpy.ops.nijigp.check_dependencies(output_log=False)
-    return True
+    try:
+        test_file = os.path.join(path, "._nijigp_perm_test")
+        with open(test_file, "wb") as f:
+            f.write(b"test")
+        os.remove(test_file)
+        return True
+    except:
+        handle_exception()
+        return False
 
 class ClearLogs(bpy.types.Operator):
     """
@@ -64,7 +72,12 @@ class ApplyCustomLibPath(bpy.types.Operator):
     
     def execute(self, context):
         custom_lib_path = bpy.context.preferences.addons[__package__].preferences.custom_lib_path
-        if len(custom_lib_path) > 0 and custom_lib_path not in sys.path:
+        if len(custom_lib_path) < 1:
+            self.report({"INFO"}, "Please select a path.")
+            return {"FINISHED"}
+        if not is_writable(custom_lib_path, self):
+            return {"FINISHED"}
+        if custom_lib_path not in sys.path:
             sys.path.append(custom_lib_path)
         if self.output_log:
             log_append("[NijiGPen Info] Package Search Paths Updated:")
@@ -132,29 +145,45 @@ class InstallDependency(bpy.types.Operator):
     bl_description = ("Manage packages through pip")
     bl_options = {"REGISTER", "INTERNAL"}
 
-    package_name: bpy.props.StringProperty()
+    package_name: bpy.props.EnumProperty(
+            items=[ ('PYCLIPPER', '', ''),
+                    ('TRIANGLE', '', ''),
+                    ('SKIMAGE', '', '')],
+            default='PYCLIPPER',
+    )
     def execute(self, context):
-        res = modify_package('install','--no-input', self.package_name)
-        if res:
+        package_versions = {
+            'PYCLIPPER': ['pyclipper<1.4'],
+            'TRIANGLE': ['triangle3==20250811.1'],
+            'SKIMAGE': ['scipy<1.16', 'scikit-image<0.26']
+        }
+        default_lib_path = site.getsitepackages()[0]
+        custom_lib_path = bpy.context.preferences.addons[__package__].preferences.custom_lib_path
+        use_custom_lib_path = bpy.context.preferences.addons[__package__].preferences.use_custom_lib_path
+        use_custom_lib_path = (use_custom_lib_path and len(custom_lib_path)>0)
+        python_exe = sys.executable
+
+        res = run_command([python_exe, '-m', 'ensurepip', '--upgrade'], output_log=False)
+        if res > 0:
+            self.report({"ERROR"}, "Pip is not available. Blender may be corrupted. Please consider reinstalling Blender.")
+            return {"FINISHED"}
+
+        if not is_writable(custom_lib_path if use_custom_lib_path else default_lib_path, self):
+            return {"FINISHED"}
+
+        commands = [python_exe, '-m', 'pip', 'install', '--no-input', '--force-reinstall']
+        if use_custom_lib_path:
+            commands += ['--target', custom_lib_path]
+            bpy.ops.nijigp.apply_custom_lib_path(output_log=False)
+
+        res = run_command(commands + package_versions[self.package_name])
+        if res == 0:
             self.report({"INFO"}, "Python package installed successfully.")
-            log_append("[NijiGPen Info] Python package installed successfully.")
-            
-            # Check if the custom site-package path needs to be updated
-            installed_package_info = run_command([sys.executable, '-m', 'pip', 'show', self.package_name], output_log=False, return_full_result=True)
-            custom_lib_path = bpy.context.preferences.addons[__package__].preferences.custom_lib_path
-            for str in installed_package_info:
-                if str.startswith("Location:"):
-                    site_packages_path = str[9:].strip()
-                    if site_packages_path not in sys.path:
-                        bpy.context.preferences.addons[__package__].preferences.custom_lib_path = site_packages_path
-                        bpy.ops.nijigp.apply_custom_lib_path(output_log=False)
-                        log_append("[NijiGPen Info] Package Search Path Updated Automatically.")
-                        return {"FINISHED"}
-                        
+            log_append("[NijiGPen Info] Python package installed successfully.")    
         else:
             self.report({"ERROR"}, "Cannot install the required package.")
             log_append("[NijiGPen Error] Cannot install the required package.")
-            
+        bpy.ops.nijigp.check_dependencies(output_log=False)
         return {"FINISHED"}
 
 class RemoveDependency(bpy.types.Operator):
@@ -163,12 +192,48 @@ class RemoveDependency(bpy.types.Operator):
     bl_description = ("Manage packages through pip")
     bl_options = {"REGISTER", "INTERNAL"}
 
-    package_name: bpy.props.StringProperty()
+    package_name: bpy.props.EnumProperty(
+            items=[ ('PYCLIPPER', '', ''),
+                    ('TRIANGLE', '', ''),
+                    ('SKIMAGE', '', '')],
+            default='PYCLIPPER',
+    )
     def execute(self, context):
-        res = modify_package('uninstall','-y', self.package_name)
-        self.report({"INFO"}, "Please restart Blender to apply the changes.")
-        log_append("[NijiGPen Info] Please restart Blender to apply the changes.")
+        package_versions = {
+            'PYCLIPPER': ['pyclipper'],
+            'TRIANGLE': ['triangle'],
+            'SKIMAGE': ['scipy', 'scikit-image']
+        }
+        custom_lib_path = bpy.context.preferences.addons[__package__].preferences.custom_lib_path
+        use_custom_lib_path = bpy.context.preferences.addons[__package__].preferences.use_custom_lib_path
+        use_custom_lib_path = (use_custom_lib_path and len(custom_lib_path)>0)
+        python_exe = sys.executable
+
+        if use_custom_lib_path and custom_lib_path != site.getusersitepackages():
+            self.report({"INFO"}, "Please manually remove the files in your Custom Package Path.")
+            log_append("[NijiGPen Info] Please manually remove the files in your Custom Package Path.")
+            return {"FINISHED"}
+
+        res = run_command([python_exe, '-m', 'ensurepip', '--upgrade'], output_log=False)
+        if res > 0:
+            self.report({"ERROR"}, "Pip is not available. Blender may be corrupted. Please consider reinstalling Blender.")
+            return {"FINISHED"}
+
+        commands = [python_exe, '-m', 'pip', 'uninstall', '-y']
+        res = run_command(commands + package_versions[self.package_name])
+        if res == 0:
+                self.report({"INFO"}, "Please restart Blender to apply the changes.")
+                log_append("[NijiGPen Info] Please restart Blender to apply the changes.")   
+        else:
+            self.report({"ERROR"}, "Cannot uninstall the package.")
+            log_append("[NijiGPen Error] Cannot uninstall the package.")
         return {"FINISHED"}
+
+def common_lib_path_search_func(self, context, edit_text):
+    """Show common locations of Python site-packages to the user"""
+    usersite_dir = site.getusersitepackages()
+    addon_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'site-packages')
+    return [usersite_dir, addon_dir]
 
 class NijiGPAddonPreferences(bpy.types.AddonPreferences):
     bl_idname = __package__
@@ -177,7 +242,13 @@ class NijiGPAddonPreferences(bpy.types.AddonPreferences):
         name='Custom Site-Packages Path',
         subtype='DIR_PATH',
         description='An additional directory that the add-on will try to load packages from',
-        default=''
+        default='',
+        search=common_lib_path_search_func
+    )
+    use_custom_lib_path: bpy.props.BoolProperty(
+        name='Install New Packages in Custom Path',
+        description="When enabled and the custom path is set above, install Python packages there. Otherwise, install them in Blender's folder",
+        default=True
     )
     cache_folder: bpy.props.StringProperty(
         name='Cache Folder',
@@ -270,6 +341,7 @@ class NijiGPAddonPreferences(bpy.types.AddonPreferences):
         row.operator("nijigp.apply_custom_lib_path", text='Apply', icon="FILE_REFRESH")
         column = box1.box().column(align=True)
         column.prop(self, "custom_lib_path", text='Site-Packages')
+        column.prop(self, "use_custom_lib_path")
 
         # Summary table
         row = box1.row()
@@ -279,13 +351,13 @@ class NijiGPAddonPreferences(bpy.types.AddonPreferences):
         table_key = ['[Package]', '[Status]', '[Actions]','']
         packages = [{'name': 'PyClipper',
                         'signal': self.package_pyclipper, 
-                        'package':"pyclipper"},
+                        'package':"PYCLIPPER"},
                     {'name': 'Skimage & SciPy', 
                         'signal': self.package_skimage, 
-                        'package':"scikit-image"},
+                        'package':"SKIMAGE"},
                     {'name': 'Triangle',
                         'signal': self.package_triangle, 
-                        'package':"triangle"},]
+                        'package':"TRIANGLE"},]
         column = box1.box().column(align=True)
         row = column.row()
         for key in table_key:
