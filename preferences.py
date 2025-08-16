@@ -19,6 +19,7 @@ def run_command(commands, output_log=True):
         return p.returncode
 
 def is_writable(path, op=None):
+    """Check if this add-on has the write access to a specific path"""
 
     def handle_exception():
         error_message = f'Cannot write to the current path. Please select a proper Custom Package Path.'
@@ -32,7 +33,7 @@ def is_writable(path, op=None):
         handle_exception()
         return False
 
-    # Not always working. Therefore, try to write a temporary file
+    # This method may return incorrect results. Therefore, also try to write a temporary file
     if not os.access(path, os.W_OK):
         handle_exception()
         return False
@@ -152,6 +153,7 @@ class InstallDependency(bpy.types.Operator):
             default='PYCLIPPER',
     )
     def execute(self, context):
+        # Fetch necessary information
         package_versions = {
             'PYCLIPPER': ['pyclipper<1.4'],
             'TRIANGLE': ['triangle3==20250811.1'],
@@ -163,11 +165,13 @@ class InstallDependency(bpy.types.Operator):
         use_custom_lib_path = (use_custom_lib_path and len(custom_lib_path)>0)
         python_exe = sys.executable
 
+        # Activate pip, which should not fail
         res = run_command([python_exe, '-m', 'ensurepip', '--upgrade'], output_log=False)
         if res > 0:
             self.report({"ERROR"}, "Pip is not available. Blender may be corrupted. Please consider reinstalling Blender.")
             return {"FINISHED"}
 
+        # Without write access to the path, suggest the user to set a custom path and then stop
         if not is_writable(custom_lib_path if use_custom_lib_path else default_lib_path, self):
             return {"FINISHED"}
 
@@ -201,7 +205,7 @@ class RemoveDependency(bpy.types.Operator):
     def execute(self, context):
         package_versions = {
             'PYCLIPPER': ['pyclipper'],
-            'TRIANGLE': ['triangle'],
+            'TRIANGLE': ['triangle3', 'triangle2', 'triangle'], # This package has multiple entries in PyPI
             'SKIMAGE': ['scipy', 'scikit-image']
         }
         custom_lib_path = bpy.context.preferences.addons[__package__].preferences.custom_lib_path
@@ -209,6 +213,7 @@ class RemoveDependency(bpy.types.Operator):
         use_custom_lib_path = (use_custom_lib_path and len(custom_lib_path)>0)
         python_exe = sys.executable
 
+        # Pip cannot specify the target folder for uninstallation. The user should delete files manually instead.
         if use_custom_lib_path and custom_lib_path != site.getusersitepackages():
             self.report({"INFO"}, "Please manually remove the files in your Custom Package Path.")
             log_append("[NijiGPen Info] Please manually remove the files in your Custom Package Path.")
@@ -230,10 +235,13 @@ class RemoveDependency(bpy.types.Operator):
         return {"FINISHED"}
 
 def common_lib_path_search_func(self, context, edit_text):
-    """Show common locations of Python site-packages to the user"""
+    """
+    Show common locations of Python site-packages to the user.
+    Currently, only indicate the USER_SITE path
+    """
     usersite_dir = site.getusersitepackages()
-    addon_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'site-packages')
-    return [usersite_dir, addon_dir]
+    #addon_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'site-packages')
+    return [usersite_dir]
 
 class NijiGPAddonPreferences(bpy.types.AddonPreferences):
     bl_idname = __package__
@@ -340,7 +348,7 @@ class NijiGPAddonPreferences(bpy.types.AddonPreferences):
         row.separator()
         row.operator("nijigp.apply_custom_lib_path", text='Apply', icon="FILE_REFRESH")
         column = box1.box().column(align=True)
-        column.prop(self, "custom_lib_path", text='Site-Packages')
+        column.prop(self, "custom_lib_path", text='Package Folder')
         column.prop(self, "use_custom_lib_path")
 
         # Summary table
