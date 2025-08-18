@@ -102,42 +102,40 @@ class DetectDependencies(bpy.types.Operator):
         preferences.package_pyclipper = True
         preferences.package_triangle = True
         preferences.package_skimage = True
+        import importlib.util
         
-        try:
-            import pyclipper
+        spec = importlib.util.find_spec("pyclipper")
+        if spec is not None:
             if self.output_log:
                 log_append("[NijiGPen Info] Package PyClipper:")
-                log_append("  Version: "+str(pyclipper.__version__))
-                log_append("  Location: "+str(pyclipper.__file__))
-        except:
+                log_append("  Location: "+spec.origin)
+        else:
             preferences.package_pyclipper = False
-        
-        try:
-            import scipy
+
+        spec = importlib.util.find_spec("scipy")
+        if spec is not None:
             if self.output_log:
                 log_append("[NijiGPen Info] Package SciPy:")
-                log_append("  Version: "+str(scipy.__version__))
-                log_append("  Location: "+str(scipy.__file__))
-        except:
+                log_append("  Location: "+spec.origin)
+        else:
             preferences.package_skimage = False
-        
-        try:
-            import skimage
+                    
+        spec = importlib.util.find_spec("skimage")
+        if spec is not None:
             if self.output_log:
                 log_append("[NijiGPen Info] Package Scikit-Image:")
-                log_append("  Version: "+str(skimage.__version__))
-                log_append("  Location: "+str(skimage.__file__))
-        except:
+                log_append("  Location: "+spec.origin)
+        else:
             preferences.package_skimage = False
         
-        try:
-            import triangle
+        spec = importlib.util.find_spec("triangle")
+        if spec is not None:
             if self.output_log:
                 log_append("[NijiGPen Info] Package Triangle:")
-                log_append("  Version: "+str(triangle.__version__))
-                log_append("  Location: "+str(triangle.__file__))
-        except:
+                log_append("  Location: "+spec.origin)
+        else:
             preferences.package_triangle = False
+
         return {"FINISHED"}
 
 class InstallDependency(bpy.types.Operator):
@@ -227,8 +225,8 @@ class RemoveDependency(bpy.types.Operator):
         commands = [python_exe, '-m', 'pip', 'uninstall', '-y']
         res = run_command(commands + package_versions[self.package_name])
         if res == 0:
-                self.report({"INFO"}, "Please restart Blender to apply the changes.")
-                log_append("[NijiGPen Info] Please restart Blender to apply the changes.")   
+                self.report({"INFO"}, "Python package uninstalled.")
+                log_append("[NijiGPen Info] Python package uninstalled.")   
         else:
             self.report({"ERROR"}, "Cannot uninstall the package.")
             log_append("[NijiGPen Error] Cannot uninstall the package.")
@@ -241,7 +239,7 @@ def common_lib_path_search_func(self, context, edit_text):
     """
     usersite_dir = site.getusersitepackages()
     #addon_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'site-packages')
-    return [usersite_dir]
+    return [usersite_dir, edit_text]
 
 class NijiGPAddonPreferences(bpy.types.AddonPreferences):
     bl_idname = __package__
