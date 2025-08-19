@@ -102,6 +102,7 @@ class DetectDependencies(bpy.types.Operator):
         preferences.package_pyclipper = True
         preferences.package_triangle = True
         preferences.package_skimage = True
+        bpy.ops.nijigp.apply_custom_lib_path(output_log=False)
         import importlib.util
         
         spec = importlib.util.find_spec("pyclipper")
@@ -166,7 +167,8 @@ class InstallDependency(bpy.types.Operator):
         # Activate pip, which should not fail
         res = run_command([python_exe, '-m', 'ensurepip', '--upgrade'], output_log=False)
         if res > 0:
-            self.report({"ERROR"}, "Pip is not available. Blender may be corrupted. Please consider reinstalling Blender.")
+            self.report({"ERROR"}, "Pip cannot be enabled. Please run Blender as Administrator and try again.")
+            log_append("[NijiGPen Error] Pip cannot be enabled. Please run Blender as Administrator and try again.")
             return {"FINISHED"}
 
         # Without write access to the path, suggest the user to set a custom path and then stop
@@ -219,7 +221,8 @@ class RemoveDependency(bpy.types.Operator):
 
         res = run_command([python_exe, '-m', 'ensurepip', '--upgrade'], output_log=False)
         if res > 0:
-            self.report({"ERROR"}, "Pip is not available. Blender may be corrupted. Please consider reinstalling Blender.")
+            self.report({"ERROR"}, "Pip cannot be enabled. Please run Blender as Administrator and try again.")
+            log_append("[NijiGPen Error] Pip cannot be enabled. Please run Blender as Administrator and try again.")
             return {"FINISHED"}
 
         commands = [python_exe, '-m', 'pip', 'uninstall', '-y']
