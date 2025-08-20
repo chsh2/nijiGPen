@@ -592,11 +592,15 @@ class LegacyStrokeRef:
         elif name == 'uv_translation':
             return self._drawing.attributes['uv_translation'].data[self._index].vector
         
-        # This property is not available in Blender 4.3 and 4.4, but added back in 4.5
+        # These properties are available from Blender 4.5
         elif name == 'is_nofill_stroke':
             if '.is_fill_guide' in self._drawing.attributes:
                 return self._drawing.attributes['.is_fill_guide'].data[self._index].value
             return False
+        elif name == 'aspect_ratio':
+            if 'aspect_ratio' in self._drawing.attributes:
+                return self._drawing.attributes['aspect_ratio'].data[self._index].value
+            return 1.0
         
         # The following properties do not exist in GPv3. Return a placeholder value instead.
         elif name == 'line_width':
@@ -611,7 +615,7 @@ class LegacyStrokeRef:
         writable = {'select', 'use_cyclic', 'is_nofill_stroke',
                     'material_index', 'vertex_color_fill', 'line_width', 'hardness',
                     'uv_rotation', 'uv_translation', 'uv_scale', 'start_cap_mode', 'end_cap_mode',
-                    'fill_opacity',    # New attribute that does not exist in GPv2
+                    'fill_opacity', 'aspect_ratio'    # New attribute that does not exist in GPv2
                     }
         if name not in writable:
             super().__setattr__(name, value)
@@ -634,6 +638,9 @@ class LegacyStrokeRef:
             self._drawing.attributes['uv_rotation'].data[self._index].value = value
         elif name == 'uv_translation':
             self._drawing.attributes['uv_translation'].data[self._index].vector = value
+        elif name == 'aspect_ratio':
+            if 'aspect_ratio' in self._drawing.attributes:
+                self._drawing.attributes['aspect_ratio'].data[self._index].value = value
         elif name in {'line_width', 'is_nofill_stroke'}:
             return
         else:
@@ -698,6 +705,8 @@ class LegacyStrokeCollection:
             self._drawing.attributes['uv_scale'].data[key].vector = (1.0, 1.0)
         if 'fill_opacity' in self._drawing.attributes:
             self._drawing.attributes['fill_opacity'].data[key].value = 1.0
+        if 'aspect_ratio' in self._drawing.attributes:
+            self._drawing.attributes['aspect_ratio'].data[key].value = 1.0
         return LegacyStrokeRef(self._drawing, self._drawing.attributes['.nijigp_hash'].data[key].value, key)
 
     def remove(self, stroke: LegacyStrokeRef):
