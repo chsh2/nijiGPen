@@ -55,7 +55,8 @@ class BooleanModalOperator(bpy.types.Operator):
         name='Caps Type',
         items=[('ROUND', 'Round', ''),
                 ('FLAT', 'Flat', ''),
-                ('TAPER', 'Taper', '')],
+                ('TAPER', 'Taper', ''),
+                ('LASSO', 'Lasso', '')],
         default='ROUND'
     )
     operation_type: bpy.props.EnumProperty(
@@ -74,8 +75,12 @@ class BooleanModalOperator(bpy.types.Operator):
         # Create a temporary material for preview only
         mat = bpy.data.materials.new('nijigp_Boolean_Eraser_Preview')
         bpy.data.materials.create_gpencil_data(mat)
-        mat.grease_pencil.color[3] = 0.5
+        mat.grease_pencil.color = (0.2, 0.2, 0.2, 0.5)
         context.active_object.data.materials.append(mat)
+        if self.caps_type == 'LASSO':
+            mat.grease_pencil.show_stroke = False
+            mat.grease_pencil.show_fill = True
+            mat.grease_pencil.fill_color = (0.2, 0.2, 0.2, 0.5)
         
         frame = context.active_object.data.layers.active.active_frame
         stroke = frame.nijigp_strokes.new()
@@ -115,7 +120,7 @@ class BooleanModalOperator(bpy.types.Operator):
         if len(self._stroke.points) > 0:
             bpy.ops.gpencil.nijigp_bool_last(
                 operation_type = self.operation_type,
-                clip_mode = 'LINE'
+                clip_mode = 'LINE' if self.caps_type != 'LASSO' else 'FILL',
             )
         # If the newly drawn stroke still exist, remove it
         frame = context.active_object.data.layers.active.active_frame
