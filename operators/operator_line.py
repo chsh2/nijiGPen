@@ -139,7 +139,7 @@ def fit_2d_strokes(fitter, strokes, frame_number=-1, ignore_transparent=False, s
     fitter.set_attribute_data(frame_number, 'a', inherited_color[:,3])
     fitter.set_attribute_data(frame_number, 'uv_rotation', inherited_uv_rotation)
     if resample is not None:
-        num_points = max(4, int(total_length / resample))
+        num_points = max(7, int(total_length / resample))
         fitter.input_u[frame_number] = np.linspace(0, 1, num_points, endpoint=True)
     return 0
 
@@ -573,6 +573,11 @@ class ClusterAndFitOperator(CommonFittingConfig, bpy.types.Operator):
             default=5, min=1,
             description='The maximum number of clusters'
     )
+    cluster_by_color: bpy.props.BoolProperty(
+            name='Separate by Vertex Color',
+            description='Make sure that strokes with different vertex colors are assigned to different clusters',
+            default=False
+    )
 
     def invoke(self, context, event):
         return context.window_manager.invoke_props_dialog(self, width=300)
@@ -587,8 +592,9 @@ class ClusterAndFitOperator(CommonFittingConfig, bpy.types.Operator):
             box0.prop(self, "cluster_dist")
         elif self.cluster_criterion == 'NUM':
             box0.prop(self, "cluster_num")
-        else:
+        elif self.cluster_criterion == 'RATIO':
             box0.prop(self, "cluster_ratio")
+        box0.prop(self, "cluster_by_color")
 
         layout.label(text = "Input Options:")
         box1 = layout.box()
@@ -674,6 +680,18 @@ class ClusterAndFitOperator(CommonFittingConfig, bpy.types.Operator):
                         dist_mat.append(min(dist1,dist2))
                         if self.cluster_criterion == 'RATIO':
                             dist_mat[-1] /= 0.5 * (length_list[i] + length_list[j])
+            # Add a large value to the distance for strokes with different vertex colors
+            if self.cluster_by_color:
+                mean_colors = []
+                for stroke in stroke_frame_map[frame_number]:
+                    v_colors = [point.vertex_color[:3] for point in stroke.points if point.vertex_color[3]>1e-3]
+                    mean_colors.append(0 if len(v_colors)<1 else np.mean(v_colors, axis=0))
+                dist_index = 0
+                for i,mean_color1 in enumerate(mean_colors):
+                    for j,mean_color2 in enumerate(mean_colors):
+                        if i<j:
+                            dist_mat[dist_index] += (np.linalg.norm(mean_color1 - mean_color2) > 1e-3)
+                            dist_index += 1
 
             # Hierarchy clustering algorithm: assigning cluster ID starting from 1 to each stroke
             linkage_mat = linkage(dist_mat, method='single')
@@ -740,12 +758,20 @@ class ClusterAndFitOperator(CommonFittingConfig, bpy.types.Operator):
         return {'FINISHED'}
     
 class FitLastOperator(CommonFittingConfig, bpy.types.Operator):
-    """Fit the latest drawn stroke according to nearby strokes in the reference layer"""
+    """Fit the recently drawn stroke(s) to a smooth one"""
     bl_idname = "gpencil.nijigp_fit_last"
     bl_label = "Fit Last Stroke"
     bl_category = 'View'
     bl_options = {'REGISTER', 'UNDO'}  
 
+    target: bpy.props.EnumProperty(
+            name='Target',
+            items=[ ('SINGLE', 'Single Stroke', 'Smooth the last drawn stroke only'),
+                    ('COLOR', 'Same Vertex Color', 'Fit all recent strokes with the same vertex color to a single smooth one'),
+                    ('REF', 'Reference Layer', 'Fit strokes from a separate draft layer that are close enough to the last drawn stroke')],
+            default='SINGLE',
+            description='Different modes that determine which strokes will be fitted'
+    )
     cluster_criterion: bpy.props.EnumProperty(
             name='Criterion',
             items=[ ('DIST', 'Absolute', ''),
@@ -781,14 +807,16 @@ class FitLastOperator(CommonFittingConfig, bpy.types.Operator):
         layout = self.layout
         layout.label(text = "Input Options:")
         box1 = layout.box()
-        row = box1.row()
-        row.label(text = "Reference Layer:")
-        row.prop(self, "reference_layer", icon='OUTLINER_DATA_GP_LAYER', text='')
-        box1.prop(self, "cluster_criterion")
-        if self.cluster_criterion == 'DIST':
-            box1.prop(self, "cluster_dist")
-        else:
-            box1.prop(self, "cluster_ratio")
+        box1.prop(self, "target")
+        if self.target == 'REF':
+            row = box1.row()
+            row.label(text = "Reference Layer:")
+            row.prop(self, "reference_layer", icon='OUTLINER_DATA_GP_LAYER', text='')
+            box1.prop(self, "cluster_criterion")
+            if self.cluster_criterion == 'DIST':
+                box1.prop(self, "cluster_dist")
+            else:
+                box1.prop(self, "cluster_ratio")
         box1.prop(self, "line_sampling_size")
         box1.prop(self, "ignore_transparent")
         
@@ -800,8 +828,9 @@ class FitLastOperator(CommonFittingConfig, bpy.types.Operator):
             row.prop(self, "resample_length")
         box2.prop(self, "b_smoothness")
         box2.prop(self, "smooth_repeat")
-        row = box2.row()
-        row.prop(self, "trim_ends")
+        if self.target == 'REF':
+            row = box2.row()
+            row.prop(self, "trim_ends")
 
         layout.label(text = "Output Options:")
         box3 = layout.box()   
@@ -823,18 +852,27 @@ class FitLastOperator(CommonFittingConfig, bpy.types.Operator):
             return {'FINISHED'}
         if len(self.reference_layer) > 0:
             reference_layers, _ = multilayer_search_decode(self.reference_layer)
-        else:
+            if gp_obj.data.layers.active in reference_layers:
+                self.report({"WARNING"}, "Reference layer cannot be the active layer.")
+                return {'FINISHED'} 
+        elif self.target == 'REF':
+            self.report({"INFO"}, "Please select a layer containing draft strokes.")
             return {'FINISHED'}
-        drawing_layer = gp_obj.data.layers.active
-        if drawing_layer in reference_layers:
-            self.report({"WARNING"}, "Reference layer cannot be the active layer.")
-            return {'FINISHED'}  
+        drawing_layer = gp_obj.data.layers.active 
                  
         # Get stroke information from the input
         if not drawing_layer.active_frame or len(drawing_layer.active_frame.nijigp_strokes)<1:
             return {'FINISHED'} 
-        stroke_index = 0 if context.scene.tool_settings.use_gpencil_draw_onback else -1
-        src_stroke = drawing_layer.active_frame.nijigp_strokes[stroke_index]
+        stroke_index = 0 if context.scene.tool_settings.use_gpencil_draw_onback else len(drawing_layer.active_frame.nijigp_strokes)-1
+        
+        # For vertex color mode, find the first stroke with non-zero vertex color
+        while stroke_index>=0 and stroke_index < len(drawing_layer.active_frame.nijigp_strokes):
+            src_stroke = drawing_layer.active_frame.nijigp_strokes[stroke_index]
+            if self.target != 'COLOR' or max([point.vertex_color[3] for point in src_stroke.points]) > 1e-3:
+                break
+            stroke_index += 1 if context.scene.tool_settings.use_gpencil_draw_onback else -1
+        if stroke_index<0 or stroke_index >= len(drawing_layer.active_frame.nijigp_strokes):
+            return {'FINISHED'}
         
         t_mat, inv_mat = get_transformation_mat(mode=context.scene.nijigp_working_plane,
                                                 gp_obj=gp_obj, operator=self)
@@ -846,19 +884,33 @@ class FitLastOperator(CommonFittingConfig, bpy.types.Operator):
         
         # Check each stroke in the reference layer for similarity
         stroke_list = []
-        threshold = (self.cluster_dist if self.cluster_criterion == 'DIST' else
-                     self.cluster_ratio / 100.0 * src_stroke_length)
-        for reference_layer in reference_layers:
-            for stroke in reference_layer.active_frame.nijigp_strokes:
-                if not stroke_bound_box_overlapping(stroke, src_stroke, t_mat):
-                    continue
-                tmp, _, _ = get_2d_co_from_strokes([stroke], t_mat, scale=False)
-                co_list = tmp[0]
-                kdt = stroke_to_kdtree(co_list)
-                line_dist1 = distance_to_another_stroke(co_list, src_co_list, src_kdt)
-                line_dist2 = distance_to_another_stroke(src_co_list, co_list, kdt)
-                if min(line_dist1, line_dist2) < threshold:
-                    stroke_list.append(stroke)
+        if self.target == 'REF':
+            threshold = (self.cluster_dist if self.cluster_criterion == 'DIST' else
+                        self.cluster_ratio / 100.0 * src_stroke_length)
+            for reference_layer in reference_layers:
+                for stroke in reference_layer.active_frame.nijigp_strokes:
+                    if not stroke_bound_box_overlapping(stroke, src_stroke, t_mat):
+                        continue
+                    tmp, _, _ = get_2d_co_from_strokes([stroke], t_mat, scale=False)
+                    co_list = tmp[0]
+                    kdt = stroke_to_kdtree(co_list)
+                    line_dist1 = distance_to_another_stroke(co_list, src_co_list, src_kdt)
+                    line_dist2 = distance_to_another_stroke(src_co_list, co_list, kdt)
+                    if min(line_dist1, line_dist2) < threshold:
+                        stroke_list.append(stroke)
+        # Check all recent strokes until the vertex color becomes different
+        elif self.target == 'COLOR':
+            stroke_list = []
+            src_color = np.mean([point.vertex_color for point in src_stroke.points if point.vertex_color[3]>1e-3], axis=0)
+            while stroke_index>=0 and stroke_index < len(drawing_layer.active_frame.nijigp_strokes):
+                stroke = drawing_layer.active_frame.nijigp_strokes[stroke_index]
+                v_colors = [point.vertex_color for point in stroke.points if point.vertex_color[3]>1e-3]
+                if len(v_colors) < 1 or np.linalg.norm(np.mean(v_colors, axis=0) - src_color) > 1e-3:
+                    break
+                stroke_list.append(stroke)
+                stroke_index += 1 if context.scene.tool_settings.use_gpencil_draw_onback else -1
+        elif self.target == 'SINGLE':
+            stroke_list = [src_stroke]
 
         if len(stroke_list)<1:
             return {'FINISHED'}  
@@ -884,7 +936,7 @@ class FitLastOperator(CommonFittingConfig, bpy.types.Operator):
         if angle_diff > math.pi/2:
             co_fit = np.flipud(co_fit)
             
-        if self.trim_ends:
+        if self.target == 'REF' and self.trim_ends:
             start_idx, end_idx = 0, len(co_fit)-1
             for i,co in enumerate(co_fit):
                 vec = Vector(co)-Vector(src_co_list[0])
@@ -911,10 +963,14 @@ class FitLastOperator(CommonFittingConfig, bpy.types.Operator):
             attr_idx = int( float(i) / (len(new_stroke.points)-1) * (len(src_stroke.points)-1) )
             point.pressure = src_stroke.points[attr_idx].pressure
             point.strength = src_stroke.points[attr_idx].strength
-            point.vertex_color = src_stroke.points[attr_idx].vertex_color
+            point.vertex_color = src_stroke.points[attr_idx].vertex_color if self.target != 'COLOR' else (0,0,0,0)
             point.uv_rotation = src_stroke.points[attr_idx].uv_rotation
             point.pressure *= (1 + min(attr_fit['extra_pressure'][i], self.max_delta_pressure*0.01) )
-        drawing_layer.active_frame.nijigp_strokes.remove(src_stroke)
+        if self.target == 'COLOR':
+            for stroke in stroke_list:
+                drawing_layer.active_frame.nijigp_strokes.remove(stroke)
+        else:
+            drawing_layer.active_frame.nijigp_strokes.remove(src_stroke)
         
         # Post-processing
         if self.smooth_repeat > 0:
