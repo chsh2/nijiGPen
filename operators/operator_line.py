@@ -932,9 +932,11 @@ class FitLastOperator(CommonFittingConfig, bpy.types.Operator):
         # Orientation correction and trimming
         src_direction = Vector(src_co_list[-1]) - Vector(src_co_list[0])
         new_direction = Vector(co_fit[-1]) - Vector(co_fit[0])
-        angle_diff = src_direction.angle(new_direction)
+        angle_diff = 0 if new_direction.length < 1e-6 else src_direction.angle(new_direction)
         if angle_diff > math.pi/2:
             co_fit = np.flipud(co_fit)
+            for key in attr_fit:
+                attr_fit[key] = np.flipud(attr_fit[key])
             
         if self.target == 'REF' and self.trim_ends:
             start_idx, end_idx = 0, len(co_fit)-1
@@ -961,10 +963,16 @@ class FitLastOperator(CommonFittingConfig, bpy.types.Operator):
         for i,point in enumerate(new_stroke.points):
             point.co = restore_3d_co(co_fit[i], depth_lookup_tree.get_depth(co_fit[i]), inv_mat)
             attr_idx = int( float(i) / (len(new_stroke.points)-1) * (len(src_stroke.points)-1) )
-            point.pressure = src_stroke.points[attr_idx].pressure
-            point.strength = src_stroke.points[attr_idx].strength
-            point.vertex_color = src_stroke.points[attr_idx].vertex_color if self.target != 'COLOR' else (0,0,0,0)
-            point.uv_rotation = src_stroke.points[attr_idx].uv_rotation
+            if self.target == 'COLOR':
+                point.pressure = attr_fit['pressure'][i]
+                point.strength = attr_fit['strength'][i]
+                point.vertex_color = (0,0,0,0)
+                point.uv_rotation = attr_fit['uv_rotation'][i]
+            else:
+                point.pressure = src_stroke.points[attr_idx].pressure
+                point.strength = src_stroke.points[attr_idx].strength
+                point.vertex_color = src_stroke.points[attr_idx].vertex_color
+                point.uv_rotation = src_stroke.points[attr_idx].uv_rotation
             point.pressure *= (1 + min(attr_fit['extra_pressure'][i], self.max_delta_pressure*0.01) )
         if self.target == 'COLOR':
             for stroke in stroke_list:
