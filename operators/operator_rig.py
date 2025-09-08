@@ -681,7 +681,7 @@ class BakeRiggingOperator(bpy.types.Operator):
         )
     target_mode: bpy.props.EnumProperty(            
         name='Target Layers',
-        items=[ ('LAYER', 'Active Layer', ''),
+        items=[ ('ACTIVE', 'Active Layer/Group', ''),
                ('PASS', 'Active Layer Pass Index', ''),
                ('ALL', 'All Layers', ''),],
         default='ALL',
@@ -746,11 +746,13 @@ class BakeRiggingOperator(bpy.types.Operator):
         for i in target_layers:
             layer = gp_obj.data.layers[i]
             last_frame = None
+            last_frame_number = None
             for frame_number in range(1, self.end_frame + 1):
                 if frame_number in layer_get_keyframe[i]:
                     last_frame = layer_get_keyframe[i][frame_number]
+                    last_frame_number = last_frame.frame_number
                 elif last_frame != None and is_target_frame_number(frame_number):
-                    layer_get_keyframe[i][frame_number] = copy_frame(layer.frames, last_frame, frame_number)
+                    layer_get_keyframe[i][frame_number] = copy_frame(layer.frames, last_frame, last_frame_number, frame_number)
 
         # Get all armature modifiers
         target_modifiers = []
@@ -788,7 +790,7 @@ class BakeRiggingOperator(bpy.types.Operator):
                 layer = gp_obj.data.layers[i]
                 if frame_number not in layer_get_keyframe[i]:
                     continue
-                frame = layer_get_keyframe[i][frame_number]
+                frame = [frame for frame in layer.frames if frame.frame_number==frame_number][0]
                 for j,stroke in enumerate(frame.nijigp_strokes):
                     for k,point in enumerate(stroke.points):
                         point.co = new_coordinates[i][j][k]

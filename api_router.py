@@ -171,9 +171,9 @@ def remove_frame(frames, frame):
     else:
         frames.remove(frame)
 
-def copy_frame(frames, src_frame, new_frame_number):
+def copy_frame(frames, src_frame, src_frame_number, new_frame_number):
     if bpy.app.version >= (4, 3, 0):
-        dst_frame = frames.copy(src_frame.frame_number, new_frame_number)
+        dst_frame = frames.copy(src_frame_number, new_frame_number)
     else:
         dst_frame = frames.copy(src_frame)
         dst_frame.frame_number = new_frame_number
