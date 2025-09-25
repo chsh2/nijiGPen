@@ -330,6 +330,8 @@ class SmartFillModalOperator(bpy.types.Operator):
                       f"Confirm - <Enter> / <{preferences.tool_shortcut_confirm.title()}>",
                       f"Cancel - <ESC> / <{preferences.tool_shortcut_cancel.title()}>",
                       "------"]
+        if self._panning_enabled:
+            hint_texts.insert(3, f"Pan View - <{preferences.tool_shortcut_pan.title()}>")
         font_id = 0
         font_size = 18
         line_height = 22
@@ -344,8 +346,12 @@ class SmartFillModalOperator(bpy.types.Operator):
             
         # Draw hint points according to user clicks
         for symbol in ['+', '-']:
-            for co in self._screen_hint_points[symbol]:
-                blf.position(font_id, co[0] - font_size * .25, co[1] - font_size * .25, 0)
+            for loc in self._screen_hint_points[symbol]:
+                co = view3d_utils.location_3d_to_region_2d(bpy.context.region, bpy.context.space_data.region_3d, loc)
+                blf.position(font_id, 
+                    co[0] - font_size * .25,
+                    co[1] - font_size * .25,
+                    0)
                 blf.draw(font_id, symbol)
         
         # Draw interactive buttons
@@ -357,6 +363,21 @@ class SmartFillModalOperator(bpy.types.Operator):
     def modal(self, context, event):
         preferences = context.preferences.addons[__package__].preferences
         context.area.tag_redraw()
+
+        # Process view panning
+        if self._panning_enabled:
+            if event.type == preferences.tool_shortcut_pan and event.value == 'PRESS':
+                self._panning_ongoing = True
+                self._last_x, self._last_y = event.mouse_region_x, event.mouse_region_y
+            if event.type == preferences.tool_shortcut_pan and event.value == 'RELEASE':
+                self._panning_ongoing = False
+            if self._panning_ongoing and event.type == 'MOUSEMOVE':
+                delta_x = event.mouse_region_x - self._last_x
+                delta_y = event.mouse_region_y - self._last_y
+                context.space_data.region_3d.view_camera_offset[0] -= delta_x / context.region.width
+                context.space_data.region_3d.view_camera_offset[1] -= delta_y / context.region.height
+                self._last_x, self._last_y = event.mouse_region_x, event.mouse_region_y
+
         # Process events that terminate the modal
         if event.type in {'RET', 'NUMPAD_ENTER', preferences.tool_shortcut_confirm} or is_button_clicked(event, self._confirm_button, self._button_size):
             bpy.types.SpaceView3D.draw_handler_remove(self._handle, 'WINDOW')
@@ -371,8 +392,12 @@ class SmartFillModalOperator(bpy.types.Operator):
 
         # Process user hints
         ret = None
+        hint_point_loc = view3d_utils.region_2d_to_location_3d(
+            bpy.context.region, bpy.context.space_data.region_3d, 
+            (event.mouse_region_x, event.mouse_region_y), (0,0,0)
+            )
         if event.type == 'LEFTMOUSE' and event.value == 'RELEASE':
-            self._screen_hint_points['+'].append((event.mouse_region_x, event.mouse_region_y))
+            self._screen_hint_points['+'].append(hint_point_loc)
             ret = self.smart_fill_update((event.mouse_region_x, event.mouse_region_y), 1)
             if self.mode == 'SINGLE':
                 bpy.types.SpaceView3D.draw_handler_remove(self._handle, 'WINDOW')
@@ -380,7 +405,7 @@ class SmartFillModalOperator(bpy.types.Operator):
                 context.object.show_in_front = self._show_in_front
                 return {'FINISHED'}
         if event.type == 'RIGHTMOUSE' and event.value == 'RELEASE':
-            self._screen_hint_points['-'].append((event.mouse_region_x, event.mouse_region_y))
+            self._screen_hint_points['-'].append(hint_point_loc)
             ret = self.smart_fill_update((event.mouse_region_x, event.mouse_region_y), 0)
 
         # Process error cases
@@ -420,6 +445,8 @@ class SmartFillModalOperator(bpy.types.Operator):
         
         # Setup the handler for screen hint messages
         self._screen_hint_points = {'+':[], '-':[]}
+        self._panning_enabled = (context.space_data.region_3d.view_perspective == 'CAMERA')
+        self._panning_ongoing = False
         args = (self, context)
         self._handle = bpy.types.SpaceView3D.draw_handler_add(
             self.draw_callback_px, args, 'WINDOW', 'POST_PIXEL'

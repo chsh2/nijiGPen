@@ -331,6 +331,16 @@ class NijiGPAddonPreferences(bpy.types.AddonPreferences):
             default='BUTTON4MOUSE',
             description='The mouse button to cancel the ongoing operation of a viewport tool'
     )
+    tool_shortcut_pan: bpy.props.EnumProperty(
+            name='Pan',
+            items=[ ('MIDDLEMOUSE', 'Middle Click', ''),
+                    ('BUTTON4MOUSE', 'Mouse4 (Back)', ''),
+                    ('BUTTON5MOUSE', 'Mouse5 (Forward)', ''),
+                    ('BUTTON6MOUSE', 'Mouse6', ''),
+                    ('BUTTON7MOUSE', 'Mouse7', '')],
+            default='MIDDLEMOUSE',
+            description='The mouse button to pan the view of a viewport tool if possible'
+    )
 
     def draw(self, context):
         layout = self.layout
@@ -424,6 +434,8 @@ class NijiGPAddonPreferences(bpy.types.AddonPreferences):
         row.prop(self, 'tool_shortcut_confirm')
         row = subbox.row()
         row.prop(self, 'tool_shortcut_cancel')
+        row = subbox.row()
+        row.prop(self, 'tool_shortcut_pan')
         
         layout.separator(factor=2)
         row = layout.row()
