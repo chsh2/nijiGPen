@@ -330,7 +330,7 @@ class SmartFillModalOperator(bpy.types.Operator):
                       f"Confirm - <Enter> / <{preferences.tool_shortcut_confirm.title()}>",
                       f"Cancel - <ESC> / <{preferences.tool_shortcut_cancel.title()}>",
                       "------"]
-        if self._panning_enabled:
+        if self._perspective != 'PERSP':
             hint_texts.insert(3, f"Pan View - <{preferences.tool_shortcut_pan.title()}>")
         font_id = 0
         font_size = 18
@@ -365,7 +365,7 @@ class SmartFillModalOperator(bpy.types.Operator):
         context.area.tag_redraw()
 
         # Process view panning
-        if self._panning_enabled:
+        if self._perspective != 'PERSP':
             if event.type == preferences.tool_shortcut_pan and event.value == 'PRESS':
                 self._panning_ongoing = True
                 self._last_x, self._last_y = event.mouse_region_x, event.mouse_region_y
@@ -374,8 +374,11 @@ class SmartFillModalOperator(bpy.types.Operator):
             if self._panning_ongoing and event.type == 'MOUSEMOVE':
                 delta_x = event.mouse_region_x - self._last_x
                 delta_y = event.mouse_region_y - self._last_y
-                context.space_data.region_3d.view_camera_offset[0] -= delta_x / context.region.width
-                context.space_data.region_3d.view_camera_offset[1] -= delta_y / context.region.height
+                if self._perspective == 'CAMERA':
+                    context.space_data.region_3d.view_camera_offset[0] -= delta_x / context.region.width
+                    context.space_data.region_3d.view_camera_offset[1] -= delta_y / context.region.height
+                else:
+                    context.space_data.region_3d.view_location -= (context.space_data.region_3d.view_rotation @ Vector((delta_x, delta_y, 0))) * (context.space_data.region_3d.view_distance / context.region.width)
                 self._last_x, self._last_y = event.mouse_region_x, event.mouse_region_y
 
         # Process events that terminate the modal
@@ -445,7 +448,7 @@ class SmartFillModalOperator(bpy.types.Operator):
         
         # Setup the handler for screen hint messages
         self._screen_hint_points = {'+':[], '-':[]}
-        self._panning_enabled = (context.space_data.region_3d.view_perspective == 'CAMERA')
+        self._perspective = context.space_data.region_3d.view_perspective
         self._panning_ongoing = False
         args = (self, context)
         self._handle = bpy.types.SpaceView3D.draw_handler_add(
