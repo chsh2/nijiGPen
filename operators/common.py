@@ -86,7 +86,7 @@ def load_stroke_selection(gp_obj, select_map):
                     else:
                         stroke.select = False
 
-def get_input_frames(gp_obj, multiframe=False, return_map=False, layers = None):
+def get_input_frames(gp_obj, multiframe=False, return_map=False, layers=None):
     """
     Get either active frames or all selected frames depending on the edit mode.
     Return either a list of frames, or a detailed map with the following format:

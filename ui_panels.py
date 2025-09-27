@@ -252,9 +252,11 @@ class NIJIGP_PT_weight_panel_rig(bpy.types.Panel):
         layout = self.layout
         layout.label(text="Generate Bone Weights:")
         row = layout.row()
-        row.operator("gpencil.nijigp_rig_by_transfer_weights", text="Weights From Meshes", icon='MOD_DATA_TRANSFER')
+        row.operator("gpencil.nijigp_rig_by_transfer_weights", text="Weights from Meshes", icon='MOD_DATA_TRANSFER')
         row = layout.row()
-        row.operator("gpencil.nijigp_rig_by_pin_hints", text="Pins From Hints", icon='PINNED')
+        row.operator("gpencil.nijigp_rig_by_pin_hints", text="Pins from Hint Strokes", icon='PINNED')
+        row = layout.row()
+        row.operator("gpencil.nijigp_layers_to_groups", text="Layers to Vertex Groups", icon='OUTLINER_DATA_GP_LAYER')
         layout.label(text="Utilities:")
         row = layout.row()
         row.operator("gpencil.nijigp_bake_rigging_animation", icon='KEYFRAME')

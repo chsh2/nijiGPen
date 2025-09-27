@@ -661,6 +661,101 @@ class TransferWeightOperator(bpy.types.Operator):
         bpy.ops.object.mode_set(mode=get_obj_mode_str('WEIGHT'))
         return {'FINISHED'}
 
+class LayersToGroupsOperator(bpy.types.Operator):
+    """For each layer, generates a vertex group with the same name, and assign weights to all frames of that layer"""
+    bl_idname = "gpencil.nijigp_layers_to_groups"
+    bl_label = "Layers to Groups"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    ignore_layer_groups: bpy.props.BoolProperty(
+        name='Ignore Layer Groups',
+        default=False,
+        description='Do not generate vertex groups for layer groups'
+    )
+
+    def draw(self, context):
+        layout = self.layout
+        layout.prop(self, "ignore_layer_groups")
+
+    def execute(self, context):
+        gp_obj = context.object
+
+        # Get all vertex group names to generate
+        layers = [layer for layer in gp_obj.data.layers if not is_layer_protected(layer)]
+        groups = set()
+        layer_group_map = {layer.info:[] for layer in layers}
+        if is_gpv3() and not self.ignore_layer_groups:
+            for layer in layers:
+                p = layer
+                while p.parent_group is not None:
+                    groups.add(p.parent_group)
+                    layer_group_map[layer.info].append(p.parent_group.name)
+                    p = p.parent_group
+
+        # Get all frames to process
+        frames_by_number = {}
+        for layer in layers:
+            for frame in layer.frames:
+                if frame.frame_number not in frames_by_number:
+                    frames_by_number[frame.frame_number] = []
+                frames_by_number[frame.frame_number].append((layer, frame))
+
+        # Generate a temporary armature to assist assigning weights and avoid possible bugs in GPv3
+        if is_gpv3():
+            arm_data = bpy.data.armatures.new('nijigp_tmp_armature')
+            arm_obj = bpy.data.objects.new(arm_data.name, arm_data)
+            bpy.context.collection.objects.link(arm_obj)
+            bpy.context.view_layer.objects.active = arm_obj
+            bpy.ops.object.mode_set(mode='EDIT')
+            for name in [l.info for l in layers]+[g.name for g in groups]:
+                eb = arm_data.edit_bones.new(name=name)
+                eb.head = Vector((0,0,0))
+                eb.tail = Vector((0,.1,0))
+
+            bpy.ops.object.mode_set(mode='OBJECT')
+            switch_to([arm_obj, gp_obj])
+            for frame_number in frames_by_number:
+                context.scene.frame_set(frame_number)
+                bpy.ops.object.parent_set(type='ARMATURE_AUTO')
+            switch_to([gp_obj])
+        # In GPv2, simply create vertex groups
+        else:
+            for name in [l.info for l in layers]:
+                if name not in gp_obj.vertex_groups:
+                    gp_obj.vertex_groups.new(name=name)
+
+        # Set weights
+        weight_helper = GPv3WeightHelper(gp_obj)
+        current_frame_number = context.scene.frame_current
+        for frame in frames_by_number:
+            context.scene.frame_set(frame)
+            weight_helper.setup()
+            for layer, f in frames_by_number[frame]:
+                group_indices = [gp_obj.vertex_groups[layer.info].index]
+                if layer.info in layer_group_map:
+                    for gname in layer_group_map[layer.info]:
+                        group_indices.append(gp_obj.vertex_groups[gname].index)
+                for stroke in get_input_strokes(gp_obj, f, select_all=True):
+                    for i,p in enumerate(stroke.points):
+                        for gi in group_indices:
+                            stroke.points.weight_set(vertex_group_index=gi, point_index=i, weight=1.0)
+            weight_helper.commit()
+        context.scene.frame_set(current_frame_number)
+
+        # Cleanup
+        if is_gpv3():
+            mods = get_gp_modifiers(gp_obj)
+            for mod in mods:
+                if mod.type == get_modifier_str('ARMATURE') and mod.object == arm_obj:
+                    mods.remove(mod)
+                    break
+            bpy.ops.object.mode_set(mode='OBJECT')
+            switch_to([arm_obj])
+            bpy.ops.object.delete(use_global=True)
+            switch_to([gp_obj])
+
+        return {'FINISHED'}
+
 class BakeRiggingOperator(bpy.types.Operator):
     """Apply deformation caused by armature modifiers on each frame. Create new keyframes when necessary"""
     bl_idname = "gpencil.nijigp_bake_rigging_animation"
