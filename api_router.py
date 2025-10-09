@@ -190,7 +190,10 @@ def set_point_radius(point, value, line_width = None):
     if bpy.app.version >= (4, 3, 0):
         if not line_width:
             active_brush = bpy.context.tool_settings.gpencil_paint.brush
-            point.pressure = active_brush.unprojected_radius * value if active_brush else 0.02 * value
+            if hasattr(active_brush, 'unprojected_radius'):
+                point.pressure = active_brush.unprojected_radius * value if active_brush else 0.02 * value
+            else:
+                point.pressure = 0.5 * active_brush.unprojected_size * value if active_brush else 0.01 * value
         else:
             point.pressure = line_width / 2000.0 * value
     else:
@@ -604,7 +607,7 @@ class LegacyStrokeRef:
         
         # The following properties do not exist in GPv3. Return a placeholder value instead.
         elif name == 'line_width':
-            return 1
+            return 1 if bpy.app.version < (5, 0, 0) else 0.5
         elif name == 'select_index':
             return self.select * (self._index + 1)
         
