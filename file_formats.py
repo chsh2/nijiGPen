@@ -26,7 +26,7 @@ def rle_decode(bytes, img_H, img_W, depth):
     offset = img_H * 2
     
     for i in range(img_H):
-        end_position = offset + line_byte_count[i]
+        end_position = offset + int(line_byte_count[i])
         j = 0
         while offset < end_position:
             n = struct.unpack_from('>B', bytes, offset)[0]
