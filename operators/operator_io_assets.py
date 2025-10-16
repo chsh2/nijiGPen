@@ -287,23 +287,28 @@ class ImportBrushOperator(bpy.types.Operator, ImportHelper):
                         new_brush.gpencil_settings.hardness = self.hardness
 
                     # Create an icon by scaling the brush texture down
-                    # TODO: possible changes required by Blender 5.0 that should be revisited after its release
+                    icon_obj = img_obj.copy()
+                    icon_obj.name = f"icon_{f.name.split('.')[0]}_{i}"
+                    icon_filepath = os.path.join(icon_dir, icon_obj.name+'.png')
+                    icon_obj.filepath_raw = icon_filepath
+                    icon_obj.scale(128,128)
+                    icon_obj.save()
+
+                    # Setting icon for Blender 3.x/4.x
                     if hasattr(new_brush, 'use_custom_icon') and hasattr(new_brush, 'icon_filepath'):
                         new_brush.use_custom_icon = True
-                        icon_obj = img_obj.copy()
-                        icon_obj.name = f"icon_{f.name.split('.')[0]}_{i}"
-                        icon_filepath = os.path.join(icon_dir, icon_obj.name+'.png')
-                        icon_obj.filepath_raw = icon_filepath
-                        icon_obj.scale(256,256)
-                        icon_obj.save()
                         new_brush.icon_filepath = icon_filepath
-                        bpy.data.images.remove(icon_obj)
-                    
-                    # Set asset information, necessary for Blender 4.3+
-                    new_brush.asset_generate_preview()
+                        new_brush.asset_generate_preview()
+
                     new_brush.asset_mark()
                     new_brush.asset_data.description = f'Original brush file: {f.name}'
-                    
+
+                    # Setting icon for Blender 5.x
+                    if bpy.app.version >= (5, 0, 0):
+                        with bpy.context.temp_override(id=new_brush):
+                            bpy.ops.ed.lib_id_load_custom_preview(filepath=icon_filepath)
+                    bpy.data.images.remove(icon_obj)
+
                 # Override parameters by parsing original Procreate brush data
                 if self.convert_orig_params and isinstance(parser, BrushsetParser) and orig_params:
                     if self.texture_usage != 'IMAGE':
