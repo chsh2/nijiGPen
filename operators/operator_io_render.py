@@ -1,5 +1,6 @@
 import os
 import bpy
+from mathutils import Vector
 from bpy_extras.io_utils import ExportHelper
 from ..utils import *
 from ..api_router import *
@@ -42,11 +43,16 @@ class MultiLayerRenderOperator(bpy.types.Operator, ExportHelper):
         import numpy as np
         import uuid
         
+        scene = context.scene
         if self.render_target=='ACTIVE':
             gp_obj_list = [context.object] if obj_is_gp(context.object) else []
         else:
             gp_obj_list = [obj for obj in bpy.data.objects if obj_is_gp(obj)]
-        scene = context.scene
+            # Sort objects by the depth to the active camera if feasible
+            if scene.camera:
+                camera_loc = scene.camera.matrix_world.translation
+                camera_vec = scene.camera.matrix_world.to_quaternion() @ Vector((0.0, 0.0, -1.0))
+                gp_obj_list.sort(key=lambda o: camera_vec.dot(o.matrix_world.translation - camera_loc), reverse=True)
         
         def render_and_load(filepath):
             """Render an image and read its pixels into a matrix"""
