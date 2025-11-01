@@ -47,6 +47,18 @@ def is_writable(path, op=None):
         handle_exception()
         return False
 
+def pin_numpy_version():
+    """
+    Generate a constraint file to make sure Blender's NumPy will not be overwritten
+    """
+    import importlib.metadata
+    numpy_version = importlib.metadata.version("numpy")
+    constraint_file = os.path.join(bpy.app.tempdir, "nijigp_numpy_constraint.txt")
+    fd = open(constraint_file, "w")
+    fd.write(f"numpy=={numpy_version}\n")
+    fd.close()
+    return constraint_file
+
 class ClearLogs(bpy.types.Operator):
     """
     Clear the captured logs from the Preferences panel
@@ -175,7 +187,8 @@ class InstallDependency(bpy.types.Operator):
         if not is_writable(custom_lib_path if use_custom_lib_path else default_lib_path, self):
             return {"FINISHED"}
 
-        commands = [python_exe, '-m', 'pip', 'install', '--no-input', '--force-reinstall']
+        constraint_file = pin_numpy_version()
+        commands = [python_exe, '-m', 'pip', 'install', '--no-input', '--force-reinstall', '--no-cache-dir', '--upgrade-strategy', 'only-if-needed', '--constraint', constraint_file]
         if use_custom_lib_path:
             commands += ['--target', custom_lib_path]
             bpy.ops.nijigp.apply_custom_lib_path(output_log=False)

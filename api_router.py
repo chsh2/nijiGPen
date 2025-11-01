@@ -1,6 +1,5 @@
 import bpy
 import random
-import numpy as np
 from .resources import append_geometry_nodes
 from mathutils import *
 

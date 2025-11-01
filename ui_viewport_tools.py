@@ -413,7 +413,7 @@ class SmartFillModalOperator(bpy.types.Operator):
 
         # Process error cases
         if ret and ret > 0:
-            self.report({"ERROR"}, "Cannot calculate the fill area. Please select a proper line art layer.")
+            self.report({"ERROR"}, "Cannot calculate the fill area. Please select a proper line art layer and ensure Python packages are installed.")
             bpy.types.SpaceView3D.draw_handler_remove(self._handle, 'WINDOW')
             context.object.show_in_front = self._show_in_front
             return {'FINISHED'}
