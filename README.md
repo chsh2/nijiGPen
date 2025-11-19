@@ -14,7 +14,7 @@ NijiGPen is a [Blender](https://www.blender.org/) add-on that brings new feature
 Requirement: 
 
 - Blender 3.3 ~ 4.2 (Grease Pencil 2), or
-- Blender 4.3 ~ 4.5 (Grease Pencil 3)
+- Blender 4.3 ~ 5.0 (Grease Pencil 3)
 
 Please follow the steps in [this page](https://chsh2.github.io/nijigp/docs/get_started/installation/) to finish the installation.
 
