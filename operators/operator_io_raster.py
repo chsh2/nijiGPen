@@ -620,7 +620,7 @@ class ImportColorImageOperator(bpy.types.Operator, ImportHelper, ImportColorImag
                 for i, color in enumerate(palette):
                     if label_count[i]>0:
                         palette_to_write.colors.new()
-                        palette_to_write.colors[-1].color = Color(color)
+                        palette_to_write.colors[-1].color = palette_srgb_setter(color)
 
             # Vertex color mode: find the material slot 
             if self.color_mode == 'VERTEX':
@@ -716,7 +716,8 @@ class ImportColorImageOperator(bpy.types.Operator, ImportHelper, ImportColorImag
         if self.color_source == 'PALETTE_RGB' or self.color_source == 'PALETTE_AREA':
             palette_to_read = bpy.data.palettes[self.reference_palette_name]
             for slot in palette_to_read.colors:
-                given_colors.append(slot.color)
+                srgb = palette_srgb_getter(slot.color)
+                given_colors.append(srgb)
             given_colors = np.array(given_colors)[:self.num_colors]
         elif self.new_palette:
             palette_to_write = bpy.data.palettes.new(self.files[0].name)

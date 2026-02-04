@@ -427,29 +427,29 @@ class ImportSwatchOperator(bpy.types.Operator, ImportHelper):
                 new_palette = bpy.data.palettes.new(parser.name)
                 for color in parser.colors:
                     new_palette.colors.new()
-                    new_palette.colors[-1].color = color
+                    new_palette.colors[-1].color = palette_srgb_setter(color)
                     
-            # Generate tints and shades
-            if self.tints_level > 0:
-                # Add padding slots for better alignment
-                padding_slots = (10 - len(parser.colors))%10 if not self.ignore_placeholders else 0
-                for _ in range(padding_slots):
-                    new_palette.colors.new()
-                padding_slots = (5 - len(parser.colors))%5 if not self.ignore_placeholders else 0
-                for i in range(self.tints_level):
-                    factor = (i+1) / (self.tints_level + 1)
-                    # Add tints
-                    for color in parser.colors:
-                        new_palette.colors.new()
-                        new_palette.colors[-1].color = color * (1-factor) + Color((1,1,1)) * factor  
+                # Generate tints and shades
+                if self.tints_level > 0:
+                    # Add padding slots for better alignment
+                    padding_slots = (10 - len(parser.colors))%10 if not self.ignore_placeholders else 0
                     for _ in range(padding_slots):
                         new_palette.colors.new()
-                    # Add shades
-                    for color in parser.colors:
-                        new_palette.colors.new()
-                        new_palette.colors[-1].color = color * (1-factor) + Color((0,0,0)) * factor  
-                    for _ in range(padding_slots):
-                        new_palette.colors.new()
+                    padding_slots = (5 - len(parser.colors))%5 if not self.ignore_placeholders else 0
+                    for i in range(self.tints_level):
+                        factor = (i+1) / (self.tints_level + 1)
+                        # Add tints
+                        for color in parser.colors:
+                            new_palette.colors.new()
+                            new_palette.colors[-1].color = palette_srgb_setter(color * (1-factor) + Color((1,1,1)) * factor)  
+                        for _ in range(padding_slots):
+                            new_palette.colors.new()
+                        # Add shades
+                        for color in parser.colors:
+                            new_palette.colors.new()
+                            new_palette.colors[-1].color = palette_srgb_setter(color * (1-factor) + Color((0,0,0)) * factor)  
+                        for _ in range(padding_slots):
+                            new_palette.colors.new()
 
         self.report({"INFO"}, f'Finish importing {total_palettes} palette(s).')
         return {'FINISHED'}

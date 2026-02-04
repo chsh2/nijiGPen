@@ -161,7 +161,7 @@ class RecolorSelectedOperator(bpy.types.Operator, ColorTintConfig, NoiseConfig):
         dst_stat = [[], [], []]
         for i,color in enumerate(palette.colors):
             # Set up KDTree for color lookup
-            linear_color = [srgb_to_linear(color.color[j]) for j in range(3)]
+            linear_color = palette_linear_rgb_getter(color.color)
             k = get_key(linear_color)
             if self.use_h:
                 kdt.insert((k[0]-1.0, k[1], k[2]), i)
@@ -205,7 +205,7 @@ class RecolorSelectedOperator(bpy.types.Operator, ColorTintConfig, NoiseConfig):
                     normalized = np.clip(normalized, 0, 1)
                     key[j] = normalized * self.normalize + key[j] * (1-self.normalize)
             _, p_idx, _ = kdt.find(key)
-            c = [srgb_to_linear(palette.colors[p_idx].color[j]) for j in range(3)]
+            c = palette_linear_rgb_getter(palette.colors[p_idx].color)
 
             # Mix the saturation and brightness
             h, s, v = rgb_to_hsv(c[0], c[1], c[2])

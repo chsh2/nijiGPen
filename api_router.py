@@ -67,6 +67,38 @@ def blf_set_size(obj, fontid, size, resolution=72):
     
 def is_gpv3():
     return bpy.app.version >= (4, 3, 0)
+
+def palette_linear_rgb_getter(color):
+    if bpy.app.version >= (5, 0, 0):
+        return [color[0], color[1], color[2]]
+    else:
+        c = Color((color[0], color[1], color[2]))
+        lin = c.from_srgb_to_scene_linear()
+        return [lin[0], lin[1], lin[2]]
+
+def palette_srgb_getter(color):
+    if bpy.app.version >= (5, 0, 0):
+        c = Color((color[0], color[1], color[2]))
+        srgb = c.from_scene_linear_to_srgb()
+        return [srgb[0], srgb[1], srgb[2]]
+    else:
+        return [color[0], color[1], color[2]]
+
+def palette_linear_rgb_setter(rgb):
+    lin = Color((rgb[0], rgb[1], rgb[2]))
+    if bpy.app.version >= (5, 0, 0):
+        return lin
+    else:
+        srgb = lin.from_scene_linear_to_srgb()
+        return srgb
+
+def palette_srgb_setter(rgb):
+    srgb = Color((rgb[0], rgb[1], rgb[2]))
+    if bpy.app.version >= (5, 0, 0):
+        lin = srgb.from_srgb_to_scene_linear()
+        return lin
+    else:
+        return srgb
     
 def obj_is_gp(obj):
     if bpy.app.version >= (4, 3, 0):

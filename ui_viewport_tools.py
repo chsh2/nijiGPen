@@ -295,13 +295,13 @@ class SmartFillModalOperator(bpy.types.Operator):
                 new_stroke.use_cyclic = True
                 new_stroke.material_index = bpy.context.object.active_material_index
                 if gp_settings.color_mode == 'VERTEXCOLOR':
-                    new_stroke.vertex_color_fill = [srgb_to_linear(color) for color in gp_settings.brush.color] + [1]
+                    new_stroke.vertex_color_fill = palette_linear_rgb_getter(gp_settings.brush.color) + [1]
                 new_stroke.points.add(len(c))
                 for i,co in enumerate(c):
                     new_stroke.points[i].co = restore_3d_co(co, self.depth_lookup_tree.get_depth(co), inv_mat, self.scale_factor)
                     set_point_radius(new_stroke.points[i], 1)
                     if gp_settings.color_mode == 'VERTEXCOLOR':
-                        new_stroke.points[i].vertex_color = [srgb_to_linear(color) for color in gp_settings.brush.color] + [1]
+                        new_stroke.points[i].vertex_color = palette_linear_rgb_getter(gp_settings.brush.color) + [1]
                 self.generated_strokes.append(new_stroke)
         refresh_strokes(bpy.context.object)
 
