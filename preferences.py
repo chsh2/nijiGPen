@@ -2,15 +2,17 @@ import bpy
 import sys
 import site
 import os
+import locale
 
 def log_append(str):
     bpy.context.preferences.addons[__package__].preferences.captured_logs.append(str)
 
 def run_command(commands, output_log=True):
     from subprocess import Popen, PIPE
+    encoding = locale.getpreferredencoding(False)
     with Popen(commands, stdout=PIPE, shell=False) as p:
         while p.poll() is None:
-            text = p.stdout.readline().decode("utf-8")
+            text = p.stdout.readline().decode(encoding, errors="replace")
             if len(text) > 0:
                 print(text)
                 if output_log:
