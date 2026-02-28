@@ -313,6 +313,7 @@ class MeshGenerationByNormal(CommonMeshConfig, bpy.types.Operator):
             if excluded_group_idx >= 0:
                 weight_helper.setup()
             
+            t_mat_tmp, _ = get_transformation_mat(mode=context.scene.nijigp_working_plane, gp_obj=current_gp_obj, operator=self)
             for layer_idx, item in layer_frame_map.items():
                 frame = item[0]
                 if is_frame_valid(frame):
@@ -322,7 +323,7 @@ class MeshGenerationByNormal(CommonMeshConfig, bpy.types.Operator):
                                 continue
                             if self.ignore_mode == 'OPEN' and is_stroke_line(stroke, current_gp_obj) and not stroke.use_cyclic:
                                 continue
-                            if is_stroke_hole(stroke, current_gp_obj):
+                            if is_stroke_hole(stroke, current_gp_obj, t_mat_tmp):
                                 mask_info.append([stroke, layer_idx, j, frame])
                                 mask_list.append(stroke)
                             else:
@@ -700,11 +701,10 @@ class MeshGenerationByNormal(CommonMeshConfig, bpy.types.Operator):
                     new_object.modifiers["nijigp_GeoNodes"].node_group = append_geometry_nodes(context, 'NijiGP Stop Motion')
             
             for i,co_list in enumerate(poly_list):
-                # Identify the holes that should be considered: same layer, arranged beyond and inside
+                # Identify the holes that should be considered: same layer and inside
                 mask_indices = []
                 for mask_idx, info in enumerate(mask_info):
                     if (stroke_info[i][1] == mask_info[mask_idx][1] and
-                        stroke_info[i][2] < mask_info[mask_idx][2] and
                         is_poly_in_poly(mask_poly_list[mask_idx], poly_list[i])):
                         mask_indices.append(mask_idx)
                 process_single_stroke(i, co_list, mask_indices)
@@ -872,6 +872,7 @@ class MeshGenerationByOffsetting(CommonMeshConfig, bpy.types.Operator):
             mesh_names = []
             context.scene.frame_set(frame_number)
             
+            t_mat_tmp, _ = get_transformation_mat(mode=context.scene.nijigp_working_plane, gp_obj=current_gp_obj, operator=self)
             for layer_idx, item in layer_frame_map.items():
                 frame = item[0]
                 if is_frame_valid(frame):
@@ -881,7 +882,7 @@ class MeshGenerationByOffsetting(CommonMeshConfig, bpy.types.Operator):
                                 continue
                             if self.ignore_mode == 'OPEN' and is_stroke_line(stroke, current_gp_obj) and not stroke.use_cyclic:
                                 continue
-                            if is_stroke_hole(stroke, current_gp_obj):
+                            if is_stroke_hole(stroke, current_gp_obj, t_mat_tmp):
                                 mask_info.append([stroke, layer_idx, j, frame])
                                 mask_list.append(stroke)
                             else:
@@ -1231,7 +1232,6 @@ class MeshGenerationByOffsetting(CommonMeshConfig, bpy.types.Operator):
                 mask_indices = []
                 for mask_idx, info in enumerate(mask_info):
                     if (stroke_info[i][1] == mask_info[mask_idx][1] and
-                        stroke_info[i][2] < mask_info[mask_idx][2] and
                         is_poly_in_poly(mask_poly_list[mask_idx], poly_list[i])):
                         mask_indices.append(mask_idx)
                 process_single_stroke(i, co_list, mask_indices)

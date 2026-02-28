@@ -508,7 +508,8 @@ class AppendSVGOperator(bpy.types.Operator, ImportHelper):
         box1.prop(self, "svg_scale")
         layout.label(text = "Material Options:")
         box2 = layout.box()
-        box2.prop(self, "auto_holdout")
+        if bpy.app.version < (5, 1, 0):
+            box2.prop(self, "auto_holdout")
         box2.prop(self, "reuse_materials")
         layout.label(text = "Animation Options:")
         box3 = layout.box()
@@ -522,7 +523,6 @@ class AppendSVGOperator(bpy.types.Operator, ImportHelper):
         current_frame_number = context.scene.frame_current
         use_multiedit = get_multiedit(current_gp_obj)
         t_mat, inv_mat = get_transformation_mat(mode=context.scene.nijigp_working_plane, gp_obj=current_gp_obj)
-            
 
         frame_number = current_frame_number
         set_multiedit(current_gp_obj, False)
@@ -558,7 +558,7 @@ class AppendSVGOperator(bpy.types.Operator, ImportHelper):
                 elif gp_mat.show_stroke and not gp_mat.show_fill:
                     mat_name = f'{mat_name_prefix}_Line'
                 else:
-                    mat_name = f'{mat_name_prefix}_Both'
+                    mat_name = f'{mat_name_prefix}_General'
                     
                 if mat_name in bpy.data.materials:
                     slot.material = bpy.data.materials[mat_name]
@@ -616,7 +616,7 @@ class AppendSVGOperator(bpy.types.Operator, ImportHelper):
                     bpy.ops.grease_pencil.set_selection_mode(mode='POINT')
                     bpy.ops.grease_pencil.select_linked()
         
-        if self.auto_holdout:
+        if self.auto_holdout and bpy.app.version < (5, 1, 0):
             set_multiedit(current_gp_obj, self.image_sequence)
             bpy.ops.gpencil.nijigp_hole_processing(rearrange=True, separate_colors=True)
         

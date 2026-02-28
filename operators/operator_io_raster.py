@@ -692,6 +692,7 @@ class ImportColorImageOperator(bpy.types.Operator, ImportHelper, ImportColorImag
                     stroke.vertex_color_fill = [srgb_to_linear(color[0]),
                                                 srgb_to_linear(color[1]),
                                                 srgb_to_linear(color[2]),1]
+                set_stroke_fill_mode(stroke, line=self.set_line_color, fill=True)
                 stroke.points.add(len(path))
                 for i,point in enumerate(stroke.points):
                     if self.fit_to_camera:

@@ -88,7 +88,7 @@ def get_mixed_color(gp_obj, stroke, point_idx = None, to_linear = False):
 
     if point_idx is None:
         # Case of fill color
-        if gp_obj.data.materials[stroke.material_index].grease_pencil.show_fill:
+        if not is_stroke_line(stroke, gp_obj):
             for i in range(4):
                 res[i] = mat_gp.fill_color[i]
         if hasattr(stroke,'vertex_color_fill'):
@@ -101,7 +101,7 @@ def get_mixed_color(gp_obj, stroke, point_idx = None, to_linear = False):
     else:
         # Case of line point color
         point = stroke.points[point_idx]
-        if gp_obj.data.materials[stroke.material_index].grease_pencil.show_stroke:
+        if not is_stroke_fill(stroke, gp_obj):
             for i in range(4):
                 res[i] = mat_gp.color[i]
         if hasattr(point,'vertex_color'):
@@ -295,26 +295,6 @@ def get_2d_stroke_outline(path_2d, stroke, scale_factor = 1, path_inverted = Fal
 #endregion
 
 #region [Bpy Utilities]
-def is_stroke_line(stroke, gp_obj):
-    """
-    Check if a stroke does not have fill material
-    """
-    mat_idx = stroke.material_index
-    material = gp_obj.material_slots[mat_idx].material
-    if not material:
-        return False
-    return not material.grease_pencil.show_fill
-
-def is_stroke_fill(stroke, gp_obj):
-    """
-    Check if a stroke does not have line material
-    """
-    mat_idx = stroke.material_index
-    material = gp_obj.material_slots[mat_idx].material
-    if not material:
-        return False
-    return not material.grease_pencil.show_stroke
-
 def is_stroke_protected(stroke, gp_obj):
     """
     Check if a stroke has the material that is being locked or invisible
@@ -325,7 +305,7 @@ def is_stroke_protected(stroke, gp_obj):
         return False
     return material.grease_pencil.lock or material.grease_pencil.hide
 
-def is_stroke_hole(stroke, gp_obj):
+def is_stroke_hole(stroke, gp_obj, t_mat=None):
     """
     Check if a stroke has a material with fill holdout
     """
@@ -333,7 +313,23 @@ def is_stroke_hole(stroke, gp_obj):
     material = gp_obj.material_slots[mat_idx].material
     if not material:
         return False
-    return material.grease_pencil.use_fill_holdout
+    if material.grease_pencil.use_fill_holdout:
+        return True
+
+    if t_mat is not None and bpy.app.version >= (5, 1, 0):
+        if stroke.fill_id == 0:
+            return False
+        import pyclipper
+        stroke_poly, _, scale_factor = get_2d_co_from_strokes([stroke], t_mat, scale=True)
+        sample_co = stroke_poly[0][0]
+        for outer in stroke._collection:
+            if stroke == outer or outer.fill_id != stroke.fill_id:
+                continue
+            outer_poly, _, _ = get_2d_co_from_strokes([outer], t_mat, scale=True, scale_factor=scale_factor)
+            res = pyclipper.PointInPolygon(sample_co, outer_poly[0])
+            if res == 1:
+                return True
+    return False
 
 def is_layer_protected(layer):
     """

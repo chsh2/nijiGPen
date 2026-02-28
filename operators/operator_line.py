@@ -324,7 +324,8 @@ class FitSelectedOperator(CommonFittingConfig, bpy.types.Operator):
 
         layout.label(text = "Output Options:")
         box3 = layout.box()   
-        box3.prop(self, "line_width")
+        if not is_gpv3():
+            box3.prop(self, "line_width")
         box3.prop(self, "pressure_variance")
         box3.prop(self, "max_delta_pressure")
         box3.label(text='Inherit Point Attribtues:')

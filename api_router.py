@@ -239,6 +239,41 @@ def get_point_radius(point, line_width = None):
         else:
             return point.pressure * line_width / 2000.0
 
+def set_stroke_fill_mode(stroke, line=True, fill=False):
+    if bpy.app.version < (5, 1, 0):
+        return
+    stroke.hide_stroke = not line
+    stroke.fill_id = stroke._hash if fill else 0
+
+def copy_stroke_fill_mode(src_stroke, dst_stroke, group=False):
+    if bpy.app.version < (5, 1, 0):
+        return
+    dst_stroke.hide_stroke = src_stroke.hide_stroke
+    if group:
+        dst_stroke.fill_id = src_stroke.fill_id
+    else:
+        dst_stroke.fill_id = dst_stroke._hash if src_stroke.fill_id != 0 else 0
+
+def is_stroke_line(stroke, gp_obj):
+    mat_idx = stroke.material_index
+    material = gp_obj.material_slots[mat_idx].material
+    if not material:
+        return False
+    if bpy.app.version >= (5, 1, 0):
+        return stroke.fill_id == 0
+    else:
+        return not material.grease_pencil.show_fill
+
+def is_stroke_fill(stroke, gp_obj):
+    mat_idx = stroke.material_index
+    material = gp_obj.material_slots[mat_idx].material
+    if not material:
+        return False
+    if bpy.app.version >= (5, 1, 0):
+        return stroke.hide_stroke
+    else:
+        return not material.grease_pencil.show_stroke
+
 def op_modifier_apply(name):
     if bpy.app.version >= (4, 3, 0):
         bpy.ops.object.modifier_apply(modifier=name)
@@ -549,7 +584,8 @@ class LegacyStrokeRef:
     A stroke reference class that provides features missing in GPv3 slice: 
         being comparable, hashable and capable of tracking stroke index changes
     """
-    def __init__(self, drawing, identifier, initial_index):
+    def __init__(self, collection, drawing, identifier, initial_index):
+        self._collection = collection
         self._drawing = drawing
         self._hash = identifier
         self._index = initial_index
@@ -626,7 +662,7 @@ class LegacyStrokeRef:
         elif name == 'uv_translation':
             return self._drawing.attributes['uv_translation'].data[self._index].vector
         
-        # These properties are available from Blender 4.5
+        # Properties added in Blender 4.5
         elif name == 'is_nofill_stroke':
             if '.is_fill_guide' in self._drawing.attributes:
                 return self._drawing.attributes['.is_fill_guide'].data[self._index].value
@@ -635,6 +671,16 @@ class LegacyStrokeRef:
             if 'aspect_ratio' in self._drawing.attributes:
                 return self._drawing.attributes['aspect_ratio'].data[self._index].value
             return 1.0
+
+        # Properties added in Blender 5.1
+        elif name == 'fill_id':
+            if 'fill_id' in self._drawing.attributes:
+                return self._drawing.attributes['fill_id'].data[self._index].value
+            return 0
+        elif name == 'hide_stroke':
+            if 'hide_stroke' in self._drawing.attributes:
+                return self._drawing.attributes['hide_stroke'].data[self._index].value
+            return False
         
         # The following properties do not exist in GPv3. Return a placeholder value instead.
         elif name == 'line_width':
@@ -649,7 +695,9 @@ class LegacyStrokeRef:
         writable = {'select', 'use_cyclic', 'is_nofill_stroke',
                     'material_index', 'vertex_color_fill', 'line_width', 'hardness',
                     'uv_rotation', 'uv_translation', 'uv_scale', 'start_cap_mode', 'end_cap_mode',
-                    'fill_opacity', 'aspect_ratio'    # New attribute that does not exist in GPv2
+                    'fill_opacity',              # Added in Blender 4.3
+                    'aspect_ratio',              # Added in Blender 4.5
+                    'fill_id', 'hide_stroke'     # Added in Blender 5.1
                     }
         if name not in writable:
             super().__setattr__(name, value)
@@ -675,6 +723,12 @@ class LegacyStrokeRef:
         elif name == 'aspect_ratio':
             if 'aspect_ratio' in self._drawing.attributes:
                 self._drawing.attributes['aspect_ratio'].data[self._index].value = value
+        elif name == 'fill_id':
+            if 'fill_id' in self._drawing.attributes:
+                self._drawing.attributes['fill_id'].data[self._index].value = value
+        elif name == 'hide_stroke':
+            if 'hide_stroke' in self._drawing.attributes:
+                self._drawing.attributes['hide_stroke'].data[self._index].value = value
         elif name in {'line_width', 'is_nofill_stroke'}:
             return
         else:
@@ -715,12 +769,18 @@ class LegacyStrokeCollection:
         if 'vertex_color' not in frame.drawing.attributes:
             attr = frame.drawing.attributes.new("vertex_color", 'FLOAT_COLOR', 'POINT')
             attr.data.foreach_set('color', [0] * len(attr.data) * 4)
+        # New attributes from Blender 5.1
+        if bpy.app.version >= (5, 1, 0):
+            if 'fill_id' not in frame.drawing.attributes:
+                frame.drawing.attributes.new("fill_id", 'INT', 'CURVE')
+            if 'hide_stroke' not in frame.drawing.attributes:
+                frame.drawing.attributes.new("hide_stroke", 'BOOLEAN', 'CURVE')
                         
     def __getitem__(self, key):
         if key >= len(self):
             raise IndexError()
         hash_attr = self._drawing.attributes['.nijigp_hash']
-        return LegacyStrokeRef(self._drawing, hash_attr.data[key].value, key)
+        return LegacyStrokeRef(self, self._drawing, hash_attr.data[key].value, key)
 
     def __len__(self):
         return len(self._drawing.strokes)
@@ -741,7 +801,7 @@ class LegacyStrokeCollection:
             self._drawing.attributes['fill_opacity'].data[key].value = 1.0
         if 'aspect_ratio' in self._drawing.attributes:
             self._drawing.attributes['aspect_ratio'].data[key].value = 1.0
-        return LegacyStrokeRef(self._drawing, self._drawing.attributes['.nijigp_hash'].data[key].value, key)
+        return LegacyStrokeRef(self, self._drawing, self._drawing.attributes['.nijigp_hash'].data[key].value, key)
 
     def remove(self, stroke: LegacyStrokeRef):
         stroke.update_index()

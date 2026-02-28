@@ -20,7 +20,7 @@ def is_fill_tintable(operator, gp_obj, stroke):
     if not gp_mat:
         return False
     return (operator.tint_mode != 'LINE' and stroke.select 
-            and gp_mat.grease_pencil.show_fill and not gp_mat.grease_pencil.use_fill_holdout)
+            and not is_stroke_line(stroke, gp_obj) and not gp_mat.grease_pencil.use_fill_holdout)
 
 def is_point_tintable(operator, gp_obj, stroke, point):
     """Determine if a stroke point's vertex_color should be considered in an operator"""
@@ -28,7 +28,7 @@ def is_point_tintable(operator, gp_obj, stroke, point):
     if not gp_mat:
         return False
     return (operator.tint_mode != 'FILL' and point.select 
-            and gp_mat.grease_pencil.show_stroke and not gp_mat.grease_pencil.use_stroke_holdout)
+            and not is_stroke_fill(stroke, gp_obj) and not gp_mat.grease_pencil.use_stroke_holdout)
     
 class TintSelectedOperator(bpy.types.Operator, ColorTintConfig, NoiseConfig):
     """Mixing the vertex color of selected points with another given color"""

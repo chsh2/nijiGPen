@@ -8,7 +8,7 @@ from ..api_router import *
 def generate_stroke_from_2d(new_co_list, inv_mat, 
                             poly_list, depth_list, 
                             stroke_info, gp_obj, scale_factor, 
-                            rearrange = True, arrange_offset = 0, ref_stroke_mask = {}):
+                            rearrange=True, arrange_offset=0, ref_stroke_mask={}, replace=False):
     """
     Given a list of 2D coordinates (new_co_list), transform it back to 3D and generate a stroke.
     Copy stroke and point attributes from input strokes (poly_list and stroke_info).
@@ -80,7 +80,8 @@ def generate_stroke_from_2d(new_co_list, inv_mat,
     copy_stroke_attributes(new_stroke, [src_stroke],
                            copy_hardness=True, copy_linewidth=True,
                            copy_cap=True, copy_cyclic=True,
-                           copy_uv=True, copy_material=True, copy_color=True)        
+                           copy_uv=True, copy_material=True, copy_color=True,
+                           replace=replace)        
     # Copy point properties
     for i in range(N):
         new_i = (i + index_offset) % N
@@ -135,7 +136,7 @@ def overlapping_strokes(s1, s2_outline, s2_bound_box, t_mat, scale_factor=1):
     return False
 
 class HoleProcessingOperator(bpy.types.Operator):
-    """Reorder strokes and assign holdout materials to holes inside another stroke"""
+    """Reorder strokes and assign holdout materials to holes inside another stroke. In Blender 5.1 or later versions, the native operator Join Fills can achieve a similar effect"""
     bl_idname = "gpencil.nijigp_hole_processing"
     bl_label = "Hole Processing"
     bl_category = 'View'
@@ -376,15 +377,19 @@ class OffsetSelectedOperator(bpy.types.Operator, ColorTintConfig):
                                                     strokes=stroke_list, operator=self)
             poly_list, depth_list, scale_factor = get_2d_co_from_strokes(stroke_list, t_mat, scale=True)
 
+            # Judge if the stroke is a hole
+            invert_offsets = []
+            for j,co_list in enumerate(poly_list):
+                if self.invert_holdout and is_stroke_hole(stroke_list[j], current_gp_obj, t_mat):
+                    invert_offsets.append(-1)
+                else:
+                    invert_offsets.append(1)
+
             # Call Clipper to execute offset on each stroke
             for j,co_list in enumerate(poly_list):
 
-                # Judge if the stroke has holdout fill
-                invert_offset = 1
-                if self.invert_holdout and is_stroke_hole(stroke_list[j], current_gp_obj):
-                    invert_offset = -1
-
                 # Offset amount calculation
+                invert_offset = invert_offsets[j]
                 falloff_factor = 1
                 if get_multiedit(current_gp_obj):
                     frame_gap = abs(context.scene.frame_current - frame_number) 
@@ -408,7 +413,8 @@ class OffsetSelectedOperator(bpy.types.Operator, ColorTintConfig):
                     for result in poly_results:
                         new_stroke, new_index, new_layer_index = generate_stroke_from_2d(result, inv_mat, [poly_list[j]], [depth_list[j]],
                                                                                          [stroke_info[j]], current_gp_obj, scale_factor,    
-                                                                                         rearrange = True, arrange_offset = arrange_offset)
+                                                                                         rearrange = True, arrange_offset = arrange_offset,
+                                                                                         replace=not self.keep_original)
                         generated_strokes.append(new_stroke)
                         new_stroke.use_cyclic = True
 
@@ -506,7 +512,7 @@ class FractureSelectedOperator(bpy.types.Operator):
                             continue
                         new_stroke, new_index, new_layer_index = generate_stroke_from_2d(result, inv_mat, poly_list, depth_list,
                                                                                          stroke_info, current_gp_obj, scale_factor,    
-                                                                                         rearrange = True)
+                                                                                         rearrange=True)
                         generated_strokes.append(new_stroke)
                         new_stroke.use_cyclic = True
                         # Update the stroke index
@@ -618,6 +624,11 @@ class BoolSelectedOperator(bpy.types.Operator):
             default=False,
             description='Do not delete the original clip strokes'
     )
+    ignore_holdout: bpy.props.BoolProperty(
+            name='Ignore Holdout',
+            default=True,
+            description='Do not process holdout strokes'
+    )
     reversed_input_order: bpy.props.BoolProperty(
             name='Swap Subject and Clip',
             default=False,
@@ -638,6 +649,8 @@ class BoolSelectedOperator(bpy.types.Operator):
         row.prop(self, "keep_subjects")
         row = layout.row()
         row.prop(self, "keep_clips")
+        row = layout.row()
+        row.prop(self, "ignore_holdout")
 
         layout.label(text = "When More Than 2 Strokes Selected:")
         box = layout.box()
@@ -681,12 +694,15 @@ class BoolSelectedOperator(bpy.types.Operator):
             select_seq_map = {}
 
             # Convert selected strokes to 2D polygon point lists
+            t_mat_tmp, _ = get_transformation_mat(mode=context.scene.nijigp_working_plane, gp_obj=current_gp_obj, operator=self)
             for i,item in layer_frame_map.items():
                 frame = item[0]
                 layer = current_gp_obj.data.layers[i]
                 if is_frame_valid(frame):
                     for j,stroke in enumerate(frame.nijigp_strokes):
                         if stroke.select and not is_stroke_protected(stroke, current_gp_obj):
+                            if self.ignore_holdout and is_stroke_hole(stroke, current_gp_obj, t_mat_tmp):
+                                continue
                             stroke_info.append([stroke, i, j, frame])
                             stroke_list.append(stroke)
                             select_seq_map[len(stroke_list) - 1] = select_map[layer][frame][stroke]
@@ -728,7 +744,8 @@ class BoolSelectedOperator(bpy.types.Operator):
                     for result in poly_results:
                         new_stroke, new_index, new_layer_index = generate_stroke_from_2d(result, inv_mat, poly_list, depth_list,
                                                                                          stroke_info, current_gp_obj, scale_factor,    
-                                                                                         rearrange = True, ref_stroke_mask = ref_stroke_mask)
+                                                                                         rearrange = True, ref_stroke_mask = ref_stroke_mask,
+                                                                                         replace=(not self.keep_subjects and not self.keep_clips))
                         generated_strokes.append(new_stroke)
                         if self.operation_type == 'INTERSECTION':
                             new_stroke.use_cyclic = True
@@ -896,7 +913,7 @@ class BoolLastOperator(bpy.types.Operator):
                 continue
             if context.scene.nijigp_draw_bool_material_constraint == 'DIFF' and stroke.material_index == clip_stroke.material_index:
                 continue
-            if context.scene.nijigp_draw_bool_fill_constraint == 'FILL' and (not current_gp_obj.data.materials[stroke.material_index].grease_pencil.show_fill):
+            if context.scene.nijigp_draw_bool_fill_constraint == 'FILL' and is_stroke_line(stroke, current_gp_obj):
                 continue
             if context.scene.nijigp_draw_bool_selection_constraint and not stroke.select:
                 continue
@@ -936,7 +953,8 @@ class BoolLastOperator(bpy.types.Operator):
                                                                        [poly_list[j]] if self.clip_mode == 'LINE' else [poly_list[j], poly_list[0]],
                                                                        [depth_list[j]] if self.clip_mode == 'LINE' else [depth_list[j], depth_list[0]],
                                                                         [stroke_info[j], stroke_info[0]], current_gp_obj, scale_factor,    
-                                                                        rearrange = True, ref_stroke_mask = {not self.inherit_clip})
+                                                                        rearrange = True, ref_stroke_mask = {not self.inherit_clip},
+                                                                        replace = (not self.keep_subjects and not self.keep_clips))
                     if self.operation_type == 'INTERSECTION':
                         new_stroke.use_cyclic = True
                     # Depth correction
@@ -1130,7 +1148,7 @@ class SweepSelectedOperator(bpy.types.Operator, ColorTintConfig):
                     continue
                 new_material_index = None
                 style = str(self.style)
-                if self.invert_holdout and is_stroke_hole(stroke_list[j], current_gp_obj):
+                if self.invert_holdout and is_stroke_hole(stroke_list[j], current_gp_obj, t_mat):
                     # When generating inner shadow, ignore holdout. Otherwise, invert the shadow direction
                     if style == 'INNER':
                         continue

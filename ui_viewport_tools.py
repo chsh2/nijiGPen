@@ -77,10 +77,6 @@ class BooleanModalOperator(bpy.types.Operator):
         bpy.data.materials.create_gpencil_data(mat)
         mat.grease_pencil.color = (0.2, 0.2, 0.2, 0.5)
         context.active_object.data.materials.append(mat)
-        if self.caps_type == 'LASSO':
-            mat.grease_pencil.show_stroke = False
-            mat.grease_pencil.show_fill = True
-            mat.grease_pencil.fill_color = (0.2, 0.2, 0.2, 0.5)
         
         frame = context.active_object.data.layers.active.active_frame
         stroke = frame.nijigp_strokes.new()
@@ -89,6 +85,12 @@ class BooleanModalOperator(bpy.types.Operator):
         stroke.start_cap_mode = 'FLAT' if self.caps_type == 'FLAT' else 'ROUND'
         stroke.end_cap_mode = 'FLAT' if self.caps_type == 'FLAT' else 'ROUND'
         self._stroke = stroke
+        
+        if self.caps_type == 'LASSO':
+            mat.grease_pencil.show_stroke = False
+            mat.grease_pencil.show_fill = True
+            mat.grease_pencil.fill_color = (0.2, 0.2, 0.2, 0.5)
+            set_stroke_fill_mode(stroke, line=False, fill=True)
 
     def boolean_eraser_update(self, context, event):
         origin = context.object.matrix_world.translation
@@ -294,6 +296,7 @@ class SmartFillModalOperator(bpy.types.Operator):
                 new_stroke.line_width = gp_settings.brush.size
                 new_stroke.use_cyclic = True
                 new_stroke.material_index = bpy.context.object.active_material_index
+                set_stroke_fill_mode(new_stroke, line=False, fill=True)
                 if gp_settings.color_mode == 'VERTEXCOLOR':
                     new_stroke.vertex_color_fill = palette_linear_rgb_getter(gp_settings.brush.color) + [1]
                 new_stroke.points.add(len(c))

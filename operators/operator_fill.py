@@ -259,6 +259,7 @@ class SmartFillOperator(bpy.types.Operator):
                     for i,co in enumerate(c):
                         new_stroke.points[i].co = restore_3d_co(co, depth_lookup_tree.get_depth(co), inv_mat, scale_factor)
                     new_stroke.select = True
+                    set_stroke_fill_mode(new_stroke, line=False, fill=True)
                     generated_strokes.add(new_stroke)
 
             if self.clear_hint_layer:

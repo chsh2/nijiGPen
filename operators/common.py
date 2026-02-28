@@ -163,13 +163,14 @@ def refresh_strokes(gp_obj, frame_numbers = None):
     bpy.context.scene.frame_set(current_frame)
 
 def copy_stroke_attributes(dst, srcs,
-                           copy_hardness = False,
-                           copy_linewidth = False,
-                           copy_cap = False,
-                           copy_cyclic = False,
-                           copy_uv = False,
-                           copy_material = False,
-                           copy_color = False):
+                           copy_hardness=False,
+                           copy_linewidth=False,
+                           copy_cap=False,
+                           copy_cyclic=False,
+                           copy_uv=False,
+                           copy_material=False,
+                           copy_color=False,
+                           replace=False):
     """
     Set the attributes of a stroke by copying from other stroke(s)
     """
@@ -184,6 +185,7 @@ def copy_stroke_attributes(dst, srcs,
         dst.material_index = src.material_index
     if copy_uv:
         dst.uv_scale = src.uv_scale
+    copy_stroke_fill_mode(src, dst, group=replace)
         
     # Average values
     color_fill = Vector([.0,.0,.0,.0])
