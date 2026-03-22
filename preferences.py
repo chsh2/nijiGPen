@@ -94,6 +94,13 @@ class ApplyCustomLibPath(bpy.types.Operator):
             return {"FINISHED"}
         if custom_lib_path not in sys.path:
             sys.path.append(custom_lib_path)
+            dll_paths = [
+                os.path.join(custom_lib_path, "numpy.libs"),
+                os.path.join(custom_lib_path, "numpy", ".libs"),
+                os.path.join(custom_lib_path, "numpy", ".dylibs")]
+            for dll_path in dll_paths:
+                if os.path.exists(dll_path):
+                    os.add_dll_directory(dll_path)
         if self.output_log:
             log_append("[NijiGPen Info] Package Search Paths Updated:")
             for path in sys.path:

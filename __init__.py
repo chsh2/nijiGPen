@@ -72,7 +72,15 @@ def register():
     custom_lib_path = bpy.context.preferences.addons[__package__].preferences.custom_lib_path
     if len(custom_lib_path) > 0:
         import sys
+        import os
         sys.path.append(custom_lib_path)
+        dll_paths = [
+            os.path.join(custom_lib_path, "numpy.libs"),
+            os.path.join(custom_lib_path, "numpy", ".libs"),
+            os.path.join(custom_lib_path, "numpy", ".dylibs")]
+        for dll_path in dll_paths:
+            if os.path.exists(dll_path):
+                os.add_dll_directory(dll_path)
 
 def unregister():
     auto_load.unregister()
