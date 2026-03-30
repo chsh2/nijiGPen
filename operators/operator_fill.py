@@ -483,14 +483,19 @@ class HatchFillOperator(bpy.types.Operator, ColorTintConfig, NoiseConfig):
                             )]
             t_mat, inv_mat = get_transformation_mat(mode=context.scene.nijigp_working_plane,
                                                     gp_obj=gp_obj, strokes=stroke_list, operator=self)
+            hole_list = [s for s in stroke_list if is_stroke_hole(s, gp_obj, t_mat)]
+            stroke_list = [s for s in stroke_list if s not in hole_list]
+            
             # Process each stroke independently
             for stroke in stroke_list:
                 delta_angle = (noise.random() - 0.5) * self.random_angle
                 rot_mat = Euler((0,0, self.angle + delta_angle)).to_matrix()
                 poly_list, depth_list, scale_factor = get_2d_co_from_strokes([stroke], rot_mat @ t_mat, scale=True)
                 depth_lookup_tree = DepthLookupTree(poly_list, depth_list)
+                hole_polys, _, _ = get_2d_co_from_strokes(hole_list, rot_mat @ t_mat, scale=True, scale_factor=scale_factor)
+                hole_polys = [h for h in hole_polys if is_poly_in_poly(h, poly_list[0])]
+                
                 hatch_polys = []
-
                 # Use Voronoi diagram to generate centerlines
                 if self.style_line == 'RIDGE':
                     vor = Voronoi(poly_list[0])
@@ -516,7 +521,13 @@ class HatchFillOperator(bpy.types.Operator, ColorTintConfig, NoiseConfig):
                         for v in np.arange(corners[1] - v0 * odd_row, corners[3] + v0 * (1-odd_row), self.gap * v_scale):
                             co_2d = Vector((u,v))
                             grid_points[-1].append(co_2d)
-                            grid_points_inside[-1].append(pyclipper.PointInPolygon(co_2d * scale_factor, poly_list[0])==1)
+                            is_inside = (pyclipper.PointInPolygon(co_2d * scale_factor, poly_list[0])==1)
+                            if is_inside:
+                                for h in hole_polys:
+                                    if pyclipper.PointInPolygon(co_2d * scale_factor, h) == 1:
+                                        is_inside = False
+                                        break
+                            grid_points_inside[-1].append(is_inside)
                     if len(grid_points) < 1:
                         continue
                     grid_U = len(grid_points)
@@ -566,10 +577,12 @@ class HatchFillOperator(bpy.types.Operator, ColorTintConfig, NoiseConfig):
                                         pair = (grid_points[current_seg[0]][current_seg[2]-1], grid_points[current_seg[0]+1][next_start]) if self.style_doodle == 'Z' else \
                                             (grid_points[current_seg[0]][current_seg[2]-1], grid_points[current_seg[0]+1][next_end-1]) if to_reverse else \
                                             (grid_points[current_seg[0]][current_seg[1]], grid_points[current_seg[0]+1][next_start])
-                                        if not across_boundary(pair[0], pair[1], poly_list[0], scale_factor):
-                                            current_seg = [current_seg[0]+1, next_start, next_end]
-                                            row_segments[current_seg[0]].pop(next_start)
-                                            break
+                                        for h in [poly_list[0]] + hole_polys:
+                                            if across_boundary(pair[0], pair[1], h, scale_factor):
+                                                continue
+                                        current_seg = [current_seg[0]+1, next_start, next_end]
+                                        row_segments[current_seg[0]].pop(next_start)
+                                        break
                                     else:
                                         break
                 # Generate output strokes
@@ -593,6 +606,9 @@ class HatchFillOperator(bpy.types.Operator, ColorTintConfig, NoiseConfig):
                         set_point_radius(point, 1 + self.random_radius * noise.noise(co_noise), self.line_width)
                     generated_strokes.append(new_stroke)   
                 if not self.keep_original:
+                    frame.nijigp_strokes.remove(stroke)
+            if not self.keep_original:
+                for stroke in hole_list:
                     frame.nijigp_strokes.remove(stroke)
         # Post-processing
         op_deselect()

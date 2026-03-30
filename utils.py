@@ -322,13 +322,15 @@ def is_stroke_hole(stroke, gp_obj, t_mat=None):
         import pyclipper
         stroke_poly, _, scale_factor = get_2d_co_from_strokes([stroke], t_mat, scale=True)
         sample_co = stroke_poly[0][0]
+        level = 0
         for outer in stroke._collection:
             if stroke == outer or outer.fill_id != stroke.fill_id:
                 continue
             outer_poly, _, _ = get_2d_co_from_strokes([outer], t_mat, scale=True, scale_factor=scale_factor)
             res = pyclipper.PointInPolygon(sample_co, outer_poly[0])
             if res == 1:
-                return True
+                level += 1
+        return level % 2 == 1
     return False
 
 def is_layer_protected(layer):
