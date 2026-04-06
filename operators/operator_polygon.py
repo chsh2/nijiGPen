@@ -61,14 +61,14 @@ def generate_stroke_from_2d(new_co_list, inv_mat,
         
     # Making the starting point of the new stroke close to the existing one
     min_distance = None
-    index_offset = None
+    index_offset = 0
     starting_point_co = poly_list[ref_stroke_index][0]
     for i,co in enumerate(new_co_list):
         distance = get_2d_squared_distance(co, scale_factor, starting_point_co, 1)
         if not min_distance or min_distance > distance:
             min_distance = distance
             index_offset = i
-            
+
     # Create a new stroke
     new_stroke = frame.nijigp_strokes.new()
     N = len(new_co_list)
@@ -496,10 +496,11 @@ class FractureSelectedOperator(bpy.types.Operator):
             t_mat, inv_mat = get_transformation_mat(mode=context.scene.nijigp_working_plane,
                                                     gp_obj=current_gp_obj, 
                                                     strokes=stroke_list, operator=self)
-            poly_list, depth_list, scale_factor = get_2d_co_from_strokes(stroke_list, t_mat,
+            poly_list, depth_list, poly_inverted, scale_factor = get_2d_co_from_strokes(stroke_list, t_mat,
                                                                          scale=True,
-                                                                         correct_orientation = True)
-
+                                                                         correct_orientation=True,
+                                                                         return_orientation=True)
+            ref_poly_list = [poly_list[i][::-1] if poly_inverted[i] else poly_list[i] for i in range(len(poly_list))]
             # Boolean operation requires at least two shapes
             if len(stroke_info) < 2:
                 continue
@@ -510,7 +511,7 @@ class FractureSelectedOperator(bpy.types.Operator):
                     for result in poly_results:
                         if len(result) == 0:
                             continue
-                        new_stroke, new_index, new_layer_index = generate_stroke_from_2d(result, inv_mat, poly_list, depth_list,
+                        new_stroke, new_index, new_layer_index = generate_stroke_from_2d(result, inv_mat, ref_poly_list, depth_list,
                                                                                          stroke_info, current_gp_obj, scale_factor,    
                                                                                          rearrange=True)
                         generated_strokes.append(new_stroke)
@@ -710,9 +711,11 @@ class BoolSelectedOperator(bpy.types.Operator):
             t_mat, inv_mat = get_transformation_mat(mode=context.scene.nijigp_working_plane,
                                                     gp_obj=current_gp_obj, 
                                                     strokes=stroke_list, operator=self)
-            poly_list, depth_list, scale_factor = get_2d_co_from_strokes(stroke_list, t_mat,
+            poly_list, depth_list, poly_inverted, scale_factor = get_2d_co_from_strokes(stroke_list, t_mat,
                                                                          scale=True,
-                                                                         correct_orientation = True)
+                                                                         correct_orientation=True,
+                                                                         return_orientation=True)
+            ref_poly_list = [poly_list[i][::-1] if poly_inverted[i] else poly_list[i] for i in range(len(poly_list))]
 
             # Boolean operation requires at least two shapes
             if len(stroke_info) < 2:
@@ -742,7 +745,7 @@ class BoolSelectedOperator(bpy.types.Operator):
                 """
                 if len(poly_results) > 0:
                     for result in poly_results:
-                        new_stroke, new_index, new_layer_index = generate_stroke_from_2d(result, inv_mat, poly_list, depth_list,
+                        new_stroke, new_index, new_layer_index = generate_stroke_from_2d(result, inv_mat, ref_poly_list, depth_list,
                                                                                          stroke_info, current_gp_obj, scale_factor,    
                                                                                          rearrange = True, ref_stroke_mask = ref_stroke_mask,
                                                                                          replace=(not self.keep_subjects and not self.keep_clips))
@@ -938,7 +941,8 @@ class BoolLastOperator(bpy.types.Operator):
 
         poly_list, depth_list, poly_inverted, _ = get_2d_co_from_strokes(stroke_list, t_mat,
                                                                      scale=True, correct_orientation=True, scale_factor=scale_factor, return_orientation=True)
-
+        ref_poly_list = [poly_list[i][::-1] if poly_inverted[i] else poly_list[i] for i in range(len(poly_list))]
+        
         # Operate on the last stroke with any other stroke one by one
         generated_strokes = []
         for j in range(1, len(stroke_list)):
@@ -950,7 +954,7 @@ class BoolLastOperator(bpy.types.Operator):
             if len(poly_results) > 0:
                 for result in poly_results:
                     new_stroke, new_index, _ = generate_stroke_from_2d(result, inv_mat, 
-                                                                       [poly_list[j]] if self.clip_mode == 'LINE' else [poly_list[j], poly_list[0]],
+                                                                       [ref_poly_list[j]] if self.clip_mode == 'LINE' else [ref_poly_list[j], ref_poly_list[0]],
                                                                        [depth_list[j]] if self.clip_mode == 'LINE' else [depth_list[j], depth_list[0]],
                                                                         [stroke_info[j], stroke_info[0]], current_gp_obj, scale_factor,    
                                                                         rearrange = True, ref_stroke_mask = {not self.inherit_clip},
