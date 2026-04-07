@@ -146,6 +146,7 @@ def refresh_strokes(gp_obj, frame_numbers = None):
     This function recalculates the geometry data
     """
     if is_gpv3():
+        change_fill_id_hash_seed()
         return
     
     current_mode = bpy.context.mode

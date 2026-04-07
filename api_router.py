@@ -249,10 +249,23 @@ def copy_stroke_fill_mode(src_stroke, dst_stroke, group=False):
     if bpy.app.version < (5, 1, 0):
         return
     dst_stroke.hide_stroke = src_stroke.hide_stroke
-    if group:
-        dst_stroke.fill_id = src_stroke.fill_id
-    else:
-        dst_stroke.fill_id = dst_stroke._hash if src_stroke.fill_id != 0 else 0
+    dst_stroke.fill_id = src_stroke.fill_id
+    if not group:
+        mutate_stroke_fill_id(dst_stroke)
+
+nijigp_fill_id_hash_seed = 0
+def mutate_stroke_fill_id(stroke):
+    global nijigp_fill_id_hash_seed
+    if bpy.app.version < (5, 1, 0):
+        return
+    if stroke.fill_id == 0:
+        return
+    x = stroke.fill_id ^ nijigp_fill_id_hash_seed
+    stroke.fill_id = (((x ^ (x >> 16)) * 0x45d9f3b ^ (((x ^ (x >> 16)) * 0x45d9f3b) >> 16)) & ((1 << 28) - 1)) or 1
+    
+def change_fill_id_hash_seed():
+    global nijigp_fill_id_hash_seed
+    nijigp_fill_id_hash_seed = random.randint(1, 1 << 28)
 
 def is_stroke_line(stroke, gp_obj):
     mat_idx = stroke.material_index

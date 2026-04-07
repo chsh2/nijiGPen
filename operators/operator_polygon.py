@@ -520,6 +520,7 @@ class FractureSelectedOperator(bpy.types.Operator):
                         for info in stroke_info:
                             if new_index <= info[2] and new_layer_index == info[1]:
                                 info[2] += 1
+                        change_fill_id_hash_seed()
 
             def fracture_pair(poly1, poly2):
                 """
@@ -626,9 +627,9 @@ class BoolSelectedOperator(bpy.types.Operator):
             description='Do not delete the original clip strokes'
     )
     ignore_holdout: bpy.props.BoolProperty(
-            name='Ignore Holdout',
-            default=True,
-            description='Do not process holdout strokes'
+            name='Ignore Holes',
+            default=False,
+            description='Do not process holes inside other strokes or strokes with holeout materials'
     )
     reversed_input_order: bpy.props.BoolProperty(
             name='Swap Subject and Clip',
@@ -693,6 +694,7 @@ class BoolSelectedOperator(bpy.types.Operator):
             stroke_info = []
             stroke_list = []
             select_seq_map = {}
+            hole_indices = {}
 
             # Convert selected strokes to 2D polygon point lists
             t_mat_tmp, _ = get_transformation_mat(mode=context.scene.nijigp_working_plane, gp_obj=current_gp_obj, operator=self)
@@ -702,8 +704,10 @@ class BoolSelectedOperator(bpy.types.Operator):
                 if is_frame_valid(frame):
                     for j,stroke in enumerate(frame.nijigp_strokes):
                         if stroke.select and not is_stroke_protected(stroke, current_gp_obj):
-                            if self.ignore_holdout and is_stroke_hole(stroke, current_gp_obj, t_mat_tmp):
-                                continue
+                            if is_stroke_hole(stroke, current_gp_obj, t_mat_tmp):
+                                if self.ignore_holdout:
+                                    continue
+                                hole_indices[len(stroke_list)] = True
                             stroke_info.append([stroke, i, j, frame])
                             stroke_list.append(stroke)
                             select_seq_map[len(stroke_list) - 1] = select_map[layer][frame][stroke]
@@ -715,6 +719,9 @@ class BoolSelectedOperator(bpy.types.Operator):
                                                                          scale=True,
                                                                          correct_orientation=True,
                                                                          return_orientation=True)
+            for i in hole_indices:
+                poly_list[i] = poly_list[i][::-1]
+                poly_inverted[i] = not poly_inverted[i]
             ref_poly_list = [poly_list[i][::-1] if poly_inverted[i] else poly_list[i] for i in range(len(poly_list))]
 
             # Boolean operation requires at least two shapes
@@ -1024,9 +1031,9 @@ class SweepSelectedOperator(bpy.types.Operator, ColorTintConfig):
             default='EXTRUDE'
     )
     invert_holdout: bpy.props.BoolProperty(
-            name='Process Holdout Separately',
+            name='Process Holes',
             default=True,
-            description='When generating outer shadow, use inner shadow instead for shapes with their fill holdout; when generating inner shadow, ignore such shapes'
+            description='When generating outer shadow, use inner shadow for holes instead for consistent visual results'
     )
     keep_original: bpy.props.BoolProperty(
             name='Keep Original',
@@ -1152,15 +1159,20 @@ class SweepSelectedOperator(bpy.types.Operator, ColorTintConfig):
                     continue
                 new_material_index = None
                 style = str(self.style)
+                should_keep_hole = False
                 if self.invert_holdout and is_stroke_hole(stroke_list[j], current_gp_obj, t_mat):
                     # When generating inner shadow, ignore holdout. Otherwise, invert the shadow direction
                     if style == 'INNER':
                         continue
                     else:
-                        style = 'INNER'
                         holdout_material = current_gp_obj.material_slots[stroke_list[j].material_index].material
-                        if 'original_material_index' in holdout_material:
-                            new_material_index = holdout_material['original_material_index']
+                        if holdout_material.grease_pencil.use_fill_holdout:
+                            if 'original_material_index' in holdout_material:
+                                new_material_index = holdout_material['original_material_index']
+                        # In extrude mode, a hole must present in both upper and lower shapes to be visible
+                        elif style == 'EXTRUDE':
+                            should_keep_hole = True
+                        style = 'INNER'
                 poly_results = pyclipper.MinkowskiSum(co_list, path[style], path_is_closed)
 
                 # Trim the result using Boolean operations
@@ -1172,14 +1184,18 @@ class SweepSelectedOperator(bpy.types.Operator, ColorTintConfig):
                     clipper.AddPath(result, role1, True)
                 clipper.AddPath(co_list, role0, True)
                 poly_results = clipper.Execute(op, pyclipper.PFT_NONZERO, pyclipper.PFT_NONZERO)
+                if should_keep_hole:
+                    poly_results = [co_list] + poly_results
 
-                for result in poly_results:
-                    if pyclipper.Area(result) < MIN_AREA:
+                for p_idx,result in enumerate(poly_results):
+                    if abs(pyclipper.Area(result)) < MIN_AREA:
                         continue
                     new_stroke, new_index, new_layer_index = generate_stroke_from_2d(result, inv_mat, [poly_list[j]], [depth_list[j]],
                                                                                         [stroke_info[j]], current_gp_obj, scale_factor,    
                                                                                         rearrange = True, 
                                                                                         arrange_offset = (style!='INNER'))
+                    if p_idx > 0 and should_keep_hole:
+                        mutate_stroke_fill_id(new_stroke)
                     generated_strokes.append(new_stroke)
                     new_stroke.use_cyclic = True
                     if new_material_index != None:
