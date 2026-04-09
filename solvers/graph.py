@@ -263,7 +263,7 @@ class SmartFillSolver:
             if self.labels[n] == -1:
                 self.labels[n] = components_new_label[c]
             
-    def get_contours(self): 
+    def get_contours(self, allow_holes=False): 
         """
         Get the outer contour of each connected component of the graph
         """
@@ -336,6 +336,9 @@ class SmartFillSolver:
             
             # Choose only the outer contours as the output
             for i,sc1 in enumerate(contour_candidates):
+                if allow_holes:
+                    contours_co[c].append(sc1)
+                    continue
                 for j,sc2 in enumerate(contour_candidates):
                     if (i!=j and
                         pyclipper.PointInPolygon(sc1[0], sc2) != 0 and

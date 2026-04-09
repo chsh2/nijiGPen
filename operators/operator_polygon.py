@@ -167,6 +167,8 @@ class HoleProcessingOperator(bpy.types.Operator):
         except ImportError:
             self.report({"ERROR"}, "Please install PyClipper in the Preferences panel.")
             return {'FINISHED'}
+        if bpy.app.version >= (5, 1, 0):
+            self.report({"WARNING"}, "This operator is designed for older Blender versions. Please consider using [Stroke] > [Join Fills] for better results.")
         
         gp_obj: bpy.types.Object = context.object
         frames_to_process = get_input_frames(gp_obj, get_multiedit(gp_obj))
@@ -842,6 +844,12 @@ class BoolLastOperator(bpy.types.Operator):
             default=False,
             description='Do not delete the latest drawn stroke'
     )
+    allow_holes: bpy.props.BoolProperty(
+        name='Allow Holes',
+        default=False,
+        description='Taking holes into account when executing Boolean operations. May take longer time to compute'
+    )
+    consider_inside: bpy.props.BoolProperty(default=False)
 
     def draw(self, context):
         layout = self.layout
@@ -849,8 +857,13 @@ class BoolLastOperator(bpy.types.Operator):
         layout.prop(self, "clip_mode", text = "Type")
         layout.prop(self, "inherit_clip", text = "Use Drawn Stroke's Attributes")
         layout.prop(self, "keep_subjects", text = "Keep Affected Strokes")
+        if bpy.app.version >= (5, 1, 0):
+            layout.prop(self, "allow_holes")
 
     def execute(self, context):
+        if bpy.app.version < (5, 1, 0):
+            self.allow_holes = False
+
         # Import and configure Clipper
         try:
             import pyclipper
@@ -928,9 +941,23 @@ class BoolLastOperator(bpy.types.Operator):
             if context.scene.nijigp_draw_bool_selection_constraint and not stroke.select:
                 continue
             if not overlapping_strokes(stroke, clip_points, clip_bound_box, t_mat, scale_factor):
-                continue
+                tmp_polys, _, _ = get_2d_co_from_strokes([stroke], t_mat, scale=True, scale_factor=scale_factor)
+                if len(tmp_polys) < 1:
+                    continue
+                if (not (self.allow_holes and is_poly_in_poly(clip_points, tmp_polys[0]))) and \
+                   (not (self.consider_inside and is_poly_in_poly(tmp_polys[0], clip_polys[0]))):
+                    continue
             stroke_list.append(stroke)
             stroke_info.append([stroke, layer_index, j])
+
+        # When allowing holes, should also add all strokes that sharing the fill group
+        if self.allow_holes:
+            target_fill_ids = set([stroke.fill_id for stroke in stroke_list if stroke.fill_id > 0])
+            stroke_set = set(stroke_list)
+            for j,stroke in enumerate(layer.active_frame.nijigp_strokes):
+                if stroke.fill_id in target_fill_ids and stroke not in stroke_set:
+                    stroke_list.append(stroke)
+                    stroke_info.append([stroke, layer_index, j])
 
         if len(stroke_list) == 1:
             bpy.ops.object.mode_set(mode=get_obj_mode_str('PAINT'))
@@ -948,23 +975,47 @@ class BoolLastOperator(bpy.types.Operator):
 
         poly_list, depth_list, poly_inverted, _ = get_2d_co_from_strokes(stroke_list, t_mat,
                                                                      scale=True, correct_orientation=True, scale_factor=scale_factor, return_orientation=True)
+        if self.allow_holes:
+            for i,_ in enumerate(stroke_list):
+                if i == 0:
+                    continue
+                if is_stroke_hole(stroke_list[i], current_gp_obj, t_mat_mod):
+                    poly_list[i] = poly_list[i][::-1]
+                    poly_inverted[i] = not poly_inverted[i]
         ref_poly_list = [poly_list[i][::-1] if poly_inverted[i] else poly_list[i] for i in range(len(poly_list))]
         
         # Operate on the last stroke with any other stroke one by one
         generated_strokes = []
+        processed_fill_ids = set()
         for j in range(1, len(stroke_list)):
+            subject_indices = [j]
+            if self.allow_holes and stroke_list[j].fill_id > 0:
+                if stroke_list[j].fill_id in processed_fill_ids:
+                    continue
+                processed_fill_ids.add(stroke_list[j].fill_id)
+                for k in range(1, len(stroke_list)):
+                    if k != j and stroke_list[k].fill_id == stroke_list[j].fill_id:
+                        subject_indices.append(k)
+
             clipper.Clear()
-            clipper.AddPath(poly_list[j], pyclipper.PT_SUBJECT, True)
+            for idx in subject_indices:
+                clipper.AddPath(poly_list[idx], pyclipper.PT_SUBJECT, True)
             clipper.AddPaths(clip_polys, pyclipper.PT_CLIP, True)
             poly_results = clipper.Execute(op, pyclipper.PFT_NONZERO, pyclipper.PFT_NONZERO)
 
             if len(poly_results) > 0:
                 for result in poly_results:
+                    attr_references = [ref_poly_list[_] for _ in subject_indices]
+                    depth_references = [depth_list[_] for _ in subject_indices]
+                    stroke_references = [stroke_info[_] for _ in subject_indices]
+                    reference_mask = set(range(len(subject_indices))) if self.inherit_clip else {len(subject_indices)}
+                    print(reference_mask)
                     new_stroke, new_index, _ = generate_stroke_from_2d(result, inv_mat, 
-                                                                       [ref_poly_list[j]] if self.clip_mode == 'LINE' else [ref_poly_list[j], ref_poly_list[0]],
-                                                                       [depth_list[j]] if self.clip_mode == 'LINE' else [depth_list[j], depth_list[0]],
-                                                                        [stroke_info[j], stroke_info[0]], current_gp_obj, scale_factor,    
-                                                                        rearrange = True, ref_stroke_mask = {not self.inherit_clip},
+                                                                        attr_references if self.clip_mode == 'LINE' else attr_references + [ref_poly_list[0]],
+                                                                        depth_references if self.clip_mode == 'LINE' else depth_references + [depth_list[0]],
+                                                                        stroke_references if self.clip_mode == 'LINE' else stroke_references + [stroke_info[0]], 
+                                                                        current_gp_obj, scale_factor,    
+                                                                        rearrange = True, ref_stroke_mask = reference_mask,
                                                                         replace = (not self.keep_subjects and not self.keep_clips))
                     if self.operation_type == 'INTERSECTION':
                         new_stroke.use_cyclic = True
@@ -977,6 +1028,11 @@ class BoolLastOperator(bpy.types.Operator):
                     for info in stroke_info:
                         if new_index <= info[2]:
                             info[2] += 1
+
+                    if self.allow_holes:
+                        new_stroke.fill_id = stroke_list[j].fill_id
+                        if self.keep_subjects or self.keep_clips:
+                            mutate_stroke_fill_id(new_stroke)
                     generated_strokes.append(new_stroke)
 
         # Select either the existing strokes or the new stroke, depending on options

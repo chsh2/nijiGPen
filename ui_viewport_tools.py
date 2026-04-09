@@ -70,6 +70,11 @@ class BooleanModalOperator(bpy.types.Operator):
             default=0, min=0, soft_max=10,
             description='Perform smoothing to reduce the alias'
     )
+    allow_holes: bpy.props.BoolProperty(
+        name='Allow Holes',
+        default=False,
+        description='Taking holes into account when executing Boolean operations. May take longer time to compute'
+    )
 
     def boolean_eraser_setup(self, context):
         # Create a temporary material for preview only
@@ -123,6 +128,8 @@ class BooleanModalOperator(bpy.types.Operator):
             bpy.ops.gpencil.nijigp_bool_last(
                 operation_type = self.operation_type,
                 clip_mode = 'LINE' if self.caps_type != 'LASSO' else 'FILL',
+                allow_holes = self.allow_holes,
+                consider_inside = True
             )
         # If the newly drawn stroke still exist, remove it
         frame = context.active_object.data.layers.active.active_frame
@@ -206,6 +213,11 @@ class SmartFillModalOperator(bpy.types.Operator):
         default=True,
         description='If disabled, ignore all previously generated fills when painting a new one'
     )
+    allow_holes: bpy.props.BoolProperty(
+        name='Allow Holes',
+        default=False,
+        description='If enabled, allow holes in the filled area'
+    )
     _hint_text_position = [150, 100 + get_viewport_bottom_offset() * 1.25]
     _confirm_button = [150, 50 + get_viewport_bottom_offset() * 1.25]
     _cancel_button = [350, 50 + get_viewport_bottom_offset() * 1.25]
@@ -284,7 +296,7 @@ class SmartFillModalOperator(bpy.types.Operator):
             return 1
         
         # Generate new strokes
-        contours_co, contours_label = self.solver.get_contours()
+        contours_co, contours_label = self.solver.get_contours(allow_holes=self.allow_holes)
         inv_mat = self.t_mat.inverted_safe()
         gp_settings = bpy.context.scene.tool_settings.gpencil_paint
         for i, contours in enumerate(contours_co):
@@ -306,6 +318,9 @@ class SmartFillModalOperator(bpy.types.Operator):
                     if gp_settings.color_mode == 'VERTEXCOLOR':
                         new_stroke.points[i].vertex_color = palette_linear_rgb_getter(gp_settings.brush.color) + [1]
                 self.generated_strokes.append(new_stroke)
+        if self.allow_holes:
+            for stroke in self.generated_strokes:
+                copy_stroke_fill_mode(self.generated_strokes[0], stroke, group=True)
         refresh_strokes(bpy.context.object)
 
     def smart_fill_clear(self):
@@ -772,6 +787,9 @@ class BooleanEraserTool(bpy.types.WorkSpaceTool):
         layout.prop(context.scene, "nijigp_draw_bool_fill_constraint", text = "")
         layout.prop(context.scene, "nijigp_draw_bool_selection_constraint", text = "Selected Strokes Only", icon = "GP_SELECT_STROKES")     
 
+        if bpy.app.version >= (5, 1, 0):
+            layout.prop(props, "allow_holes")
+
 class SmartFillTool(bpy.types.WorkSpaceTool):
     bl_space_type = 'VIEW_3D'
     bl_context_mode = get_ctx_mode_str('PAINT')
@@ -818,6 +836,9 @@ class SmartFillTool(bpy.types.WorkSpaceTool):
         row.prop(props, "incremental")
         if props.use_all_visible:
             row.enabled = False
+        if bpy.app.version >= (5, 1, 0):
+            row = layout.row(align=True)
+            row.prop(props, "allow_holes")
 
 class OffsetTool(bpy.types.WorkSpaceTool):
     bl_space_type = 'VIEW_3D'
