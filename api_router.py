@@ -304,6 +304,12 @@ def op_layer_merge(mode):
         bpy.ops.grease_pencil.layer_merge(mode=mode)
     else:
         bpy.ops.gpencil.layer_merge(mode=mode)
+        
+def op_duplicate_active_frame():
+    if bpy.app.version >= (4, 3, 0):
+        bpy.ops.grease_pencil.frame_duplicate(all=False)
+    else:
+        bpy.ops.gpencil.frame_duplicate()
             
 def op_arrange_stroke(direction):
     if bpy.app.version >= (4, 3, 0):

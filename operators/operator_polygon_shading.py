@@ -256,12 +256,13 @@ class ShadeSelectedOperator(bpy.types.Operator):
         for frame_number, layer_frame_map in frames_to_process.items():
             context.scene.frame_set(frame_number)
             load_stroke_selection(current_gp_obj, select_map)
-            stroke_info = []
-            stroke_list = []
+            stroke_info, stroke_list = [], []
+            mask_info, mask_list = [], []
             rim_terminator_points = []
             shadow_terminator_points = []
         
             # Convert selected strokes to 2D polygon point lists
+            t_mat_tmp, _ = get_transformation_mat(mode=context.scene.nijigp_working_plane, gp_obj=current_gp_obj, operator=self)
             for i,item in layer_frame_map.items():
                 frame = item[0]
                 layer = current_gp_obj.data.layers[i]
@@ -271,8 +272,12 @@ class ShadeSelectedOperator(bpy.types.Operator):
                             (self.ignore_mode == 'OPEN' and is_stroke_line(stroke, current_gp_obj) and not stroke.use_cyclic)):
                             continue
                         if stroke.select and not is_stroke_protected(stroke, current_gp_obj):
-                            stroke_info.append([stroke, i, j, frame])
-                            stroke_list.append(stroke)
+                            if is_stroke_hole(stroke, current_gp_obj, t_mat_tmp):
+                                mask_info.append([stroke, i, j, frame])
+                                mask_list.append(stroke)
+                            else:
+                                stroke_info.append([stroke, i, j, frame])
+                                stroke_list.append(stroke)
                             
             t_mat, inv_mat = get_transformation_mat(mode=context.scene.nijigp_working_plane,
                                                     gp_obj=current_gp_obj, 
@@ -280,12 +285,25 @@ class ShadeSelectedOperator(bpy.types.Operator):
             poly_list, depth_list, scale_factor = get_2d_co_from_strokes(stroke_list, t_mat,
                                                                          scale=True,
                                                                          correct_orientation = True)
-            
+            mask_poly_list, mask_depth_list, _ = get_2d_co_from_strokes(mask_list, t_mat, 
+                                                                scale=True, correct_orientation=True,
+                                                                scale_factor=scale_factor)
+                
             # Process each stroke
             for i,co_list in enumerate(poly_list):
                 src_stroke = stroke_list[i]
                 if len(co_list) < 3:
                     continue
+                # Determine holes inside
+                local_mask_polys = []
+                for mask_idx, info in enumerate(mask_info):
+                    if (stroke_info[i][1] == mask_info[mask_idx][1] and is_poly_in_poly(mask_poly_list[mask_idx], poly_list[i])):
+                        if bpy.app.version >= (5, 1, 0) \
+                            and stroke_list[i].fill_id != mask_list[mask_idx].fill_id \
+                            and not current_gp_obj.material_slots[mask_list[mask_idx].material_index].material.grease_pencil.use_fill_holdout:
+                            continue
+                        local_mask_polys.append(mask_poly_list[mask_idx])
+
                 # Get the light vector: direction and strength
                 # Currently, the calculation is largely simplified with several assumptions:
                 #  - Accept only one light source which has either point or sun (parallel) type.
@@ -312,6 +330,8 @@ class ShadeSelectedOperator(bpy.types.Operator):
                 light_angle = Vector((0,1)).angle_signed((t_mat @ (-light_vec_world)).xy)
                 new_t_mat = Matrix.Rotation(light_angle, 3, 'Z') @ t_mat
                 new_co_list = [Matrix.Rotation(light_angle, 2) @ Vector(co) for co in co_list]
+                for j,local_mask_poly in enumerate(local_mask_polys):
+                    local_mask_polys[j] = [Matrix.Rotation(light_angle, 2) @ Vector(co) for co in local_mask_poly]
                 light_vec_local = new_t_mat @ light_vec_world
                 ref_kdtree = DepthLookupTree([new_co_list], [depth_list[i]])
 
@@ -332,12 +352,19 @@ class ShadeSelectedOperator(bpy.types.Operator):
                             clipper.AddPath(new_co_list, pyclipper.PT_SUBJECT, True)
                             clipper.AddPath(new_co_list + rim_trans_poly[::-1], pyclipper.PT_CLIP, True)
                         rim_results = clipper.Execute(op, pyclipper.PFT_NONZERO, pyclipper.PFT_NONZERO)
+                        # Perform additional subtraction for holes
+                        if len(local_mask_polys) > 0:
+                            op = pyclipper.CT_DIFFERENCE
+                            clipper.Clear()
+                            clipper.AddPaths(rim_results, pyclipper.PT_SUBJECT, True)
+                            clipper.AddPaths(local_mask_polys, pyclipper.PT_CLIP, True)
+                            rim_results = clipper.Execute(op, pyclipper.PFT_NONZERO, pyclipper.PFT_NONZERO)
                     except:
                         rim_results = []
 
                     # Turn rim paths into strokes
                     for result in rim_results:
-                        if pyclipper.Area(result) < MIN_AREA:
+                        if abs(pyclipper.Area(result)) < MIN_AREA:
                             continue
                         new_stroke, new_index, new_layer_index, new_terminator_points = \
                                 generate_shading_stroke(result, new_t_mat.transposed(), scale_factor, current_gp_obj,
@@ -362,12 +389,15 @@ class ShadeSelectedOperator(bpy.types.Operator):
                         contour_co_array = []
                         contour_normal_array = []
                         contour_normal_map = {}
-                        for j,co in enumerate(new_co_list):
-                            _co = new_co_list[j-1]
-                            norm = Vector([co[1]-_co[1], -co[0]+_co[0], 0]).normalized()
-                            contour_co_array.append(co)
-                            contour_normal_array.append(norm)
-                            contour_normal_map[(int(co[0]),int(co[1]))] = norm
+                        for poly_idx, poly in enumerate([new_co_list] + local_mask_polys):
+                            for j,co in enumerate(poly):
+                                _co = poly[j-1]
+                                norm = Vector([co[1]-_co[1], -co[0]+_co[0], 0]).normalized()
+                                if poly_idx > 0:
+                                    norm *= -1
+                                contour_co_array.append(co)
+                                contour_normal_array.append(norm)
+                                contour_normal_map[(int(co[0]),int(co[1]))] = norm
                         contour_co_array = np.array(contour_co_array)
                         contour_normal_array = np.array(contour_normal_array)
                         
@@ -416,19 +446,28 @@ class ShadeSelectedOperator(bpy.types.Operator):
                             if pyclipper.Area(path) > max(1, self.shadow_min_area * 0.01 * (self.shadow_resolution ** 2)):
                                 shadow_paths.append([get_grid_co(co[1], co[0]) for co in path])
                         # Perform intersect with the original shape to get the final results
-                        op = pyclipper.CT_INTERSECTION
                         for poly in shadow_paths:
+                            op = pyclipper.CT_INTERSECTION
                             clipper.Clear()
                             clipper.AddPath(new_co_list, pyclipper.PT_SUBJECT, True)
                             clipper.AddPath(poly, pyclipper.PT_CLIP, True)
                             shadow_results = clipper.Execute(op, pyclipper.PFT_NONZERO, pyclipper.PFT_NONZERO)
                             
+                            if len(local_mask_polys) > 0:
+                                op = pyclipper.CT_DIFFERENCE
+                                clipper.Clear()
+                                clipper.AddPaths(shadow_results, pyclipper.PT_SUBJECT, True)
+                                clipper.AddPaths(local_mask_polys, pyclipper.PT_CLIP, True)
+                                shadow_results = clipper.Execute(op, pyclipper.PFT_NONZERO, pyclipper.PFT_NONZERO)
+           
                             for result in shadow_results:
-                                if pyclipper.Area(result) < MIN_AREA:
+                                if abs(pyclipper.Area(result)) < MIN_AREA:
                                     continue
                                 new_stroke, new_index, new_layer_index, new_terminator_points = \
                                     generate_shading_stroke(result, new_t_mat.transposed(), scale_factor, current_gp_obj,
                                                                     stroke_info[i], ref_kdtree)
+                                for _ in range(shadow_level+1):
+                                    mutate_stroke_fill_id(new_stroke)
                                 generated_shadow_strokes_multilevel[shadow_level].append(new_stroke)
                                 shadow_terminator_points += new_terminator_points
                                 if shadow_material_idx >= 0:

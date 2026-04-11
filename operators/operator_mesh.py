@@ -704,8 +704,11 @@ class MeshGenerationByNormal(CommonMeshConfig, bpy.types.Operator):
                 # Identify the holes that should be considered: same layer and inside
                 mask_indices = []
                 for mask_idx, info in enumerate(mask_info):
-                    if (stroke_info[i][1] == mask_info[mask_idx][1] and
-                        is_poly_in_poly(mask_poly_list[mask_idx], poly_list[i])):
+                    if (stroke_info[i][1] == mask_info[mask_idx][1] and is_poly_in_poly(mask_poly_list[mask_idx], poly_list[i])):
+                        if bpy.app.version >= (5, 1, 0) \
+                            and stroke_list[i].fill_id != mask_list[mask_idx].fill_id \
+                            and not current_gp_obj.material_slots[mask_list[mask_idx].material_index].material.grease_pencil.use_fill_holdout:
+                            continue
                         mask_indices.append(mask_idx)
                 process_single_stroke(i, co_list, mask_indices)
 
@@ -1231,8 +1234,11 @@ class MeshGenerationByOffsetting(CommonMeshConfig, bpy.types.Operator):
             for i,co_list in enumerate(poly_list):
                 mask_indices = []
                 for mask_idx, info in enumerate(mask_info):
-                    if (stroke_info[i][1] == mask_info[mask_idx][1] and
-                        is_poly_in_poly(mask_poly_list[mask_idx], poly_list[i])):
+                    if (stroke_info[i][1] == mask_info[mask_idx][1] and is_poly_in_poly(mask_poly_list[mask_idx], poly_list[i])):
+                        if bpy.app.version >= (5, 1, 0) \
+                            and stroke_list[i].fill_id != mask_list[mask_idx].fill_id \
+                            and not current_gp_obj.material_slots[mask_list[mask_idx].material_index].material.grease_pencil.use_fill_holdout:
+                            continue
                         mask_indices.append(mask_idx)
                 process_single_stroke(i, co_list, mask_indices)
 
