@@ -27,7 +27,7 @@ class MstSolver:
         self.mst = csgraph.minimum_spanning_tree(dist_graph)
         return self.mst
     
-    def mst_from_voronoi(self, vor, poly=None):
+    def mst_from_voronoi(self, vor, poly=None, holes=[]):
         import pyclipper
         def e_dist(i,j):
             src = vor.vertices[i]
@@ -40,6 +40,10 @@ class MstSolver:
         if poly is not None:
             for i in range(num_vert):
                 if pyclipper.PointInPolygon(vor.vertices[i], poly) < 1:
+                    is_vertex_valid[i] = False
+        for hole in holes:
+            for i in range(num_vert):
+                if pyclipper.PointInPolygon(vor.vertices[i], hole) > 0:
                     is_vertex_valid[i] = False
         row, col, data = [], [], []
         for i,j in vor.ridge_vertices:

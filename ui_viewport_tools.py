@@ -83,7 +83,8 @@ class BooleanModalOperator(bpy.types.Operator):
         mat.grease_pencil.color = (0.2, 0.2, 0.2, 0.5)
         context.active_object.data.materials.append(mat)
         
-        op_duplicate_active_frame()
+        if bpy.context.scene.tool_settings.use_keyframe_insert_auto:
+            op_duplicate_active_frame()
         frame = context.active_object.data.layers.active.active_frame
         stroke = frame.nijigp_strokes.new()
         stroke.line_width = context.scene.tool_settings.gpencil_paint.brush.size

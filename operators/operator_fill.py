@@ -498,9 +498,9 @@ class HatchFillOperator(bpy.types.Operator, ColorTintConfig, NoiseConfig):
                 hatch_polys = []
                 # Use Voronoi diagram to generate centerlines
                 if self.style_line == 'RIDGE':
-                    vor = Voronoi(poly_list[0])
+                    vor = Voronoi(poly_list[0] + [p for hole in hole_polys for p in hole])
                     solver = MstSolver()
-                    solver.mst_from_voronoi(vor, poly_list[0])
+                    solver.mst_from_voronoi(vor, poly_list[0], hole_polys)
                     _, path = solver.get_longest_path()
                     path = [Vector(vor.vertices[i])/scale_factor for i in path]
                     hatch_polys.append(path)
