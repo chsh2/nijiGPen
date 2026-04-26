@@ -1009,7 +1009,6 @@ class BoolLastOperator(bpy.types.Operator):
                     depth_references = [depth_list[_] for _ in subject_indices]
                     stroke_references = [stroke_info[_] for _ in subject_indices]
                     reference_mask = set(range(len(subject_indices))) if self.inherit_clip else {len(subject_indices)}
-                    print(reference_mask)
                     new_stroke, new_index, _ = generate_stroke_from_2d(result, inv_mat, 
                                                                         attr_references if self.clip_mode == 'LINE' else attr_references + [ref_poly_list[0]],
                                                                         depth_references if self.clip_mode == 'LINE' else depth_references + [depth_list[0]],
