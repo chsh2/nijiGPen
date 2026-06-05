@@ -69,7 +69,17 @@ class ImportLineImageOperator(bpy.types.Operator, ImportHelper):
             name='Frame Step',
             default=1, min=1,
             description='The number of frames between two generated line art keyframes'
-    )  
+    )
+    auto_resize: bpy.props.BoolProperty(
+            name='Auto Resize',
+            default=True,
+            description='When the image resolution is high, downsize the image to speed up the processing'
+    )
+    auto_resize_target: bpy.props.IntProperty(
+            default=1024, min=256, soft_max=4096,
+            subtype='PIXEL',
+            description='Image with dimension (either width or height) above which will be resized'
+    )
     threshold: bpy.props.FloatProperty(
             name='Color Threshold',
             default=0.75, min=0, max=1,
@@ -94,11 +104,13 @@ class ImportLineImageOperator(bpy.types.Operator, ImportHelper):
     sample_length: bpy.props.IntProperty(
             name='Sample Length',
             default=4, min=1, soft_max=32,
+            subtype='PIXEL',
             description='Number of pixels of the original image between two generated stroke points'
     )
     min_length: bpy.props.IntProperty(
             name='Min Stroke Length',
             default=4, min=1, soft_max=32,
+            subtype='PIXEL',
             description='Number of pixels of a line, below which a stroke will not be generated'
     )
     smooth_level: bpy.props.IntProperty(
@@ -130,6 +142,9 @@ class ImportLineImageOperator(bpy.types.Operator, ImportHelper):
         box1.prop(self, "threshold")
         box1.prop(self, "median_radius")
         box1.prop(self, "image_sequence")
+        row = box1.row()
+        row.prop(self, "auto_resize")
+        row.prop(self, "auto_resize_target", text='')
         if self.image_sequence:
             box1.prop(self, "frame_step")
         layout.label(text = "Stroke Options:")
@@ -155,6 +170,7 @@ class ImportLineImageOperator(bpy.types.Operator, ImportHelper):
         try:
             import skimage.morphology
             import skimage.filters
+            import skimage.transform
         except:
             self.report({"ERROR"}, "Please install Scikit-Image in the Preferences panel.")
             return {'FINISHED'}
@@ -193,6 +209,13 @@ class ImportLineImageOperator(bpy.types.Operator, ImportHelper):
             img_H = img_obj.size[1]
             img_mat = np.array(img_obj.pixels).reshape(img_H,img_W, img_obj.channels)
             img_mat = np.flipud(img_mat)
+            if self.auto_resize:
+                target_L = self.auto_resize_target
+                factor = min(target_L/img_H, target_L/img_W)
+                if factor < 1:
+                    img_mat = skimage.transform.rescale(img_mat, factor, anti_aliasing=False, channel_axis=2)
+                    img_H, img_W = img_mat.shape[0], img_mat.shape[1]
+
             plane_projector = CameraPlaneProjector(gp_obj, bpy.context.scene.camera, bpy.context.scene) \
                         if self.fit_to_camera else None 
                         
@@ -396,6 +419,11 @@ class ImportColorImageConfig:
             default=True,
             description='When the image resolution is high, downsize the image to speed up the processing'
     )
+    auto_resize_target: bpy.props.IntProperty(
+            default=1024, min=256, soft_max=4096,
+            subtype='PIXEL',
+            description='Image with dimension (either width or height) above which will be resized'
+    )
     num_colors: bpy.props.IntProperty(
             name='Number of Colors',
             default=8, min=1, max=32,
@@ -429,6 +457,7 @@ class ImportColorImageConfig:
     sample_length: bpy.props.IntProperty(
             name='Sample Length',
             default=4, min=1, soft_max=64,
+            subtype='PIXEL',
             description='Number of pixels of the original image between two generated stroke points'
     )
     smooth_level: bpy.props.IntProperty(
@@ -439,6 +468,7 @@ class ImportColorImageConfig:
     min_area: bpy.props.IntProperty(
             name='Min Stroke Area',
             default=16, min=0, soft_max=2048,
+            subtype='PIXEL',
             description='Number of pixels, a contour with its area smaller than which will be merged to adjacent shapes'
     )
     color_mode: bpy.props.EnumProperty(            
@@ -486,7 +516,9 @@ class ImportColorImageOperator(bpy.types.Operator, ImportHelper, ImportColorImag
         box1 = layout.box()
         box1.prop(self, "num_colors")
         box1.prop(self, "image_sequence")
-        box1.prop(self, "auto_resize")
+        row = box1.row()
+        row.prop(self, "auto_resize")
+        row.prop(self, "auto_resize_target", text='')
         if self.image_sequence:
             box1.prop(self, "frame_step")
         box1.prop(self, "color_source")
@@ -557,8 +589,8 @@ class ImportColorImageOperator(bpy.types.Operator, ImportHelper, ImportColorImag
             img_mat = np.flipud(img_mat)
 
             if self.auto_resize:
-                max_W, max_H = context.scene.render.resolution_x * 0.5, context.scene.render.resolution_y * 0.5
-                factor = min(max_H/img_H, max_W/img_W)
+                target_L = self.auto_resize_target
+                factor = min(target_L/img_H, target_L/img_W)
                 if factor < 1:
                     img_mat = transform.rescale(img_mat, factor, anti_aliasing=False, channel_axis=2)
                     img_H, img_W = img_mat.shape[0], img_mat.shape[1]
