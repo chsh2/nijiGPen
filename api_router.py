@@ -1,5 +1,6 @@
 import bpy
 import random
+import time
 from .resources import append_geometry_nodes
 from mathutils import *
 
@@ -788,6 +789,8 @@ class LegacyStrokeCollection:
         if 'vertex_color' not in frame.drawing.attributes:
             attr = frame.drawing.attributes.new("vertex_color", 'FLOAT_COLOR', 'POINT')
             attr.data.foreach_set('color', [0] * len(attr.data) * 4)
+        if 'init_time' not in frame.drawing.attributes:
+            frame.drawing.attributes.new("init_time", 'FLOAT', 'CURVE')
         # New attributes from Blender 5.1
         if bpy.app.version >= (5, 1, 0):
             if 'fill_id' not in frame.drawing.attributes:
@@ -812,6 +815,7 @@ class LegacyStrokeCollection:
         # Set initial attribute values
         self._drawing.attributes['.nijigp_hash'].data[key].value = random.randint(1, 2 ** 28)
         self._drawing.attributes['.nijigp_new'].data[key].value = True
+        self._drawing.attributes['init_time'].data[key].value = time.perf_counter()
         if 'u_scale' in self._drawing.attributes:
             self._drawing.attributes['u_scale'].data[key].value = 1.0
         if 'uv_scale' in self._drawing.attributes:
