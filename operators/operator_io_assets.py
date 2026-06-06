@@ -19,7 +19,7 @@ def set_brush_color_randomness(brush, attribute, value):
         setattr(brush.gpencil_settings, legacy_attr, value)
 
 class ImportBrushOperator(bpy.types.Operator, ImportHelper):
-    """Extract textures of brushes exported from painting software and append them to the current file"""
+    """(DEPRECATED) Extract textures of brushes exported from painting software and append them to the current file"""
     bl_idname = "gpencil.nijigp_import_brush"
     bl_label = "Import Brushes"
     bl_category = 'View'
@@ -102,6 +102,24 @@ class ImportBrushOperator(bpy.types.Operator, ImportHelper):
 
     def draw(self, context):
         layout = self.layout
+
+        # Warning box for deprecation notice
+        box0 = layout.box()
+        box0.alert = True
+        box0.scale_y = 0.6
+        info_lines = [
+            'Deprecated:',
+            'This operator is no longer actively maintained.',
+            'Please seek the Blender extensions platform for',
+            '"Import Paint Brushes" add-on that provides',
+            'the most up-to-date features.'
+        ]
+        for i,line in enumerate(info_lines):
+            if i == 0:
+                box0.label(text=line, icon='WARNING_LARGE')
+            else:
+                box0.label(text=line)
+
         row = layout.row()
         row.label(text = 'Import Brushes as: ')
         row.prop(self, "texture_usage", text="")
