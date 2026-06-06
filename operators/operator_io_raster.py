@@ -1,5 +1,6 @@
 import os
 import bpy
+import re
 import numpy as np
 from bpy_extras.io_utils import ImportHelper
 from bpy_extras import image_utils
@@ -7,6 +8,32 @@ from mathutils import *
 from .common import *
 from ..utils import *
 from ..api_router import *
+
+def get_file_frame_numbers(files, parse_name=False, step=1):
+    frame_numbers = []
+    use_fallback = not parse_name
+
+    # All filenames should have a frame number at the end, and they should have the same prefix
+    if parse_name:
+        re_expr = re.compile(r"^(?P<prefix>.*?)(?P<frame>[0-9]+)$")
+        prefix = set()
+        for f in files:
+            name = os.path.splitext(f.name)[0]
+            match = re_expr.match(name)
+            if not match:
+                use_fallback = True
+                break
+            prefix.add(match.group('prefix'))
+            frame_numbers.append(int(match.group('frame')))
+        if len(prefix)>1:
+            use_fallback = True
+
+    if use_fallback:
+        frame_numbers = []
+        start = bpy.context.scene.frame_current
+        for i in range(len(files)):
+            frame_numbers.append(start + i*step)
+    return frame_numbers
 
 class CameraPlaneProjector:
     """
@@ -64,7 +91,12 @@ class ImportLineImageOperator(bpy.types.Operator, ImportHelper):
             name='Image Sequence',
             default=False,
             description='Process multiple images as a sequence'
-    ) 
+    )
+    parse_frame_numbers: bpy.props.BoolProperty(
+            name='Parse Frame Numbers',
+            default=True,
+            description='If all input files belong to the same image sequence, read their frame numbers from the filenames. Otherwise, assign frame numbers starting from the current frame with the given step'
+    )
     frame_step: bpy.props.IntProperty(
             name='Frame Step',
             default=1, min=1,
@@ -142,11 +174,13 @@ class ImportLineImageOperator(bpy.types.Operator, ImportHelper):
         box1.prop(self, "threshold")
         box1.prop(self, "median_radius")
         box1.prop(self, "image_sequence")
+        if self.image_sequence:
+            subbox = box1.box()
+            subbox.prop(self, "parse_frame_numbers")
+            subbox.prop(self, "frame_step")
         row = box1.row()
         row.prop(self, "auto_resize")
         row.prop(self, "auto_resize_target", text='')
-        if self.image_sequence:
-            box1.prop(self, "frame_step")
         layout.label(text = "Stroke Options:")
         box2 = layout.box()
         box2.prop(self, "fit_to_camera")
@@ -181,12 +215,6 @@ class ImportLineImageOperator(bpy.types.Operator, ImportHelper):
             for i,material_slot in enumerate(gp_obj.material_slots):
                 if material_slot.material and material_slot.material.name == self.output_material:
                     output_material_idx = i
-
-        # Get or generate the starting frame
-        if not gp_layer.active_frame:
-            starting_frame = gp_layer.frames.new(context.scene.frame_current)
-        else:
-            starting_frame = gp_layer.active_frame
 
         # Process file paths in the case of multiple input images
         img_filepaths = []
@@ -387,11 +415,16 @@ class ImportLineImageOperator(bpy.types.Operator, ImportHelper):
         # Main processing loop
         processed_frame_numbers = []
         if not self.image_sequence:
+            if not gp_layer.active_frame:
+                starting_frame = gp_layer.frames.new(context.scene.frame_current)
+            else:
+                starting_frame = gp_layer.active_frame
             process_single_image(self.filepath, starting_frame)
             processed_frame_numbers.append(starting_frame.frame_number)
         else:
+            target_frame_numbers = get_file_frame_numbers(self.files, self.parse_frame_numbers, self.frame_step)
             for frame_idx, img_filepath in enumerate(img_filepaths):
-                target_frame_number = starting_frame.frame_number + frame_idx * self.frame_step
+                target_frame_number = target_frame_numbers[frame_idx]
                 context.scene.frame_set(target_frame_number)
                 if target_frame_number in frame_dict:
                     process_single_image(img_filepath, frame_dict[target_frame_number])
@@ -409,6 +442,11 @@ class ImportColorImageConfig:
             default=False,
             description='Process multiple images as a sequence'
     ) 
+    parse_frame_numbers: bpy.props.BoolProperty(
+            name='Parse Frame Numbers',
+            default=True,
+            description='If all input files belong to the same image sequence, read their frame numbers from the filenames. Otherwise, assign frame numbers starting from the current frame with the given step'
+    )
     frame_step: bpy.props.IntProperty(
             name='Frame Step',
             default=1, min=1,
@@ -516,11 +554,13 @@ class ImportColorImageOperator(bpy.types.Operator, ImportHelper, ImportColorImag
         box1 = layout.box()
         box1.prop(self, "num_colors")
         box1.prop(self, "image_sequence")
+        if self.image_sequence:
+            subbox = box1.box()
+            subbox.prop(self, "parse_frame_numbers")
+            subbox.prop(self, "frame_step")
         row = box1.row()
         row.prop(self, "auto_resize")
         row.prop(self, "auto_resize_target", text='')
-        if self.image_sequence:
-            box1.prop(self, "frame_step")
         box1.prop(self, "color_source")
         if self.color_source=='PALETTE_RGB' or self.color_source=='PALETTE_AREA':
             box1.prop(self, "reference_palette_name")
@@ -559,12 +599,6 @@ class ImportColorImageOperator(bpy.types.Operator, ImportHelper, ImportColorImag
         set_multiedit(gp_obj, self.image_sequence)
         bpy.ops.object.mode_set(mode=get_obj_mode_str('EDIT'))
         op_deselect()
-
-        # Get or generate the starting frame
-        if not gp_layer.active_frame:
-            starting_frame = gp_layer.frames.new(context.scene.frame_current)
-        else:
-            starting_frame = gp_layer.active_frame
 
         # Process file paths in the case of multiple input images
         img_filepaths = []
@@ -758,11 +792,16 @@ class ImportColorImageOperator(bpy.types.Operator, ImportHelper, ImportColorImag
         # Main processing loop
         processed_frame_numbers = []
         if not self.image_sequence:
+            if not gp_layer.active_frame:
+                starting_frame = gp_layer.frames.new(context.scene.frame_current)
+            else:
+                starting_frame = gp_layer.active_frame
             process_single_image(self.filepath, starting_frame, given_colors)
             processed_frame_numbers.append(starting_frame.frame_number)
         else:
+            target_frame_numbers = get_file_frame_numbers(self.files, self.parse_frame_numbers, self.frame_step)
             for frame_idx, img_filepath in enumerate(img_filepaths):
-                target_frame_number = starting_frame.frame_number + frame_idx * self.frame_step
+                target_frame_number = target_frame_numbers[frame_idx]
                 context.scene.frame_set(target_frame_number)
                 if target_frame_number in frame_dict:
                     updated_palette = process_single_image(img_filepath, frame_dict[target_frame_number], given_colors)
@@ -841,7 +880,9 @@ class RenderAndVectorizeOperator(bpy.types.Operator, ImportColorImageConfig):
         layout.label(text = "Image Options:")
         box2 = layout.box()
         box2.prop(self, "num_colors")
-        box2.prop(self, "auto_resize")
+        row = box2.row()
+        row.prop(self, "auto_resize")
+        row.prop(self, "auto_resize_target", text='')
         
         layout.label(text = "Stroke Options:")
         box3 = layout.box()
