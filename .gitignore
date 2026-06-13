@@ -2,6 +2,5 @@
 __pycache__/
 *.py[cod]
 /tests/
-/tmp/
 nijigp.zip
 res/library.blend1
