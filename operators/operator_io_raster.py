@@ -33,7 +33,7 @@ def get_file_frame_numbers(files, parse_name=False, step=1):
         start = bpy.context.scene.frame_current
         for i in range(len(files)):
             frame_numbers.append(start + i*step)
-    return frame_numbers
+    return frame_numbers, (parse_name and use_fallback)
 
 class CameraPlaneProjector:
     """
@@ -422,7 +422,9 @@ class ImportLineImageOperator(bpy.types.Operator, ImportHelper):
             process_single_image(self.filepath, starting_frame)
             processed_frame_numbers.append(starting_frame.frame_number)
         else:
-            target_frame_numbers = get_file_frame_numbers(self.files, self.parse_frame_numbers, self.frame_step)
+            target_frame_numbers, err = get_file_frame_numbers(self.files, self.parse_frame_numbers, self.frame_step)
+            if err:
+                self.report({"WARNING"}, "Input files are not in a valid single sequence. Use fixed frame numbers instead.")
             for frame_idx, img_filepath in enumerate(img_filepaths):
                 target_frame_number = target_frame_numbers[frame_idx]
                 context.scene.frame_set(target_frame_number)
@@ -799,7 +801,9 @@ class ImportColorImageOperator(bpy.types.Operator, ImportHelper, ImportColorImag
             process_single_image(self.filepath, starting_frame, given_colors)
             processed_frame_numbers.append(starting_frame.frame_number)
         else:
-            target_frame_numbers = get_file_frame_numbers(self.files, self.parse_frame_numbers, self.frame_step)
+            target_frame_numbers, err = get_file_frame_numbers(self.files, self.parse_frame_numbers, self.frame_step)
+            if err:
+                self.report({"WARNING"}, "Input files are not in a valid single sequence. Use fixed frame numbers instead.")
             for frame_idx, img_filepath in enumerate(img_filepaths):
                 target_frame_number = target_frame_numbers[frame_idx]
                 context.scene.frame_set(target_frame_number)
