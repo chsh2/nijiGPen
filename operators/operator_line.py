@@ -579,6 +579,11 @@ class ClusterAndFitOperator(CommonFittingConfig, bpy.types.Operator):
             description='Make sure that strokes with different vertex colors are assigned to different clusters',
             default=False
     )
+    sort_by_color: bpy.props.BoolProperty(
+            name='Group by Vertex Color',
+            description='Interpolate strokes with the same vertex color between keyframes',
+            default=False
+    )
 
     def invoke(self, context, event):
         return context.window_manager.invoke_props_dialog(self, width=300)
@@ -605,8 +610,9 @@ class ClusterAndFitOperator(CommonFittingConfig, bpy.types.Operator):
         if get_multiedit(context.active_object):
             box1.prop(self, "is_sequence")
             if self.is_sequence:
-                row = box1.row()
-                row.prop(self, "frame_step")
+                subbox = box1.box()
+                subbox.prop(self, "frame_step")
+                subbox.prop(self, "sort_by_color")
 
         layout.label(text = "Post-Processing Options:")
         box2 = layout.box()
@@ -681,12 +687,13 @@ class ClusterAndFitOperator(CommonFittingConfig, bpy.types.Operator):
                         dist_mat.append(min(dist1,dist2))
                         if self.cluster_criterion == 'RATIO':
                             dist_mat[-1] /= 0.5 * (length_list[i] + length_list[j])
+
             # Add a large value to the distance for strokes with different vertex colors
+            mean_colors = []
+            for stroke in stroke_frame_map[frame_number]:
+                v_colors = [point.vertex_color[:3] for point in stroke.points if point.vertex_color[3]>1e-3]
+                mean_colors.append(np.zeros(3) if len(v_colors)<1 else np.mean(v_colors, axis=0))
             if self.cluster_by_color:
-                mean_colors = []
-                for stroke in stroke_frame_map[frame_number]:
-                    v_colors = [point.vertex_color[:3] for point in stroke.points if point.vertex_color[3]>1e-3]
-                    mean_colors.append(0 if len(v_colors)<1 else np.mean(v_colors, axis=0))
                 dist_index = 0
                 for i,mean_color1 in enumerate(mean_colors):
                     for j,mean_color2 in enumerate(mean_colors):
@@ -694,7 +701,7 @@ class ClusterAndFitOperator(CommonFittingConfig, bpy.types.Operator):
                             dist_mat[dist_index] += (np.linalg.norm(mean_color1 - mean_color2) > 1e-3)
                             dist_index += 1
 
-            # Hierarchy clustering algorithm: assigning cluster ID starting from 1 to each stroke
+            # Hierarchy clustering algorithm: assigning cluster ID starting from 0 to each stroke
             linkage_mat = linkage(dist_mat, method='single')
             if self.cluster_criterion == 'DIST':
                 cluster_res = fcluster(linkage_mat, self.cluster_dist, criterion='distance')
@@ -706,26 +713,36 @@ class ClusterAndFitOperator(CommonFittingConfig, bpy.types.Operator):
                     cluster_res = [i+1 for i in range(len(stroke_frame_map[frame_number]))]
                 else:
                     cluster_res = fcluster(linkage_mat, self.cluster_num, criterion='maxclust')
+            cluster_res = [i-1 for i in cluster_res]
             
-            # Reorder the cluster indices according to drawing sequence; also make ID start from 0
-            cluster_drawing_seq = {}
+            # Reorder the cluster indices -- two criteria: drawing sequence or vertex color
+            cluster_key = {}
+            color_key_count = {}
+            drawing_seq_count = 0
             for i,stroke in enumerate(stroke_frame_map[frame_number]):
-                if (cluster_res[i]-1) not in cluster_drawing_seq:
-                    cluster_drawing_seq[cluster_res[i]-1] = i
-            cluster_sorted = sorted(list(cluster_drawing_seq), key=lambda _:cluster_drawing_seq[_])
-            cluster_sorted = [cluster_sorted.index(i) for i in range(len(cluster_sorted))]
+                if cluster_res[i] not in cluster_key:
+                    if not self.sort_by_color:
+                        cluster_key[cluster_res[i]] = drawing_seq_count
+                        drawing_seq_count += 1
+                    else:
+                        color_key_base = rgb_to_hex_code(mean_colors[i])
+                        if color_key_base not in color_key_count:
+                            color_key_count[color_key_base] = 0
+                        color_key = f"{color_key_base}_{color_key_count[color_key_base]}"
+                        color_key_count[color_key_base] += 1
+                        cluster_key[cluster_res[i]] = color_key
 
             # Place strokes in clusters
             for i,stroke in enumerate(stroke_frame_map[frame_number]):
-                cluster_idx = cluster_sorted[cluster_res[i]-1]
-                if cluster_idx not in cluster_map:
-                    cluster_map[cluster_idx] = []
-                cluster_map[cluster_idx].append(stroke)
-
+                if cluster_key[cluster_res[i]] not in cluster_map:
+                    cluster_map[cluster_key[cluster_res[i]]] = []
+                cluster_map[cluster_key[cluster_res[i]]].append(stroke)
+            
         # Process each cluster one by one
         global nijigp_generated_fit_strokes
         nijigp_generated_fit_strokes = []
-        for cluster in range(len(cluster_map)):
+        sorted_keys = sorted(cluster_map.keys())
+        for cluster in sorted_keys:
             # Set frame selection
             for layer_idx,layer in enumerate(gp_obj.data.layers):
                 for frame in layer.frames:
