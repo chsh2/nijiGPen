@@ -210,6 +210,11 @@ class CommonFittingConfig:
             default=0,min=0,
             description='Interpolate between keyframes when non-zero'
     )
+    trajectory_length: bpy.props.FloatProperty(
+            name='Trajectory Length',
+            default=0, min=0, soft_max=2,
+            description='Control the animation style. A larger value implies a sense of flow. No effect on closed strokes'
+    )
     line_sampling_size: bpy.props.IntProperty(
             name='Line Spacing',
             description='Strokes with gap smaller than this may be merged',
@@ -312,6 +317,8 @@ class FitSelectedOperator(CommonFittingConfig, bpy.types.Operator):
             if self.is_sequence:
                 row = box1.row()
                 row.prop(self, "frame_step")
+                row = box1.row()
+                row.prop(self, "trajectory_length")
         
         layout.label(text = "Post-Processing Options:")
         box2 = layout.box()
@@ -381,6 +388,8 @@ class FitSelectedOperator(CommonFittingConfig, bpy.types.Operator):
         fitter.fit_spatial(self.b_smoothness*0.001, self.b_smoothness*10)
         has_temporal_fit = False
         if self.is_sequence and get_multiedit(gp_obj) and len(frames_to_process) > 1:
+            if not self.closed:
+                fitter.trajectory_length = self.trajectory_length
             fitter.fit_temporal()
             has_temporal_fit = True
 
@@ -612,6 +621,7 @@ class ClusterAndFitOperator(CommonFittingConfig, bpy.types.Operator):
             if self.is_sequence:
                 subbox = box1.box()
                 subbox.prop(self, "frame_step")
+                subbox.prop(self, "trajectory_length")
                 subbox.prop(self, "sort_by_color")
 
         layout.label(text = "Post-Processing Options:")
@@ -755,6 +765,7 @@ class ClusterAndFitOperator(CommonFittingConfig, bpy.types.Operator):
                                             closed = self.closed,
                                             is_sequence = self.is_sequence,
                                             frame_step = self.frame_step,
+                                            trajectory_length = self.trajectory_length,
                                             ignore_transparent = self.ignore_transparent,
                                             pressure_variance = self.pressure_variance,
                                             max_delta_pressure = self.max_delta_pressure,

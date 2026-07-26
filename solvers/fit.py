@@ -39,6 +39,7 @@ class CurveFitter:
         self.input_u = {}
         self.u_reversed = {}
         self.attr_surf = {}
+        self.trajectory_length = .0
         
     def set_coordinates(self, frame_number, co_list, total_len):
         data = np.array(co_list)
@@ -89,6 +90,7 @@ class CurveFitter:
         """
         Compare strokes of adjacent keyframes to determine whether to reverse the direction
         """
+        min_frame, max_frame = min(self.xy_input), max(self.xy_input)
         sorted_frames = sorted(self.xy_input)
         last_frame = sorted_frames[0]
         for t,frame in enumerate(sorted_frames):
@@ -100,10 +102,14 @@ class CurveFitter:
             else:
                 # For open stroke, compare the position of start/end points
                 if not self.is_periodic:
-                    start, end = np.array(splev([0, 1], self.xy_tck[frame])).transpose()
+                    trajectory_delta = self.trajectory_length * (frame - last_frame) / max(max_frame - min_frame, 1)
                     start0, end0 = np.array(splev([0, 1], self.xy_tck[last_frame])).transpose()
-                    dist = np.linalg.norm(start - start0) + np.linalg.norm(end - end0)
-                    dist_r = np.linalg.norm(start - end0) + np.linalg.norm(end - start0)
+                    # Non-reversed case
+                    start, end = np.array(splev([-trajectory_delta, 1 - trajectory_delta], self.xy_tck[frame])).transpose()
+                    dist = np.linalg.norm(end - end0)
+                    # Reversed case
+                    start, end = np.array(splev([trajectory_delta, 1 + trajectory_delta], self.xy_tck[frame])).transpose()
+                    dist_r = np.linalg.norm(start - end0)
                     self.u_reversed[frame] = (dist > dist_r) ^ self.u_reversed[last_frame]
                 # For closed stroke, check if the shape is clockwise
                 else:
@@ -119,7 +125,8 @@ class CurveFitter:
         """
         if len(self.input_u) > 0:
             self.correct_direction()
-        # Determine the parameters of surface approximation
+
+        # Determine the resolution of surface approximation
         size_u = 5
         size_t = 2  # Pad two data points in the time domain
         min_frame = np.inf
@@ -129,24 +136,27 @@ class CurveFitter:
             size_t += 1
             min_frame = int(min(min_frame, frame))
             max_frame = int(max(max_frame, frame))
-        # Choose the frame with the most sampling points as size_u
-        self.input_u[-1] = np.linspace(0, 1, size_u, endpoint=True)
+        samples_u = np.linspace(0, 1, size_u, endpoint=True)
+        self.input_u["INTERPOLATION"] = samples_u
+
+        trajectory_offset = lambda f: samples_u + self.trajectory_length * (f - min_frame) / max(max_frame - min_frame, 1)
 
         # Prepare the dataset
         dataset_x = np.zeros((size_t, size_u, 3))
         dataset_y = np.zeros((size_t, size_u, 3))
         i = 1
         for frame, tck in self.xy_tck.items():
-            sample_points = np.flip(self.input_u[-1]) if self.u_reversed[frame] else self.input_u[-1]
+            sample_points = np.flip(samples_u) if self.u_reversed[frame] else samples_u
+            frame_u = trajectory_offset(frame)
             res = np.array(splev(sample_points, tck))
-            dataset_x[i, :, 0], dataset_x[i, :, 1], dataset_x[i, :, 2] = self.input_u[-1], frame, res[0]
-            dataset_y[i, :, 0], dataset_y[i, :, 1], dataset_y[i, :, 2] = self.input_u[-1], frame, res[1]
+            dataset_x[i, :, 0], dataset_x[i, :, 1], dataset_x[i, :, 2] = frame_u, frame, res[0]
+            dataset_y[i, :, 0], dataset_y[i, :, 1], dataset_y[i, :, 2] = frame_u, frame, res[1]
             if frame == min_frame:
-                dataset_x[0, :, 0], dataset_x[0, :, 1], dataset_x[0, :, 2] = self.input_u[-1], frame-1, res[0]
-                dataset_y[0, :, 0], dataset_y[0, :, 1], dataset_y[0, :, 2] = self.input_u[-1], frame-1, res[1]
+                dataset_x[0, :, 0], dataset_x[0, :, 1], dataset_x[0, :, 2] = frame_u, frame-1, res[0]
+                dataset_y[0, :, 0], dataset_y[0, :, 1], dataset_y[0, :, 2] = frame_u, frame-1, res[1]
             if frame == max_frame:
-                dataset_x[-1, :, 0], dataset_x[-1, :, 1], dataset_x[-1, :, 2] = self.input_u[-1], frame+1, res[0]
-                dataset_y[-1, :, 0], dataset_y[-1, :, 1], dataset_y[-1, :, 2] = self.input_u[-1], frame+1, res[1]                        
+                dataset_x[-1, :, 0], dataset_x[-1, :, 1], dataset_x[-1, :, 2] = frame_u, frame+1, res[0]
+                dataset_y[-1, :, 0], dataset_y[-1, :, 1], dataset_y[-1, :, 2] = frame_u, frame+1, res[1]                        
             i += 1
         dataset_x = np.reshape(dataset_x, (size_t * size_u, 3))
         dataset_y = np.reshape(dataset_y, (size_t * size_u, 3))
@@ -156,12 +166,13 @@ class CurveFitter:
             dataset_attr[name] = np.zeros((size_t, size_u, 3))
             i = 1
             for frame, tck in tck_map.items():
-                sample_points = np.flip(self.input_u[-1]) if self.u_reversed[frame] else self.input_u[-1]
-                dataset_attr[name][i, :, 0], dataset_attr[name][i, :, 1], dataset_attr[name][i, :, 2] = self.input_u[-1], frame, np.array(splev(sample_points, tck))
+                sample_points = np.flip(samples_u) if self.u_reversed[frame] else samples_u
+                frame_u = trajectory_offset(frame)
+                dataset_attr[name][i, :, 0], dataset_attr[name][i, :, 1], dataset_attr[name][i, :, 2] = frame_u, frame, np.array(splev(sample_points, tck))
                 if frame == min_frame:
-                    dataset_attr[name][0, :, 0], dataset_attr[name][0, :, 1], dataset_attr[name][0, :, 2] = self.input_u[-1], frame-1, np.array(splev(sample_points, tck))
+                    dataset_attr[name][0, :, 0], dataset_attr[name][0, :, 1], dataset_attr[name][0, :, 2] = frame_u, frame-1, np.array(splev(sample_points, tck))
                 if frame == max_frame:
-                    dataset_attr[name][-1, :, 0], dataset_attr[name][-1, :, 1], dataset_attr[name][-1, :, 2] = self.input_u[-1], frame+1, np.array(splev(sample_points, tck))
+                    dataset_attr[name][-1, :, 0], dataset_attr[name][-1, :, 1], dataset_attr[name][-1, :, 2] = frame_u, frame+1, np.array(splev(sample_points, tck))
                 i += 1
             dataset_attr[name] = np.reshape(dataset_attr[name], (size_t * size_u, 3))
         
@@ -175,11 +186,14 @@ class CurveFitter:
         """
         Get coordinate and attribute values after the temporal fitting
         """        
-        res = np.zeros((len(self.input_u[-1]), 2))
-        res[:,0] = bisplev(self.input_u[-1], frame_number, self.x_surf)[:,0]
-        res[:,1] = bisplev(self.input_u[-1], frame_number, self.y_surf)[:,0]
+        min_frame, max_frame = min(self.xy_input), max(self.xy_input)
+        offset = self.trajectory_length * (frame_number - min_frame) / max(max_frame - min_frame, 1)
+        samples_u = self.input_u["INTERPOLATION"] + offset
+        res = np.zeros((len(samples_u), 2))
+        res[:,0] = bisplev(samples_u, frame_number, self.x_surf)[:,0]
+        res[:,1] = bisplev(samples_u, frame_number, self.y_surf)[:,0]
         res_attr = {}
         for name, tck in self.attr_surf.items():
-            res_attr[name] = np.array(bisplev(self.input_u[-1], frame_number, tck))[:,0]
+            res_attr[name] = np.array(bisplev(samples_u, frame_number, tck))[:,0]
         return res, res_attr
         
