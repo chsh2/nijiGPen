@@ -65,10 +65,20 @@ class SmartFillOperator(bpy.types.Operator):
         default=0.05, min=0.001, max=1,
         description='Treat points in proximity as one to speed up'
     )
-    fill_holes: bpy.props.BoolProperty(
-        name='Fill Holes',
-        default=True,
-        description='Fill holes as much as possible'
+    use_holdout_color: bpy.props.BoolProperty(
+        name='Use Holdout Color',
+        default=False,
+        description='Select a color as the hint of transparency'
+    )
+    holdout_color: bpy.props.FloatVectorProperty(
+        subtype = "COLOR",
+        default = (.0, .0, 1.0, 1.0),
+        min = 0.0, max = 1.0, size = 4,
+    )
+    holdout_threshold: bpy.props.FloatProperty(
+        name='Threshold',
+        default=0.05, min=0.001, max=1,
+        description='When the color difference is less than this value, treat the hint as transparency mark'
     )
     clear_hint_layer: bpy.props.BoolProperty(
         name='Clear Hints',
@@ -117,7 +127,11 @@ class SmartFillOperator(bpy.types.Operator):
         layout.label(text = "Geometry Options:")
         box2 = layout.box()
         box2.prop(self, "precision")
-        box2.prop(self, "fill_holes")
+        box2.prop(self, "use_holdout_color")
+        if self.use_holdout_color:
+            row = box2.row()
+            row.prop(self, "holdout_color", text="")
+            row.prop(self, "holdout_threshold")
 
         layout.label(text = "Output Options:")
         box3 = layout.box()
@@ -181,12 +195,14 @@ class SmartFillOperator(bpy.types.Operator):
             # Extract colors/materials from hint strokes to label the triangle node graph
             # Label 0 is reserved for transparent regions
             labels_info, label_map = [(None, None, False)], {}
+            label_holdout = None
             for stroke in reversed(hint_frame.nijigp_strokes):
                 if self.use_boundary_strokes and not stroke.is_nofill_stroke:
                     continue
                 hint_points_co, hint_points_label = [], []
                 use_line_color = is_stroke_line(stroke, gp_obj)
                 for point in stroke.points:
+                        hint_points_co.append((np.array(t_mat @ point.co) * scale_factor)[:2])
                         if use_line_color:
                             color = (point.vertex_color if point.vertex_color[3] > 0 else
                                     gp_obj.data.materials[stroke.material_index].grease_pencil.color)
@@ -195,18 +211,23 @@ class SmartFillOperator(bpy.types.Operator):
                             color = (stroke.vertex_color_fill if stroke.vertex_color_fill[3] > 0 else
                                     gp_obj.data.materials[stroke.material_index].grease_pencil.fill_color)
                             use_vertex_color = (stroke.vertex_color_fill[3] > 0)
-                        # Use both color and material index to define a label
+                        # If holdout is specified, use a single label for all its hints
+                        is_holdout = self.use_holdout_color and (Vector(color)-Vector(self.holdout_color)).length < self.holdout_threshold
+                        if is_holdout and label_holdout is not None:
+                            hint_points_label.append(label_holdout)
+                            continue
+                        # Otherwise, use both color and material index to define a label
                         material_idx = stroke.material_index if self.material_mode == 'HINT' else -1
                         c_key = (rgb_to_hex_code(color), material_idx, use_vertex_color)
                         if c_key not in label_map:
                             label_map[c_key] = len(labels_info)
+                            if is_holdout and label_holdout is None:
+                                label_holdout = len(labels_info)
                             labels_info.append([color, material_idx, use_vertex_color])
-                        hint_points_co.append((np.array(t_mat @ point.co) * scale_factor)[:2])
                         hint_points_label.append(label_map[c_key])
                 solver.set_labels_from_points(hint_points_co, hint_points_label)
             solver.propagate_labels()
-            if self.fill_holes:
-                solver.complete_labels()
+            solver.complete_labels()
             
             # Find or generate materials for each label (color)
             material_name = self.output_material
@@ -243,11 +264,12 @@ class SmartFillOperator(bpy.types.Operator):
             # Generate new strokes from contours of the filled regions
             contours_co, contours_label = solver.get_contours()
             generated_strokes = set()
+            non_holdout_strokes = {}
             for i, contours in enumerate(contours_co):
                 label = contours_label[i]
-                if label < 1:
+                if label < 1 or label == label_holdout:
                     continue
-                for c in contours:
+                for j, c in enumerate(contours):
                     new_stroke = fill_frame.nijigp_strokes.new()
                     new_stroke.points.add(len(c))
                     new_stroke.use_cyclic = True
@@ -256,11 +278,39 @@ class SmartFillOperator(bpy.types.Operator):
                         (self.material_mode == 'HINT' and labels_info[label][2]) ):
                         color = labels_info[label][0]
                         new_stroke.vertex_color_fill = (color[0], color[1], color[2], 1)
-                    for i,co in enumerate(c):
-                        new_stroke.points[i].co = restore_3d_co(co, depth_lookup_tree.get_depth(co), inv_mat, scale_factor)
+                    for ci,co in enumerate(c):
+                        new_stroke.points[ci].co = restore_3d_co(co, depth_lookup_tree.get_depth(co), inv_mat, scale_factor)
                     new_stroke.select = True
                     set_stroke_fill_mode(new_stroke, line=False, fill=True)
                     generated_strokes.add(new_stroke)
+                    non_holdout_strokes[(i,j)] = new_stroke
+
+            # The case where a holdout area is a hole
+            if bpy.app.version >= (5, 1, 0) and self.use_holdout_color:
+                for i, contours in enumerate(contours_co):
+                    if contours_label[i] != label_holdout:
+                        continue
+                    for j, c in enumerate(contours):
+                        # The contour is a hole if inside another non-holdout contour
+                        is_hole = False
+                        for i0, contours0 in enumerate(contours_co):
+                            if is_hole:
+                                break
+                            if contours_label[i0] == label_holdout or contours_label[i0] < 1:
+                                continue
+                            for j0, c0 in enumerate(contours0):
+                                if is_poly_in_poly(c, c0):
+                                    is_hole = True
+                                    new_stroke = fill_frame.nijigp_strokes.new()
+                                    new_stroke.points.add(len(c))
+                                    new_stroke.use_cyclic = True
+                                    new_stroke.material_index = labels_info[label_holdout][1]
+                                    for ci,co in enumerate(c):
+                                        new_stroke.points[ci].co = restore_3d_co(co, depth_lookup_tree.get_depth(co), inv_mat, scale_factor)
+                                    new_stroke.select = True
+                                    copy_stroke_fill_mode(non_holdout_strokes[(i0,j0)], new_stroke, group=True)
+                                    generated_strokes.add(new_stroke)
+                                    break
 
             if self.clear_hint_layer:
                 for stroke in list(hint_frame.nijigp_strokes):

@@ -167,7 +167,7 @@ class HoleProcessingOperator(bpy.types.Operator):
         except ImportError:
             self.report({"ERROR"}, "Please install PyClipper in the Preferences panel.")
             return {'FINISHED'}
-        if bpy.app.version >= (5, 1, 0):
+        if bpy.app.version >= (5, 1, 0) and self.apply_holdout:
             self.report({"WARNING"}, "This operator is designed for older Blender versions. Please consider using [Stroke] > [Join Fills] for better results.")
         
         gp_obj: bpy.types.Object = context.object
