@@ -102,7 +102,7 @@ class CurveFitter:
             else:
                 # For open stroke, compare the position of start/end points
                 if not self.is_periodic:
-                    trajectory_delta = self.trajectory_length * (frame - last_frame) / max(max_frame - min_frame, 1)
+                    trajectory_delta = self.trajectory_length * t
                     start0, end0 = np.array(splev([0, 1], self.xy_tck[last_frame])).transpose()
                     # Non-reversed case
                     start, end = np.array(splev([-trajectory_delta, 1 - trajectory_delta], self.xy_tck[frame])).transpose()
@@ -119,9 +119,11 @@ class CurveFitter:
                     last_area = area
                 last_frame = frame
 
-    def fit_temporal(self):
+    def fit_temporal(self, use_1d_fitting=False):
         """
-        Resample spatial fitting results of multiple frames and then perform spatio-temporal 2D fitting
+        Resample spatial fitting results of multiple frames and then either:
+          - perform spatio-temporal 2D fitting, or
+          - mix space and time into one dimension
         """
         if len(self.input_u) > 0:
             self.correct_direction()
@@ -139,7 +141,8 @@ class CurveFitter:
         samples_u = np.linspace(0, 1, size_u, endpoint=True)
         self.input_u["INTERPOLATION"] = samples_u
 
-        trajectory_offset = lambda f: samples_u + self.trajectory_length * (f - min_frame) / max(max_frame - min_frame, 1)
+        sorted_frames = sorted(self.xy_input)
+        trajectory_offset = lambda f: samples_u + self.trajectory_length * sorted_frames.index(f)
 
         # Prepare the dataset
         dataset_x = np.zeros((size_t, size_u, 3))
@@ -177,23 +180,45 @@ class CurveFitter:
             dataset_attr[name] = np.reshape(dataset_attr[name], (size_t * size_u, 3))
         
         # Perform fitting
-        self.x_surf = bisplrep(dataset_x[:,0], dataset_x[:,1], dataset_x[:,2], s=self.co_smoothness)
-        self.y_surf = bisplrep(dataset_y[:,0], dataset_y[:,1], dataset_y[:,2], s=self.co_smoothness)
-        for name, dataset in dataset_attr.items():
-            self.attr_surf[name] = bisplrep(dataset[:,0], dataset[:,1], dataset[:,2], s=self.attr_smoothness)
+        if not use_1d_fitting:
+            self.x_surf = bisplrep(dataset_x[:,0], dataset_x[:,1], dataset_x[:,2], s=self.co_smoothness)
+            self.y_surf = bisplrep(dataset_y[:,0], dataset_y[:,1], dataset_y[:,2], s=self.co_smoothness)
+            for name, dataset in dataset_attr.items():
+                self.attr_surf[name] = bisplrep(dataset[:,0], dataset[:,1], dataset[:,2], s=self.attr_smoothness)
+        else:
+            uniq_i = np.unique(dataset_x[:,0], return_index=True)[1]
+            self.x_surf = splrep(dataset_x[uniq_i,0], dataset_x[uniq_i,2])
+            self.y_surf = splrep(dataset_y[uniq_i,0], dataset_y[uniq_i,2])
+            for name, dataset in dataset_attr.items():
+                self.attr_surf[name] = splrep(dataset[uniq_i,0], dataset[uniq_i,2])
 
-    def eval_temporal(self, frame_number):
+    def eval_temporal(self, frame_number, use_1d_fitting=False):
         """
         Get coordinate and attribute values after the temporal fitting
         """        
-        min_frame, max_frame = min(self.xy_input), max(self.xy_input)
-        offset = self.trajectory_length * (frame_number - min_frame) / max(max_frame - min_frame, 1)
+        sorted_frames = sorted(self.xy_input)
+        offset = -1.0
+        for i, f in enumerate(sorted_frames):
+            if f > frame_number:
+                offset += (frame_number - sorted_frames[i-1]) / (f - sorted_frames[i-1])
+                break
+            else:
+                offset += 1
+        offset *= self.trajectory_length
         samples_u = self.input_u["INTERPOLATION"] + offset
+
         res = np.zeros((len(samples_u), 2))
-        res[:,0] = bisplev(samples_u, frame_number, self.x_surf)[:,0]
-        res[:,1] = bisplev(samples_u, frame_number, self.y_surf)[:,0]
-        res_attr = {}
-        for name, tck in self.attr_surf.items():
-            res_attr[name] = np.array(bisplev(samples_u, frame_number, tck))[:,0]
+        if not use_1d_fitting:
+            res[:,0] = bisplev(samples_u, frame_number, self.x_surf)[:,0]
+            res[:,1] = bisplev(samples_u, frame_number, self.y_surf)[:,0]
+            res_attr = {}
+            for name, tck in self.attr_surf.items():
+                res_attr[name] = np.array(bisplev(samples_u, frame_number, tck))[:,0]
+        else:
+            res[:,0] = splev(samples_u, self.x_surf)
+            res[:,1] = splev(samples_u, self.y_surf)
+            res_attr = {}
+            for name, tck in self.attr_surf.items():
+                res_attr[name] = np.array(splev(samples_u, tck))
         return res, res_attr
         

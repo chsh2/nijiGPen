@@ -210,10 +210,18 @@ class CommonFittingConfig:
             default=0,min=0,
             description='Interpolate between keyframes when non-zero'
     )
+    animation_style: bpy.props.EnumProperty(        
+            name='Animation Style',
+            items = [
+                ('INTERPOLATION', 'Interpolation', 'Interpolate the position of each vertex between keyframes'),
+                ('TRAJECTORY', 'Trajectory', 'Animate a stroke along a curve track, creating a sense of flow'),
+                ],
+            default='INTERPOLATION'
+    )
     trajectory_length: bpy.props.FloatProperty(
             name='Trajectory Length',
-            default=0, min=0, soft_max=2,
-            description='Control the animation style. A larger value implies a sense of flow. No effect on closed strokes'
+            default=3, min=1, soft_max=10,
+            description='Distance travelled by the stroke between two keyframes'
     )
     line_sampling_size: bpy.props.IntProperty(
             name='Line Spacing',
@@ -318,7 +326,9 @@ class FitSelectedOperator(CommonFittingConfig, bpy.types.Operator):
                 row = box1.row()
                 row.prop(self, "frame_step")
                 row = box1.row()
-                row.prop(self, "trajectory_length")
+                row.prop(self, "animation_style", text="Style")
+                if self.animation_style == 'TRAJECTORY':
+                    row.prop(self, "trajectory_length", text="Length")
         
         layout.label(text = "Post-Processing Options:")
         box2 = layout.box()
@@ -388,9 +398,9 @@ class FitSelectedOperator(CommonFittingConfig, bpy.types.Operator):
         fitter.fit_spatial(self.b_smoothness*0.001, self.b_smoothness*10)
         has_temporal_fit = False
         if self.is_sequence and get_multiedit(gp_obj) and len(frames_to_process) > 1:
-            if not self.closed:
+            if self.animation_style == 'TRAJECTORY':
                 fitter.trajectory_length = self.trajectory_length
-            fitter.fit_temporal()
+            fitter.fit_temporal(self.animation_style == 'TRAJECTORY')
             has_temporal_fit = True
 
         # For GPv2, remove input strokes before generating new ones
@@ -425,7 +435,7 @@ class FitSelectedOperator(CommonFittingConfig, bpy.types.Operator):
         # Use fitting results of each frame to generate new strokes
         stroke_set = set(stroke_list)
         for frame_number in target_frames:
-            co_fit, attr_fit = fitter.eval_temporal(frame_number) if has_temporal_fit else fitter.eval_spatial(frame_number)
+            co_fit, attr_fit = fitter.eval_temporal(frame_number, self.animation_style == 'TRAJECTORY') if has_temporal_fit else fitter.eval_spatial(frame_number)
             if frame_number not in output_frames:
                 output_frame = output_layer.frames.new(frame_number)
             else:
@@ -620,9 +630,12 @@ class ClusterAndFitOperator(CommonFittingConfig, bpy.types.Operator):
             box1.prop(self, "is_sequence")
             if self.is_sequence:
                 subbox = box1.box()
-                subbox.prop(self, "frame_step")
-                subbox.prop(self, "trajectory_length")
                 subbox.prop(self, "sort_by_color")
+                subbox.prop(self, "frame_step")
+                row = subbox.row()
+                row.prop(self, "animation_style", text="Style")
+                if self.animation_style == 'TRAJECTORY':
+                    row.prop(self, "trajectory_length", text="Length")
 
         layout.label(text = "Post-Processing Options:")
         box2 = layout.box()
@@ -765,6 +778,7 @@ class ClusterAndFitOperator(CommonFittingConfig, bpy.types.Operator):
                                             closed = self.closed,
                                             is_sequence = self.is_sequence,
                                             frame_step = self.frame_step,
+                                            animation_style = self.animation_style,
                                             trajectory_length = self.trajectory_length,
                                             ignore_transparent = self.ignore_transparent,
                                             pressure_variance = self.pressure_variance,
