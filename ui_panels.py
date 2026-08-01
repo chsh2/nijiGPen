@@ -215,6 +215,8 @@ class NIJIGP_PT_edit_panel_line(bpy.types.Panel):
         row = layout.row()
         row.operator("gpencil.nijigp_fit_selected", text="Single-Line", icon="MOD_SMOOTH")
         row.operator("gpencil.nijigp_cluster_and_fit", text="Multi-Line", icon="CURVES")
+        row = layout.row()
+        row.operator("gpencil.nijigp_enable_animation_curve")
         layout.label(text="Line Utilities:")
         row = layout.row()
         row.operator("gpencil.nijigp_cluster_select", text="Cluster Select", icon="SELECT_SET")

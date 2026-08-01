@@ -4,7 +4,25 @@ import numpy as np
 from mathutils import *
 from .common import *
 from ..utils import *
+from ..resources import append_geometry_nodes
 from ..api_router import *
+
+class EnableAnimationCurve(bpy.types.Operator):
+    """Allow multi-frame fitting to use a curve to control the animation speed. Only need to execute this operator once per file"""
+    bl_idname = "gpencil.nijigp_enable_animation_curve"
+    bl_label = "Enable Animation Curve"
+    bl_category = 'View'
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        return "NijiGP Animation Options" not in bpy.data.node_groups
+
+    def execute(self, context):
+        obj = context.active_object
+        append_geometry_nodes(context, "NijiGP Animation Options")
+        obj.select_set(True)
+        return {'FINISHED'}
 
 def stroke_to_kdtree(co_list):
     n = len(co_list)
@@ -224,6 +242,11 @@ class CommonFittingConfig:
             default=3, min=1, soft_max=10,
             description='Distance travelled by the stroke between two keyframes'
     )
+    use_animation_curve: bpy.props.BoolProperty(
+            name='Use Curve',
+            default=False,
+            description='Control the speed of animation with a curve'
+    )
     line_sampling_size: bpy.props.IntProperty(
             name='Line Spacing',
             description='Strokes with gap smaller than this may be merged',
@@ -330,6 +353,11 @@ class FitSelectedOperator(CommonFittingConfig, bpy.types.Operator):
                 row.prop(self, "animation_style", text="Style")
                 if self.animation_style == 'TRAJECTORY':
                     row.prop(self, "trajectory_length", text="Length")
+                if 'NijiGP Animation Options' in bpy.data.node_groups:
+                    box1.prop(self, "use_animation_curve")
+                    if self.use_animation_curve:
+                        node_group = bpy.data.node_groups['NijiGP Animation Options']
+                        box1.template_curve_mapping(node_group.nodes["Float Curve"], 'mapping')
         
         layout.label(text = "Post-Processing Options:")
         box2 = layout.box()
@@ -425,18 +453,27 @@ class FitSelectedOperator(CommonFittingConfig, bpy.types.Operator):
             output_frames[int(frame.frame_number)] = frame
             
         # Get output frame numbers
+        max_frame, min_frame = max(frame_with_output), min(frame_with_output)
         if not get_multiedit(gp_obj):
             target_frames = [context.scene.frame_current] if context.scene.frame_current in frame_with_output else []
         else:
             target_frames = frame_with_output.copy()
             if has_temporal_fit and self.frame_step > 0:
-                for i in range(min(frame_with_output), max(frame_with_output), self.frame_step):
+                for i in range(min_frame, max_frame, self.frame_step):
                     target_frames.add(i)
             
         # Use fitting results of each frame to generate new strokes
         stroke_set = set(stroke_list)
         for frame_number in target_frames:
-            co_fit, attr_fit = fitter.eval_temporal(frame_number, self.animation_style == 'TRAJECTORY', self.animation_style == 'RIGID') if has_temporal_fit else fitter.eval_spatial(frame_number)
+            mapped_frame = frame_number
+            if has_temporal_fit and self.use_animation_curve and "NijiGP Animation Options" in bpy.data.node_groups:
+                node_group = bpy.data.node_groups["NijiGP Animation Options"]
+                if "Float Curve" in node_group.nodes:
+                    mapping = node_group.nodes["Float Curve"].mapping
+                    input_factor = (frame_number - min_frame) / max(max_frame - min_frame, 1)
+                    output_factor = mapping.evaluate(mapping.curves[0], input_factor)
+                    mapped_frame = output_factor * (max_frame - min_frame) + min_frame
+            co_fit, attr_fit = fitter.eval_temporal(mapped_frame, self.animation_style == 'TRAJECTORY', self.animation_style == 'RIGID') if has_temporal_fit else fitter.eval_spatial(frame_number)
             if frame_number not in output_frames:
                 output_frame = output_layer.frames.new(frame_number)
             else:
@@ -637,7 +674,12 @@ class ClusterAndFitOperator(CommonFittingConfig, bpy.types.Operator):
                 row.prop(self, "animation_style", text="Style")
                 if self.animation_style == 'TRAJECTORY':
                     row.prop(self, "trajectory_length", text="Length")
-
+                if 'NijiGP Animation Options' in bpy.data.node_groups:
+                    subbox.prop(self, "use_animation_curve")
+                    if self.use_animation_curve:
+                        node_group = bpy.data.node_groups['NijiGP Animation Options']
+                        subbox.template_curve_mapping(node_group.nodes["Float Curve"], 'mapping')
+        
         layout.label(text = "Post-Processing Options:")
         box2 = layout.box()
         row = box2.row()
@@ -781,6 +823,7 @@ class ClusterAndFitOperator(CommonFittingConfig, bpy.types.Operator):
                                             frame_step = self.frame_step,
                                             animation_style = self.animation_style,
                                             trajectory_length = self.trajectory_length,
+                                            use_animation_curve = self.use_animation_curve,
                                             ignore_transparent = self.ignore_transparent,
                                             pressure_variance = self.pressure_variance,
                                             max_delta_pressure = self.max_delta_pressure,

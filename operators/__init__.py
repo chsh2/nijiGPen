@@ -55,6 +55,7 @@ _all_classes = [
     operator_fill.SmartFillOperator,
     operator_fill.HatchFillOperator,
     # operator_line
+    operator_line.EnableAnimationCurve,
     operator_line.FitSelectedOperator,
     operator_line.SelectSimilarOperator,
     operator_line.ClusterAndFitOperator,
