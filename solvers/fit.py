@@ -1,5 +1,6 @@
 import numpy as np
 from scipy.interpolate import splprep, splrep, splev, bisplrep, bisplev
+from skimage.transform import SimilarityTransform, estimate_transform
 
 def shoelace_polygon_area(poly):
     """
@@ -38,6 +39,7 @@ class CurveFitter:
         self.attr_tck = {}
         self.input_u = {}
         self.u_reversed = {}
+        self.delta_transforms = {}
         self.attr_surf = {}
         self.trajectory_length = .0
         
@@ -90,7 +92,6 @@ class CurveFitter:
         """
         Compare strokes of adjacent keyframes to determine whether to reverse the direction
         """
-        min_frame, max_frame = min(self.xy_input), max(self.xy_input)
         sorted_frames = sorted(self.xy_input)
         last_frame = sorted_frames[0]
         for t,frame in enumerate(sorted_frames):
@@ -107,9 +108,13 @@ class CurveFitter:
                     # Non-reversed case
                     start, end = np.array(splev([-trajectory_delta, 1 - trajectory_delta], self.xy_tck[frame])).transpose()
                     dist = np.linalg.norm(end - end0)
+                    if self.trajectory_length < 0.01:
+                        dist += np.linalg.norm(start - start0)
                     # Reversed case
                     start, end = np.array(splev([trajectory_delta, 1 + trajectory_delta], self.xy_tck[frame])).transpose()
                     dist_r = np.linalg.norm(start - end0)
+                    if self.trajectory_length < 0.01:
+                        dist_r += np.linalg.norm(end - start0)
                     self.u_reversed[frame] = (dist > dist_r) ^ self.u_reversed[last_frame]
                 # For closed stroke, check if the shape is clockwise
                 else:
@@ -119,11 +124,11 @@ class CurveFitter:
                     last_area = area
                 last_frame = frame
 
-    def fit_temporal(self, use_1d_fitting=False):
+    def fit_temporal(self, use_1d_fitting=False, as_rigid_body=False):
         """
         Resample spatial fitting results of multiple frames and then either:
           - perform spatio-temporal 2D fitting, or
-          - mix space and time into one dimension
+          - mix space and time into one dimension to perform 1D fitting
         """
         if len(self.input_u) > 0:
             self.correct_direction()
@@ -144,22 +149,43 @@ class CurveFitter:
         sorted_frames = sorted(self.xy_input)
         trajectory_offset = lambda f: samples_u + self.trajectory_length * sorted_frames.index(f)
 
+        # Evaluate each keyframe's curve with the same resolution
+        polys = {}
+        for frame, tck in self.xy_tck.items():
+            sample_points = np.flip(samples_u) if self.u_reversed[frame] else samples_u
+            polys[frame] = np.array(splev(sample_points, tck))
+
+        # Assuming the shape as a rigid body, get the optimal transform matrix between keyframes
+        if as_rigid_body:
+            last_frame = sorted_frames[0]
+            accum_transforms = {}
+            for t,frame in enumerate(sorted_frames):
+                if t == 0:
+                    self.delta_transforms[frame] = SimilarityTransform()
+                    accum_transforms[frame] = SimilarityTransform()
+                else:
+                    self.delta_transforms[frame] = estimate_transform("similarity", polys[last_frame].transpose(), polys[frame].transpose())
+                    accum_transforms[frame] = SimilarityTransform(
+                        matrix= accum_transforms[last_frame].params @ self.delta_transforms[frame].inverse.params
+                    )
+                    last_frame = frame
+            for frame in self.xy_tck:
+                polys[frame] = accum_transforms[frame](polys[frame].transpose()).transpose()
+
         # Prepare the dataset
         dataset_x = np.zeros((size_t, size_u, 3))
         dataset_y = np.zeros((size_t, size_u, 3))
         i = 1
         for frame, tck in self.xy_tck.items():
-            sample_points = np.flip(samples_u) if self.u_reversed[frame] else samples_u
             frame_u = trajectory_offset(frame)
-            res = np.array(splev(sample_points, tck))
-            dataset_x[i, :, 0], dataset_x[i, :, 1], dataset_x[i, :, 2] = frame_u, frame, res[0]
-            dataset_y[i, :, 0], dataset_y[i, :, 1], dataset_y[i, :, 2] = frame_u, frame, res[1]
+            dataset_x[i, :, 0], dataset_x[i, :, 1], dataset_x[i, :, 2] = frame_u, frame, polys[frame][0]
+            dataset_y[i, :, 0], dataset_y[i, :, 1], dataset_y[i, :, 2] = frame_u, frame, polys[frame][1]
             if frame == min_frame:
-                dataset_x[0, :, 0], dataset_x[0, :, 1], dataset_x[0, :, 2] = frame_u, frame-1, res[0]
-                dataset_y[0, :, 0], dataset_y[0, :, 1], dataset_y[0, :, 2] = frame_u, frame-1, res[1]
+                dataset_x[0, :, 0], dataset_x[0, :, 1], dataset_x[0, :, 2] = frame_u, frame-1, polys[frame][0]
+                dataset_y[0, :, 0], dataset_y[0, :, 1], dataset_y[0, :, 2] = frame_u, frame-1, polys[frame][1]
             if frame == max_frame:
-                dataset_x[-1, :, 0], dataset_x[-1, :, 1], dataset_x[-1, :, 2] = frame_u, frame+1, res[0]
-                dataset_y[-1, :, 0], dataset_y[-1, :, 1], dataset_y[-1, :, 2] = frame_u, frame+1, res[1]                        
+                dataset_x[-1, :, 0], dataset_x[-1, :, 1], dataset_x[-1, :, 2] = frame_u, frame+1, polys[frame][0]
+                dataset_y[-1, :, 0], dataset_y[-1, :, 1], dataset_y[-1, :, 2] = frame_u, frame+1, polys[frame][1]                        
             i += 1
         dataset_x = np.reshape(dataset_x, (size_t * size_u, 3))
         dataset_y = np.reshape(dataset_y, (size_t * size_u, 3))
@@ -171,11 +197,12 @@ class CurveFitter:
             for frame, tck in tck_map.items():
                 sample_points = np.flip(samples_u) if self.u_reversed[frame] else samples_u
                 frame_u = trajectory_offset(frame)
-                dataset_attr[name][i, :, 0], dataset_attr[name][i, :, 1], dataset_attr[name][i, :, 2] = frame_u, frame, np.array(splev(sample_points, tck))
+                res = np.array(splev(sample_points, tck))
+                dataset_attr[name][i, :, 0], dataset_attr[name][i, :, 1], dataset_attr[name][i, :, 2] = frame_u, frame, res
                 if frame == min_frame:
-                    dataset_attr[name][0, :, 0], dataset_attr[name][0, :, 1], dataset_attr[name][0, :, 2] = frame_u, frame-1, np.array(splev(sample_points, tck))
+                    dataset_attr[name][0, :, 0], dataset_attr[name][0, :, 1], dataset_attr[name][0, :, 2] = frame_u, frame-1, res
                 if frame == max_frame:
-                    dataset_attr[name][-1, :, 0], dataset_attr[name][-1, :, 1], dataset_attr[name][-1, :, 2] = frame_u, frame+1, np.array(splev(sample_points, tck))
+                    dataset_attr[name][-1, :, 0], dataset_attr[name][-1, :, 1], dataset_attr[name][-1, :, 2] = frame_u, frame+1, res
                 i += 1
             dataset_attr[name] = np.reshape(dataset_attr[name], (size_t * size_u, 3))
         
@@ -192,33 +219,52 @@ class CurveFitter:
             for name, dataset in dataset_attr.items():
                 self.attr_surf[name] = splrep(dataset[uniq_i,0], dataset[uniq_i,2])
 
-    def eval_temporal(self, frame_number, use_1d_fitting=False):
+    def eval_temporal(self, frame_number, use_1d_fitting=False, as_rigid_body=False):
         """
         Get coordinate and attribute values after the temporal fitting
         """        
         sorted_frames = sorted(self.xy_input)
         offset = -1.0
+        last_frame = sorted_frames[0]
         for i, f in enumerate(sorted_frames):
             if f > frame_number:
                 offset += (frame_number - sorted_frames[i-1]) / (f - sorted_frames[i-1])
                 break
             else:
                 offset += 1
+                last_frame = f
         offset *= self.trajectory_length
         samples_u = self.input_u["INTERPOLATION"] + offset
 
         res = np.zeros((len(samples_u), 2))
         if not use_1d_fitting:
-            res[:,0] = bisplev(samples_u, frame_number, self.x_surf)[:,0]
-            res[:,1] = bisplev(samples_u, frame_number, self.y_surf)[:,0]
+            f = frame_number if not as_rigid_body else last_frame
+            res[:,0] = bisplev(samples_u, f, self.x_surf)[:,0]
+            res[:,1] = bisplev(samples_u, f, self.y_surf)[:,0]
             res_attr = {}
             for name, tck in self.attr_surf.items():
-                res_attr[name] = np.array(bisplev(samples_u, frame_number, tck))[:,0]
+                res_attr[name] = np.array(bisplev(samples_u, f, tck))[:,0]
         else:
             res[:,0] = splev(samples_u, self.x_surf)
             res[:,1] = splev(samples_u, self.y_surf)
             res_attr = {}
             for name, tck in self.attr_surf.items():
                 res_attr[name] = np.array(splev(samples_u, tck))
+
+        if as_rigid_body:
+            for i, f in enumerate(sorted_frames):
+                if f > frame_number:
+                    mat = self.delta_transforms[f]
+                    factor = (frame_number - sorted_frames[i-1]) / (f - sorted_frames[i-1])
+                    partial_mat = SimilarityTransform(
+                        translation=mat.translation * factor,
+                        rotation=mat.rotation * factor,
+                        scale=mat.scale ** factor
+                    )
+                    res = partial_mat(res)
+                    break
+                else:
+                    res = self.delta_transforms[f](res)
+
         return res, res_attr
         

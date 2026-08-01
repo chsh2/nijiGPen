@@ -215,6 +215,7 @@ class CommonFittingConfig:
             items = [
                 ('INTERPOLATION', 'Interpolation', 'Interpolate the position of each vertex between keyframes'),
                 ('TRAJECTORY', 'Trajectory', 'Animate a stroke along a curve track, creating a sense of flow'),
+                ('RIGID', 'Rigid Body', 'Interpolate the transform of the whole shape as a rigid body')
                 ],
             default='INTERPOLATION'
     )
@@ -400,7 +401,7 @@ class FitSelectedOperator(CommonFittingConfig, bpy.types.Operator):
         if self.is_sequence and get_multiedit(gp_obj) and len(frames_to_process) > 1:
             if self.animation_style == 'TRAJECTORY':
                 fitter.trajectory_length = self.trajectory_length
-            fitter.fit_temporal(self.animation_style == 'TRAJECTORY')
+            fitter.fit_temporal(self.animation_style == 'TRAJECTORY', self.animation_style == 'RIGID')
             has_temporal_fit = True
 
         # For GPv2, remove input strokes before generating new ones
@@ -435,7 +436,7 @@ class FitSelectedOperator(CommonFittingConfig, bpy.types.Operator):
         # Use fitting results of each frame to generate new strokes
         stroke_set = set(stroke_list)
         for frame_number in target_frames:
-            co_fit, attr_fit = fitter.eval_temporal(frame_number, self.animation_style == 'TRAJECTORY') if has_temporal_fit else fitter.eval_spatial(frame_number)
+            co_fit, attr_fit = fitter.eval_temporal(frame_number, self.animation_style == 'TRAJECTORY', self.animation_style == 'RIGID') if has_temporal_fit else fitter.eval_spatial(frame_number)
             if frame_number not in output_frames:
                 output_frame = output_layer.frames.new(frame_number)
             else:
