@@ -113,8 +113,8 @@ class ImportLineImageOperator(bpy.types.Operator, ImportHelper):
             description='Image with dimension (either width or height) above which will be resized'
     )
     threshold: bpy.props.FloatProperty(
-            name='Color Threshold',
-            default=0.75, min=0, max=1,
+            name='Lightness Threshold',
+            default=0.85, min=0, max=1,
             description='Threshold on lightness, below which the pixels are regarded as a part of a stroke'
     )
     median_radius: bpy.props.IntProperty(
@@ -132,6 +132,16 @@ class ImportLineImageOperator(bpy.types.Operator, ImportHelper):
             name='Fit to Camera',
             default=False,
             description='Adjust the size of imported image automatically to fill the whole view of the scene camera'
+    ) 
+    join_radius_threshold: bpy.props.FloatProperty(
+            name='Distance Threshold',
+            default=1.5, min=1, soft_max=10,
+            description='Ratio of point radius. Join two strokes if the distance between their end points is below this value'
+    )  
+    join_color_threshold: bpy.props.FloatProperty(
+            name='Color Threshold',
+            default=0.25, min=0.01, max=1,
+            description='Two strokes with different colors will not be merged'
     ) 
     sample_length: bpy.props.IntProperty(
             name='Sample Length',
@@ -181,17 +191,21 @@ class ImportLineImageOperator(bpy.types.Operator, ImportHelper):
         row = box1.row()
         row.prop(self, "auto_resize")
         row.prop(self, "auto_resize_target", text='')
-        layout.label(text = "Stroke Options:")
+        layout.label(text = "Join Segments:")
         box2 = layout.box()
-        box2.prop(self, "fit_to_camera")
+        box2.prop(self, "join_radius_threshold")
+        box2.prop(self, "join_color_threshold")
+        layout.label(text = "Stroke Options:")
+        box3 = layout.box()
+        box3.prop(self, "fit_to_camera")
         if not self.fit_to_camera:
-            box2.prop(self, "size")
-        box2.prop(self, "sample_length")
-        box2.prop(self, "min_length")
-        box2.prop(self, "smooth_level")
-        box2.prop(self, "output_material", text='Material', icon='MATERIAL')
-        box2.prop(self, "generate_color")
-        box2.prop(self, "generate_strength")
+            box3.prop(self, "size")
+        box3.prop(self, "sample_length")
+        box3.prop(self, "min_length")
+        box3.prop(self, "smooth_level")
+        box3.prop(self, "output_material", text='Material', icon='MATERIAL')
+        box3.prop(self, "generate_color")
+        box3.prop(self, "generate_strength")
 
     def execute(self, context):
         gp_obj = context.object
@@ -311,6 +325,14 @@ class ImportLineImageOperator(bpy.types.Operator, ImportHelper):
                     if search_mat[v,u]==0 and skel_mat[v,u]>0:
                         segments.append(line_point_dfs(v,u))
 
+            def extract_features(seg, near_idx, far_idx):
+                near_point_co = Vector((seg[near_idx][0], seg[near_idx][1], 0))
+                far_point_co = Vector((seg[far_idx][0], seg[far_idx][1], 0))
+                direction = near_point_co - far_point_co
+                indices = seg[far_idx:near_idx:(-1 if far_idx>near_idx else 1)]
+                avg_color = np.mean(img_mat[[e[0] for e in indices], [e[1] for e in indices]], axis=0)
+                return (direction.normalized(), avg_color[:3])
+
             # Record information of each tip point: a KDTree
             #   , a list: [(point_co, direction)]
             #   , and a map: {point_co: segment_index}
@@ -319,30 +341,35 @@ class ImportLineImageOperator(bpy.types.Operator, ImportHelper):
             tip_info, tip_map = [], {}
             for i,seg in enumerate(segments):
                 if len(seg) > 1:
-                    tip_length = int(max(1, len(seg)*tip_factor))
+                    tip_length = min(max(int(len(seg)*tip_factor), 8), len(seg)-1)
                     start_point_co = Vector((seg[0][0], seg[0][1], 0))
-                    start_direction = start_point_co - Vector((seg[tip_length][0], seg[tip_length][1], 0))
                     kdt.insert(start_point_co, len(tip_info))
-                    tip_info.append(( (seg[0][0], seg[0][1]), start_direction.normalized()))
+                    tip_info.append(( (seg[0][0], seg[0][1]), extract_features(seg, 0, tip_length)))
                     tip_map[(seg[0][0], seg[0][1])] = i
 
                     end_point_co = Vector((seg[-1][0], seg[-1][1], 0))
-                    end_direction = end_point_co - Vector((seg[-1-tip_length][0], seg[-1-tip_length][1], 0))
                     kdt.insert(end_point_co, len(tip_info))
-                    tip_info.append(( (seg[-1][0], seg[-1][1]), end_direction.normalized()))      
+                    tip_info.append(( (seg[-1][0], seg[-1][1]), extract_features(seg, -1, -1-tip_length)))      
                     tip_map[(seg[-1][0], seg[-1][1])] = i           
             kdt.balance()
+
+            def cross_joint_cost(feature1, feature2):
+                direction_cost = feature1[0].dot(feature2[0])
+                color_diff = np.sqrt(np.sum((feature1[1]-feature2[1]) ** 2))
+                if color_diff > self.join_color_threshold:
+                    return 1.0
+                return direction_cost
 
             # Calculate the similarity between each pair of segments: (tip1, tip2, dot of direction)
             joint_info = []
             tip_pair_set = set()
             for i,tip1 in enumerate(tip_info):
-                candidates = kdt.find_range((tip1[0][0],tip1[0][1],0), max(dist_mat[tip1[0]], 1.5) )
+                candidates = kdt.find_range((tip1[0][0],tip1[0][1],0), max(dist_mat[tip1[0]], self.join_radius_threshold) )
                 for candidate in candidates:
                     tip2 = tip_info[candidate[1]]
                     if tip1[0]!=tip2[0] and (tip1[0], tip2[0]) not in tip_pair_set and (tip2[0], tip1[0]) not in tip_pair_set:
                         tip_pair_set.add(((tip1[0], tip2[0])))
-                        joint_info.append( (tip1[0], tip2[0], tip1[1].dot(tip2[1])) )
+                        joint_info.append( (tip1[0], tip2[0], cross_joint_cost(tip1[1], tip2[1])) )
             joint_info.sort(key=lambda x:x[2])
 
             # Join segments based on similarity
