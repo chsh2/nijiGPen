@@ -355,7 +355,7 @@ class FitSelectedOperator(CommonFittingConfig, bpy.types.Operator):
                     row.prop(self, "trajectory_length", text="Length")
                 if 'NijiGP Animation Options' in bpy.data.node_groups:
                     box1.prop(self, "use_animation_curve")
-                    if self.use_animation_curve:
+                    if is_gpv3() and self.use_animation_curve:
                         node_group = bpy.data.node_groups['NijiGP Animation Options']
                         box1.template_curve_mapping(node_group.nodes["Float Curve"], 'mapping')
         

@@ -217,6 +217,10 @@ class NIJIGP_PT_edit_panel_line(bpy.types.Panel):
         row.operator("gpencil.nijigp_cluster_and_fit", text="Multi-Line", icon="CURVES")
         row = layout.row()
         row.operator("gpencil.nijigp_enable_animation_curve")
+        if not is_gpv3() and get_multiedit(context.active_object) and 'NijiGP Animation Options' in bpy.data.node_groups:
+            node_group = bpy.data.node_groups['NijiGP Animation Options']
+            box = layout.box()
+            box.template_curve_mapping(node_group.nodes["Float Curve"], 'mapping')
         layout.label(text="Line Utilities:")
         row = layout.row()
         row.operator("gpencil.nijigp_cluster_select", text="Cluster Select", icon="SELECT_SET")
