@@ -552,11 +552,16 @@ class GPv3WeightHelper:
                 for frame in layer.frames:
                     frame.drawing.attributes.new(proxy, 'FLOAT', 'POINT')
             # Apply Geometry Nodes
-            # TODO: Currently, applying this modifier to all frames may crash Blender. May revisit in the future
+            # TODO: Applying this modifier to all frames may crash Blender in several versions. May revisit in the future
             mod = modifiers.new(name=mod_name, type='NODES')
             mod.node_group = append_geometry_nodes(bpy.context, 'NijiGP Weight Proxy')
-            mod['Input_2'] = group.name
-            mod['Input_3'] = proxy
+            if bpy.app.version < (5, 2, 0):
+                mod['Input_2'] = group.name
+                mod['Input_3'] = proxy
+            else:
+                input_props = mod.properties.inputs
+                input_props.Input_2.value = group.name
+                input_props.Input_3.value = proxy
             bpy.ops.object.modifier_move_to_index(modifier=mod.name, index=0)
             bpy.ops.object.modifier_apply("EXEC_DEFAULT", modifier=mod.name)
         bpy.ops.object.mode_set(mode=current_mode)    
@@ -579,8 +584,13 @@ class GPv3WeightHelper:
             if not abort:
                 mod = modifiers.new(name=mod_name, type='NODES')
                 mod.node_group = append_geometry_nodes(bpy.context, 'NijiGP Weight Proxy')
-                mod['Input_2'] = proxy
-                mod['Input_3'] = group
+                if bpy.app.version < (5, 2, 0):
+                    mod['Input_2'] = proxy
+                    mod['Input_3'] = group
+                else:
+                    input_props = mod.properties.inputs
+                    input_props.Input_2.value = proxy
+                    input_props.Input_3.value = group
                 bpy.ops.object.modifier_move_to_index(modifier=mod.name, index=0)
                 bpy.ops.object.modifier_apply("EXEC_DEFAULT", modifier=mod.name)
             # Remove added attributes
