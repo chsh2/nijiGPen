@@ -310,4 +310,7 @@ class NIJIGP_PT_edit_subpanel_palette(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         layout.prop(context.tool_settings.gpencil_vertex_paint, "palette")
-        layout.template_palette(context.tool_settings.gpencil_vertex_paint, "palette", color=True)
+        if bpy.app.version >= (5, 2, 0):
+            layout.template_palette(context.tool_settings.gpencil_vertex_paint, "palette")
+        else:
+            layout.template_palette(context.tool_settings.gpencil_vertex_paint, "palette", color=True)
