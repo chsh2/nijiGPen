@@ -624,6 +624,17 @@ class RollViewModalOperator(bpy.types.Operator):
         if event.type == 'MOUSEMOVE':
             delta = (event.mouse_x - self.mouse_x) * self.moving_rate
             accumulated_delta = (event.mouse_x - self.starting_mouse_x) * self.moving_rate
+
+            # The native API rolls 15 degree each time
+            if self.use_native:
+                while accumulated_delta > self.native_roll + math.pi / 12:
+                    bpy.ops.view3d.view_roll(type='RIGHT')
+                    self.native_roll += math.pi / 12
+                while accumulated_delta < self.native_roll - math.pi / 12:
+                    bpy.ops.view3d.view_roll(type='LEFT')
+                    self.native_roll -= math.pi / 12
+                return {'RUNNING_MODAL'}
+
             self.mouse_x = event.mouse_x
             rotation: Euler = Quaternion(self.region.view_rotation).to_euler()
             rotation.rotate_axis('Z', delta)
@@ -633,6 +644,9 @@ class RollViewModalOperator(bpy.types.Operator):
         # Left click: reset the view to the state before rolling
         elif event.type == 'LEFTMOUSE':
             if abs(event.mouse_x - self.starting_mouse_x) < self.moving_threshold:
+                if self.use_native:
+                    bpy.ops.view3d.view_roll_set()
+                    return {'FINISHED'}
                 for i,area in enumerate(context.screen.areas):
                     if area.type == 'VIEW_3D':
                         for j,space in enumerate(area.spaces):
@@ -644,19 +658,28 @@ class RollViewModalOperator(bpy.types.Operator):
             return {'FINISHED'}
         
         elif event.type in {'RIGHTMOUSE', 'ESC'}:
-            self.region.view_rotation = self.original_rotation
-            context.area.header_text_set(None)
+            if self.use_native:
+                bpy.ops.view3d.view_roll_set()
+            else:
+                self.region.view_rotation = self.original_rotation
+                context.area.header_text_set(None)
             return {'CANCELLED'}
 
         return {'RUNNING_MODAL'}
 
     def invoke(self, context, event):
         self.region: bpy.types.RegionView3D = None
+        self.use_native = False
         if context.region_data:
             self.region = context.region_data
 
-            if self.region.view_perspective == 'CAMERA':
-                self.region.view_perspective = 'ORTHO'
+            # Rolling in the camera view is supported from Blender 5.3
+            if bpy.app.version >= (5, 3, 0):
+                self.use_native = True
+                self.native_roll = 0.0
+            else:
+                if self.region.view_perspective == 'CAMERA':
+                    self.region.view_perspective = 'ORTHO'
             self.mouse_x = event.mouse_x
             self.starting_mouse_x = event.mouse_x
             context.window_manager.modal_handler_add(self)
